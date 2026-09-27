@@ -148,7 +148,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var source = GetSource(channelId, null);
+        var source = GetSource(channelId, null, openForPlayback: false);
         return Task.FromResult(new List<MediaSourceInfo> { source });
     }
 
@@ -159,7 +159,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(GetSource(channelId, streamId));
+        return Task.FromResult(GetSource(channelId, streamId, openForPlayback: true));
     }
 
     /// <inheritdoc />
@@ -237,7 +237,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         return DateTime.UtcNow.AddMinutes(-10);
     }
 
-    private MediaSourceInfo GetSource(string channelId, string? streamId)
+    private MediaSourceInfo GetSource(string channelId, string? streamId, bool openForPlayback)
     {
         if (!string.Equals(channelId, ArchitectureTestChannelId, StringComparison.Ordinal))
         {
@@ -260,9 +260,9 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
         source ??= sources[0];
 
-        // Jellyfin will treat the now-playing item as the LiveTvChannel, while this media source
-        // supplies the actual bytes from the existing library item.
-        source.RequiresOpening = false;
+        // The pre-open source is only a description. Jellyfin must open it before playback so
+        // one stable source anchor can be kept for the lifetime of that Live TV session.
+        source.RequiresOpening = !openForPlayback;
         source.RequiresClosing = false;
         source.Name = item.Name;
 
@@ -271,24 +271,29 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         source.SupportsDirectStream = false;
         source.SupportsTranscoding = true;
 
-        // v1.0.10 proof: shift the *input* rather than seeking the stock player after playback starts.
-        // A one-file ffconcat descriptor applies an inpoint and rebases that input timeline to zero.
-        // Jellyfin therefore sees a fresh Live TV stream starting at player position 0, while the
-        // bytes already correspond to the wall-clock point inside the scheduled programme.
-        var sourceRuntimeTicks = source.RunTimeTicks ?? item.RunTimeTicks;
-        var rebasedInput = CreateRebasedInput(source, sourceRuntimeTicks);
-        source.EncoderPath = rebasedInput.DescriptorPath;
-        source.EncoderProtocol = MediaProtocol.File;
+        if (openForPlayback)
+        {
+            // v1.0.11 proof: create the wall-clock rebase only when Jellyfin actually opens the
+            // Live TV stream. The opened source receives a unique id and is then held by Jellyfin
+            // under a LiveStreamId. Track changes should reuse that same opened media source
+            // instead of calculating a new "live now" inpoint.
+            var sourceRuntimeTicks = source.RunTimeTicks ?? item.RunTimeTicks;
+            var rebasedInput = CreateRebasedInput(source, sourceRuntimeTicks);
+            source.EncoderPath = rebasedInput.DescriptorPath;
+            source.EncoderProtocol = MediaProtocol.File;
+            source.Id = "virtualtv-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+
+            _logger.LogInformation(
+                "Virtual TV opened stable architecture source {SourceId} rebased to {OffsetSeconds} seconds for {ItemName}. FFmpeg input: {DescriptorPath}",
+                source.Id,
+                rebasedInput.Offset.TotalSeconds,
+                item.Name,
+                rebasedInput.DescriptorPath);
+        }
 
         // Keep the player-side stream timeline open-ended. The Guide programme keeps the real
-        // programme StartDate/EndDate; the HLS player should begin at position zero at tune time.
+        // programme StartDate/EndDate; player position zero represents the instant this session tuned in.
         source.RunTimeTicks = null;
-
-        _logger.LogInformation(
-            "Virtual TV architecture source rebased to {OffsetSeconds} seconds for {ItemName}. FFmpeg input: {DescriptorPath}",
-            rebasedInput.Offset.TotalSeconds,
-            item.Name,
-            rebasedInput.DescriptorPath);
 
         return source;
     }
