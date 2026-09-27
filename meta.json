@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Derives native Live TV entry position from the current materialized programme start time instead of a fixed test offset.",
+  "changelog": "Tests a zero-based Live TV stream timeline so wall-clock progress is not offset by the source file position.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.0.8.0",
+  "version": "1.0.9.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
