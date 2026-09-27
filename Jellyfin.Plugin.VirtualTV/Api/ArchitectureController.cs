@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
+using Jellyfin.Plugin.VirtualTV.Services;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Session;
@@ -19,14 +21,19 @@ namespace Jellyfin.Plugin.VirtualTV.Api;
 public sealed class ArchitectureController : ControllerBase
 {
     private readonly ISessionManager _sessionManager;
+    private readonly PlaybackStateProtectionManager _stateProtection;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArchitectureController"/> class.
     /// </summary>
     /// <param name="sessionManager">Jellyfin session manager.</param>
-    public ArchitectureController(ISessionManager sessionManager)
+    /// <param name="stateProtection">Temporary state-protection service.</param>
+    public ArchitectureController(
+        ISessionManager sessionManager,
+        PlaybackStateProtectionManager stateProtection)
     {
         _sessionManager = sessionManager;
+        _stateProtection = stateProtection;
     }
 
     /// <summary>
@@ -74,6 +81,72 @@ public sealed class ArchitectureController : ControllerBase
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Starts playback at an exact offset while preserving the item's pre-test Watched/Resume state.
+    /// </summary>
+    /// <param name="request">Playback validation request.</param>
+    /// <param name="cancellationToken">Request cancellation token.</param>
+    /// <returns>No content when the command was accepted.</returns>
+    [HttpPost("ProtectedPlaybackTest")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ProtectedPlaybackTest(
+        [FromBody] PlaybackTestRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.SessionId))
+        {
+            return BadRequest("SessionId is required.");
+        }
+
+        if (!Guid.TryParse(request.ItemId, out var itemId))
+        {
+            return BadRequest("ItemId must be a valid Jellyfin item id.");
+        }
+
+        if (request.StartPositionTicks < 0)
+        {
+            return BadRequest("StartPositionTicks cannot be negative.");
+        }
+
+        var targetSession = _sessionManager.Sessions.FirstOrDefault(
+            session => string.Equals(session.Id, request.SessionId, StringComparison.Ordinal));
+
+        if (targetSession is null || targetSession.UserId == Guid.Empty)
+        {
+            return BadRequest("The target session is no longer active or has no authenticated user.");
+        }
+
+        if (!_stateProtection.BeginProtection(request.SessionId, itemId, targetSession.UserId))
+        {
+            return BadRequest("The existing Jellyfin user state could not be captured for this item.");
+        }
+
+        var command = new PlayRequest
+        {
+            ItemIds = [itemId],
+            StartPositionTicks = request.StartPositionTicks,
+            PlayCommand = PlayCommand.PlayNow
+        };
+
+        try
+        {
+            await _sessionManager.SendPlayCommand(
+                request.SessionId,
+                request.SessionId,
+                command,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _stateProtection.CancelProtection(request.SessionId);
+            throw;
+        }
+
+        return NoContent();
+    }
+
 }
 
 /// <summary>
