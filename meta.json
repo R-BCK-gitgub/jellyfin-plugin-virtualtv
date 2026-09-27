@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Adds the ARC-04 playback architecture validation: target an active Jellyfin session and start stock-player playback at an exact offset.",
+  "changelog": "Adds protected playback validation to preserve existing Watched/Resume state while testing exact-offset playback.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.0.2.0",
+  "version": "1.0.3.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
