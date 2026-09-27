@@ -73,3 +73,23 @@ public sealed class ProtectedPlaybackStopConsumer : IEventConsumer<PlaybackStopE
         return Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// Applies the Virtual TV wall-clock position after a native Jellyfin Live TV channel starts.
+/// </summary>
+public sealed class VirtualTvPlaybackStartConsumer : IEventConsumer<PlaybackStartEventArgs>
+{
+    private readonly LiveTvPlaybackCoordinator _coordinator;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="VirtualTvPlaybackStartConsumer"/> class.
+    /// </summary>
+    public VirtualTvPlaybackStartConsumer(LiveTvPlaybackCoordinator coordinator)
+    {
+        _coordinator = coordinator;
+    }
+
+    /// <inheritdoc />
+    public Task OnEvent(PlaybackStartEventArgs eventArgs)
+        => _coordinator.HandlePlaybackStartAsync(eventArgs);
+}
