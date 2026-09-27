@@ -30,4 +30,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the Jellyfin media item used as the temporary Live TV architecture test source.
     /// </summary>
     public string ArchitectureLiveTvTestItemId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the stable UTC start time of the temporary architecture-test programme.
+    /// </summary>
+    public string ArchitectureLiveTvTestProgramStartUtc { get; set; } = string.Empty;
 }
