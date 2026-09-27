@@ -249,7 +249,7 @@ public sealed class ArchitectureController : ControllerBase
         var command = new PlayRequest
         {
             ItemIds = [channel.Id],
-            StartPositionTicks = request.StartPositionTicks,
+            StartPositionTicks = 0,
             PlayCommand = PlayCommand.PlayNow
         };
 
@@ -258,6 +258,50 @@ public sealed class ArchitectureController : ControllerBase
             request.SessionId,
             command,
             cancellationToken).ConfigureAwait(false);
+
+        if (request.StartPositionTicks > 0)
+        {
+            var channelStarted = false;
+
+            // Jellyfin clients report the Live TV channel back to the server after the player has opened it.
+            // Wait for that report before sending the seek; sending it together with PlayNow is ignored by
+            // some Live TV clients (including the LG webOS client validated for this plugin).
+            for (var attempt = 0; attempt < 40; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var session = _sessionManager.Sessions.FirstOrDefault(
+                    item => string.Equals(item.Id, request.SessionId, StringComparison.Ordinal));
+
+                if (session?.NowPlayingItem?.Id == channel.Id)
+                {
+                    channelStarted = true;
+                    break;
+                }
+
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!channelStarted)
+            {
+                return StatusCode(
+                    StatusCodes.Status504GatewayTimeout,
+                    "The Live TV channel started command was sent, but the target session did not report playback in time.");
+            }
+
+            // Give the local player a short moment to attach the opened media source before seeking.
+            await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+
+            await _sessionManager.SendPlaystateCommand(
+                request.SessionId,
+                request.SessionId,
+                new PlaystateRequest
+                {
+                    Command = PlaystateCommand.Seek,
+                    SeekPositionTicks = request.StartPositionTicks
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
 
         return NoContent();
     }
