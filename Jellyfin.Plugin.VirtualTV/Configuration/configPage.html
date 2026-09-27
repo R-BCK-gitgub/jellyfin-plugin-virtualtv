@@ -113,6 +113,17 @@
             background: rgba(220,53,69,.16);
         }
 
+        #VirtualTVConfigPage .vtv-test-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1em 1.25em;
+        }
+
+        #VirtualTVConfigPage .vtv-test-status {
+            margin-top: .8em;
+            min-height: 1.4em;
+        }
+
         @media (max-width: 800px) {
             #VirtualTVConfigPage .vtv-header {
                 display: block;
@@ -156,6 +167,41 @@
 
                 <div id="channelListSection">
                     <div id="channelList"></div>
+
+                    <div id="architectureTestCard" class="vtv-card" style="margin-top:1.5em;">
+                        <h2>Playback architecture test</h2>
+                        <div class="vtv-muted" style="margin-bottom:1em;">
+                            Temporary technical validation required by the v1 specification. It proves that the plugin can target an existing Jellyfin session and start a Jellyfin media item at an exact offset using the stock player.
+                        </div>
+                        <div class="vtv-test-grid">
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="architectureSession">Target Jellyfin session</label>
+                                <select id="architectureSession" is="emby-select" class="emby-select-withcolor emby-select"></select>
+                                <div class="fieldDescription">Only recently active sessions that Jellyfin reports to this administrator are shown.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="architectureOffset">Start offset (minutes)</label>
+                                <input id="architectureOffset" type="number" is="emby-input" min="0" step="0.5" value="2" />
+                            </div>
+                            <div class="inputContainer vtv-span-2">
+                                <label class="inputLabel inputLabelUnfocused" for="architectureSearch">Find a test episode or movie</label>
+                                <input id="architectureSearch" type="text" is="emby-input" placeholder="Type part of a title" />
+                            </div>
+                            <div class="vtv-span-2">
+                                <button id="btnArchitectureSearch" is="emby-button" type="button" class="raised emby-button">Search media</button>
+                            </div>
+                            <div class="selectContainer vtv-span-2">
+                                <label class="selectLabel" for="architectureItem">Test media</label>
+                                <select id="architectureItem" is="emby-select" class="emby-select-withcolor emby-select">
+                                    <option value="">Search for an episode or movie first</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button id="btnRunArchitectureTest" is="emby-button" type="button" class="raised button-submit emby-button">
+                            Start playback test
+                        </button>
+                        <div id="architectureStatus" class="vtv-test-status vtv-muted"></div>
+                    </div>
                 </div>
 
                 <div id="channelEditor" class="vtv-card" style="display:none;">
@@ -666,12 +712,136 @@
                     });
                 }
 
+                function loadArchitectureSessions() {
+                    var select = page.querySelector('#architectureSession');
+                    var userId = ApiClient.getCurrentUserId();
+
+                    return ApiClient.getSessions({
+                        controllableByUserId: userId,
+                        activeWithinSeconds: 900
+                    }).then(function (sessions) {
+                        sessions = sessions || [];
+                        var deviceId = ApiClient.deviceId();
+
+                        sessions.sort(function (a, b) {
+                            var aCurrent = a.DeviceId === deviceId ? 0 : 1;
+                            var bCurrent = b.DeviceId === deviceId ? 0 : 1;
+                            return aCurrent - bCurrent;
+                        });
+
+                        if (!sessions.length) {
+                            select.innerHTML = '<option value="">No active controllable sessions found</option>';
+                            return;
+                        }
+
+                        select.innerHTML = sessions.map(function (session) {
+                            var label = [
+                                session.Client || 'Jellyfin',
+                                session.DeviceName || session.DeviceId || 'Unknown device'
+                            ].join(' — ');
+
+                            if (session.DeviceId === deviceId) {
+                                label += ' (this browser)';
+                            }
+
+                            return '<option value="' + escapeHtml(session.Id) + '">' + escapeHtml(label) + '</option>';
+                        }).join('');
+                    });
+                }
+
+                function searchArchitectureMedia() {
+                    var query = page.querySelector('#architectureSearch').value.trim();
+                    var select = page.querySelector('#architectureItem');
+
+                    if (!query) {
+                        Dashboard.alert('Type part of an episode or movie title first.');
+                        return;
+                    }
+
+                    Dashboard.showLoadingMsg();
+
+                    ApiClient.getItems(ApiClient.getCurrentUserId(), {
+                        Recursive: true,
+                        IncludeItemTypes: 'Episode,Movie',
+                        SearchTerm: query,
+                        Limit: 50,
+                        SortBy: 'SortName'
+                    }).then(function (result) {
+                        var items = result && result.Items ? result.Items : [];
+
+                        if (!items.length) {
+                            select.innerHTML = '<option value="">No matching episodes or movies found</option>';
+                            Dashboard.hideLoadingMsg();
+                            return;
+                        }
+
+                        select.innerHTML = items.map(function (item) {
+                            var parts = [];
+                            if (item.SeriesName) {
+                                parts.push(item.SeriesName);
+                            }
+
+                            if (item.ParentIndexNumber != null && item.IndexNumber != null) {
+                                parts.push('S' + String(item.ParentIndexNumber).padStart(2, '0') + 'E' + String(item.IndexNumber).padStart(2, '0'));
+                            }
+
+                            parts.push(item.Name || item.Id);
+                            return '<option value="' + escapeHtml(item.Id) + '">' + escapeHtml(parts.join(' — ')) + '</option>';
+                        }).join('');
+
+                        Dashboard.hideLoadingMsg();
+                    }).catch(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Unable to search Jellyfin media.');
+                    });
+                }
+
+                function runArchitectureTest() {
+                    var sessionId = page.querySelector('#architectureSession').value;
+                    var itemId = page.querySelector('#architectureItem').value;
+                    var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
+                    var status = page.querySelector('#architectureStatus');
+
+                    if (!sessionId) {
+                        Dashboard.alert('Select an active Jellyfin session.');
+                        return;
+                    }
+
+                    if (!itemId) {
+                        Dashboard.alert('Search for and select a test episode or movie.');
+                        return;
+                    }
+
+                    if (isNaN(minutes) || minutes < 0) {
+                        Dashboard.alert('Start offset must be zero or higher.');
+                        return;
+                    }
+
+                    status.textContent = 'Sending playback command…';
+
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('VirtualTV/Architecture/PlaybackTest'),
+                        data: JSON.stringify({
+                            SessionId: sessionId,
+                            ItemId: itemId,
+                            StartPositionTicks: Math.round(minutes * 60 * 10000000)
+                        }),
+                        contentType: 'application/json'
+                    }).then(function () {
+                        status.textContent = 'Playback command accepted by Jellyfin. Confirm the player started at the requested offset.';
+                    }).catch(function () {
+                        status.textContent = 'Playback test failed. We will inspect the Jellyfin log before proceeding.';
+                    });
+                }
+
                 function loadPage() {
                     Dashboard.showLoadingMsg();
 
                     Promise.all([
                         ApiClient.getPluginConfiguration(pluginId),
-                        ApiClient.getUsers()
+                        ApiClient.getUsers(),
+                        loadArchitectureSessions()
                     ]).then(function (results) {
                         state.config = normalizeConfig(results[0]);
                         state.users = results[1] || [];
@@ -701,6 +871,14 @@
                 page.querySelector('#visibilityMode').addEventListener('change', updateConditionalFields);
                 page.querySelector('#is24Hours').addEventListener('change', updateConditionalFields);
                 page.querySelector('#channelForm').addEventListener('submit', saveChannel);
+                page.querySelector('#btnArchitectureSearch').addEventListener('click', searchArchitectureMedia);
+                page.querySelector('#architectureSearch').addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        searchArchitectureMedia();
+                    }
+                });
+                page.querySelector('#btnRunArchitectureTest').addEventListener('click', runArchitectureTest);
                 page.addEventListener('pageshow', loadPage);
             }());
         </script>
