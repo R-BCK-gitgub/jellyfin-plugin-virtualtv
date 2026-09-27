@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.0.10.0"
+version: "1.0.11.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Tests source-rebased Live TV input using a zero-based player timeline and a wall-clock media inpoint.
+  Keeps the rebased source stable for the lifetime of an opened Live TV session, including track changes.
