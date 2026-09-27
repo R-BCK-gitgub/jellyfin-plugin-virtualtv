@@ -236,6 +236,16 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         source.RequiresClosing = false;
         source.Name = item.Name;
 
+        // A normal Live TV source is normalized by Jellyfin as an infinite stream. When the
+        // underlying library file is direct-played, LG webOS cannot seek that stream and changing
+        // subtitles reopens it at the beginning. Force the architecture proof through Jellyfin's
+        // transcoding/remux pipeline instead. That pipeline receives StartTimeTicks on every
+        // playback-info request, so wall-clock entry, manual seek and track changes can reopen the
+        // source at the requested position while the now-playing identity remains the LiveTvChannel.
+        source.SupportsDirectPlay = false;
+        source.SupportsDirectStream = false;
+        source.SupportsTranscoding = true;
+
         return source;
     }
 }
