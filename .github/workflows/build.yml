@@ -1,0 +1,40 @@
+name: Build Virtual TV Plugin
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj
+
+      - name: Build plugin
+        run: dotnet build Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj --configuration Release --no-restore
+
+      - name: Prepare install package
+        run: |
+          mkdir -p artifact/VirtualTV
+          cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll artifact/VirtualTV/
+          cp build.yaml artifact/VirtualTV/
+
+      - name: Upload installable DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: VirtualTV-Jellyfin-12.1
+          path: artifact/VirtualTV/
+          if-no-files-found: error
