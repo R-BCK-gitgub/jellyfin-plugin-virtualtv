@@ -195,6 +195,7 @@ public sealed class ArchitectureController : ControllerBase
 
         plugin.Configuration.ArchitectureLiveTvTestItemId = itemId.ToString("N");
         plugin.Configuration.ArchitectureLiveTvTestEnabled = true;
+        plugin.Configuration.ArchitectureLiveTvTestProgramStartUtc = DateTime.UtcNow.AddMinutes(-10).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         plugin.SaveConfiguration();
 
         await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
@@ -217,8 +218,9 @@ public sealed class ArchitectureController : ControllerBase
     }
 
     /// <summary>
-    /// Plays the temporary native Jellyfin Live TV channel at an explicit offset.
-    /// The underlying library item supplies media bytes but is not the now-playing item.
+    /// Plays the temporary native Jellyfin Live TV channel.
+    /// The underlying library item supplies media bytes but is not the now-playing item;
+    /// the source itself is rebased to the current wall-clock programme offset.
     /// </summary>
     /// <param name="request">Live TV playback-test request.</param>
     /// <param name="cancellationToken">Request cancellation token.</param>
@@ -259,50 +261,9 @@ public sealed class ArchitectureController : ControllerBase
             command,
             cancellationToken).ConfigureAwait(false);
 
-        if (request.StartPositionTicks > 0)
-        {
-            var channelStarted = false;
-
-            // Jellyfin clients report the Live TV channel back to the server after the player has opened it.
-            // Wait for that report before sending the seek; sending it together with PlayNow is ignored by
-            // some Live TV clients (including the LG webOS client validated for this plugin).
-            for (var attempt = 0; attempt < 40; attempt++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var session = _sessionManager.Sessions.FirstOrDefault(
-                    item => string.Equals(item.Id, request.SessionId, StringComparison.Ordinal));
-
-                if (session?.NowPlayingItem?.Id == channel.Id)
-                {
-                    channelStarted = true;
-                    break;
-                }
-
-                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
-            }
-
-            if (!channelStarted)
-            {
-                return StatusCode(
-                    StatusCodes.Status504GatewayTimeout,
-                    "The Live TV channel started command was sent, but the target session did not report playback in time.");
-            }
-
-            // Give the local player a short moment to attach the opened media source before seeking.
-            await Task.Delay(500, cancellationToken).ConfigureAwait(false);
-
-            await _sessionManager.SendPlaystateCommand(
-                request.SessionId,
-                request.SessionId,
-                new PlaystateRequest
-                {
-                    Command = PlaystateCommand.Seek,
-                    SeekPositionTicks = request.StartPositionTicks
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
-
+        // v1.0.10 source-rebase proof: do not issue a post-start seek here.
+        // The Live TV media source itself starts at the current wall-clock offset while
+        // the stock Jellyfin player remains at position zero.
         return NoContent();
     }
 
@@ -320,6 +281,7 @@ public sealed class ArchitectureController : ControllerBase
         {
             plugin.Configuration.ArchitectureLiveTvTestEnabled = false;
             plugin.Configuration.ArchitectureLiveTvTestItemId = string.Empty;
+            plugin.Configuration.ArchitectureLiveTvTestProgramStartUtc = string.Empty;
             plugin.SaveConfiguration();
         }
 
