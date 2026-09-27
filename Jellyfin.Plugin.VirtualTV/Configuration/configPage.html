@@ -197,9 +197,17 @@
                                 </select>
                             </div>
                         </div>
-                        <button id="btnRunArchitectureTest" is="emby-button" type="button" class="raised button-submit emby-button">
-                            Start playback test
-                        </button>
+                        <div style="display:flex;gap:.75em;flex-wrap:wrap;">
+                            <button id="btnRunArchitectureTest" is="emby-button" type="button" class="raised emby-button">
+                                Start normal playback test
+                            </button>
+                            <button id="btnRunProtectedArchitectureTest" is="emby-button" type="button" class="raised button-submit emby-button">
+                                Start protected playback test
+                            </button>
+                        </div>
+                        <div class="fieldDescription" style="margin-top:.75em;">
+                            Protected test: starts at the requested offset but continuously restores the item's pre-test Watched/Resume state after Jellyfin playback reports.
+                        </div>
                         <div id="architectureStatus" class="vtv-test-status vtv-muted"></div>
                     </div>
                 </div>
@@ -796,7 +804,7 @@
                     });
                 }
 
-                function runArchitectureTest() {
+                function runArchitectureTest(protectedState) {
                     var sessionId = page.querySelector('#architectureSession').value;
                     var itemId = page.querySelector('#architectureItem').value;
                     var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
@@ -817,11 +825,15 @@
                         return;
                     }
 
-                    status.textContent = 'Sending playback command…';
+                    status.textContent = protectedState
+                        ? 'Capturing current user state and sending protected playback command…'
+                        : 'Sending playback command…';
 
                     ApiClient.ajax({
                         type: 'POST',
-                        url: ApiClient.getUrl('VirtualTV/Architecture/PlaybackTest'),
+                        url: ApiClient.getUrl(protectedState
+                            ? 'VirtualTV/Architecture/ProtectedPlaybackTest'
+                            : 'VirtualTV/Architecture/PlaybackTest'),
                         data: JSON.stringify({
                             SessionId: sessionId,
                             ItemId: itemId,
@@ -829,9 +841,13 @@
                         }),
                         contentType: 'application/json'
                     }).then(function () {
-                        status.textContent = 'Playback command accepted by Jellyfin. Confirm the player started at the requested offset.';
+                        status.textContent = protectedState
+                            ? 'Protected playback started. After stopping, verify that the previous Watched/Resume state is unchanged.'
+                            : 'Playback command accepted by Jellyfin. Confirm the player started at the requested offset.';
                     }).catch(function () {
-                        status.textContent = 'Playback test failed. We will inspect the Jellyfin log before proceeding.';
+                        status.textContent = protectedState
+                            ? 'Protected playback test failed. We will inspect the Jellyfin log before proceeding.'
+                            : 'Playback test failed. We will inspect the Jellyfin log before proceeding.';
                     });
                 }
 
@@ -878,7 +894,12 @@
                         searchArchitectureMedia();
                     }
                 });
-                page.querySelector('#btnRunArchitectureTest').addEventListener('click', runArchitectureTest);
+                page.querySelector('#btnRunArchitectureTest').addEventListener('click', function () {
+                    runArchitectureTest(false);
+                });
+                page.querySelector('#btnRunProtectedArchitectureTest').addEventListener('click', function () {
+                    runArchitectureTest(true);
+                });
                 page.addEventListener('pageshow', loadPage);
             }());
         </script>
