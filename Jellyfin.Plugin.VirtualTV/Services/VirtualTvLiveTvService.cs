@@ -97,10 +97,15 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             return Task.FromResult<IEnumerable<ProgramInfo>>(Array.Empty<ProgramInfo>());
         }
 
-        // Keep one stable current programme around the present moment for the architecture proof.
+        // For the architecture proof, create a realistic currently-airing programme that began
+        // ten minutes before the guide refresh. The playback coordinator must derive the live
+        // entry offset from these programme timestamps rather than from a hard-coded seek value.
         var now = DateTime.UtcNow;
-        var programStart = now.Date.AddDays(-1);
-        var programEnd = now.Date.AddDays(2);
+        var programStart = now.AddMinutes(-10);
+        var programDuration = item.RunTimeTicks.HasValue && item.RunTimeTicks.Value > 0
+            ? TimeSpan.FromTicks(item.RunTimeTicks.Value)
+            : TimeSpan.FromHours(2);
+        var programEnd = programStart.Add(programDuration);
 
         if (programEnd <= startDateUtc || programStart >= endDateUtc)
         {
