@@ -210,6 +210,28 @@
                         </div>
                         <div id="architectureStatus" class="vtv-test-status vtv-muted"></div>
                     </div>
+
+                    <div id="liveTvArchitectureTestCard" class="vtv-card">
+                        <h2>Native Live TV architecture test</h2>
+                        <div class="vtv-muted" style="margin-bottom:1em;">
+                            This proof exposes the selected Jellyfin movie or episode through a real Jellyfin Live TV channel. The channel, not the source media item, must be the now-playing item so the source item's Watched/Resume state is not touched.
+                        </div>
+                        <div class="fieldDescription" style="margin-bottom:1em;">
+                            This test reuses the Target Jellyfin session, Start offset and Test media selected above.
+                        </div>
+                        <div style="display:flex;gap:.75em;flex-wrap:wrap;">
+                            <button id="btnPrepareLiveTvTest" is="emby-button" type="button" class="raised button-submit emby-button">
+                                Prepare Live TV test channel
+                            </button>
+                            <button id="btnRunLiveTvTest" is="emby-button" type="button" class="raised emby-button">
+                                Start Live TV channel test
+                            </button>
+                            <button id="btnRemoveLiveTvTest" is="emby-button" type="button" class="raised emby-button">
+                                Remove Live TV test channel
+                            </button>
+                        </div>
+                        <div id="liveTvArchitectureStatus" class="vtv-test-status vtv-muted"></div>
+                    </div>
                 </div>
 
                 <div id="channelEditor" class="vtv-card" style="display:none;">
@@ -851,6 +873,83 @@
                     });
                 }
 
+                function prepareLiveTvArchitectureTest() {
+                    var itemId = page.querySelector('#architectureItem').value;
+                    var status = page.querySelector('#liveTvArchitectureStatus');
+
+                    if (!itemId) {
+                        Dashboard.alert('Search for and select a test episode or movie first.');
+                        return;
+                    }
+
+                    status.textContent = 'Creating the native Live TV test channel and refreshing the Jellyfin Guide…';
+                    Dashboard.showLoadingMsg();
+
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('VirtualTV/Architecture/PrepareLiveTvTest'),
+                        data: JSON.stringify({
+                            ItemId: itemId
+                        }),
+                        contentType: 'application/json'
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        status.textContent = 'Live TV test channel prepared as channel 9999. Jellyfin Guide data has been refreshed.';
+                    }).catch(function () {
+                        Dashboard.hideLoadingMsg();
+                        status.textContent = 'Unable to prepare the Live TV test channel. We will inspect the Jellyfin log before proceeding.';
+                    });
+                }
+
+                function runLiveTvArchitectureTest() {
+                    var sessionId = page.querySelector('#architectureSession').value;
+                    var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
+                    var status = page.querySelector('#liveTvArchitectureStatus');
+
+                    if (!sessionId) {
+                        Dashboard.alert('Select an active Jellyfin session.');
+                        return;
+                    }
+
+                    if (isNaN(minutes) || minutes < 0) {
+                        Dashboard.alert('Start offset must be zero or higher.');
+                        return;
+                    }
+
+                    status.textContent = 'Sending the native Live TV channel to the selected Jellyfin session…';
+
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('VirtualTV/Architecture/LiveTvPlaybackTest'),
+                        data: JSON.stringify({
+                            SessionId: sessionId,
+                            StartPositionTicks: Math.round(minutes * 60 * 10000000)
+                        }),
+                        contentType: 'application/json'
+                    }).then(function () {
+                        status.textContent = 'Live TV playback command accepted. Confirm playback and then verify the source media Resume state.';
+                    }).catch(function () {
+                        status.textContent = 'Live TV playback test failed. We will inspect the Jellyfin log before proceeding.';
+                    });
+                }
+
+                function removeLiveTvArchitectureTest() {
+                    var status = page.querySelector('#liveTvArchitectureStatus');
+                    status.textContent = 'Removing the temporary Live TV test channel and refreshing the Jellyfin Guide…';
+                    Dashboard.showLoadingMsg();
+
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('VirtualTV/Architecture/RemoveLiveTvTest')
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        status.textContent = 'Temporary Live TV test channel removed.';
+                    }).catch(function () {
+                        Dashboard.hideLoadingMsg();
+                        status.textContent = 'Unable to remove the Live TV test channel. We will inspect the Jellyfin log.';
+                    });
+                }
+
                 function loadPage() {
                     Dashboard.showLoadingMsg();
 
@@ -900,6 +999,9 @@
                 page.querySelector('#btnRunProtectedArchitectureTest').addEventListener('click', function () {
                     runArchitectureTest(true);
                 });
+                page.querySelector('#btnPrepareLiveTvTest').addEventListener('click', prepareLiveTvArchitectureTest);
+                page.querySelector('#btnRunLiveTvTest').addEventListener('click', runLiveTvArchitectureTest);
+                page.querySelector('#btnRemoveLiveTvTest').addEventListener('click', removeLiveTvArchitectureTest);
                 page.addEventListener('pageshow', loadPage);
             }());
         </script>
