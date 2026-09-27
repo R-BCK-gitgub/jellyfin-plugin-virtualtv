@@ -1,20 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.LiveTv;
+using MediaBrowser.Model.MediaInfo;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
 /// Native Jellyfin Live TV service used by Virtual TV.
-/// The v1.0.4 implementation exposes only a temporary architecture-proof channel.
+/// The current implementation exposes a temporary architecture-proof channel.
 /// </summary>
 public sealed class VirtualTvLiveTvService : ILiveTvService
 {
@@ -32,16 +37,22 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaSourceManager _mediaSourceManager;
+    private readonly IApplicationPaths _applicationPaths;
+    private readonly ILogger<VirtualTvLiveTvService> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="VirtualTvLiveTvService"/> class.
     /// </summary>
     public VirtualTvLiveTvService(
         ILibraryManager libraryManager,
-        IMediaSourceManager mediaSourceManager)
+        IMediaSourceManager mediaSourceManager,
+        IApplicationPaths applicationPaths,
+        ILogger<VirtualTvLiveTvService> logger)
     {
         _libraryManager = libraryManager;
         _mediaSourceManager = mediaSourceManager;
+        _applicationPaths = applicationPaths;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -97,11 +108,9 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             return Task.FromResult<IEnumerable<ProgramInfo>>(Array.Empty<ProgramInfo>());
         }
 
-        // For the architecture proof, create a realistic currently-airing programme that began
-        // ten minutes before the guide refresh. The playback coordinator must derive the live
-        // entry offset from these programme timestamps rather than from a hard-coded seek value.
-        var now = DateTime.UtcNow;
-        var programStart = now.AddMinutes(-10);
+        // The architecture-test programme start is persisted when Prepare is pressed so the
+        // programme time, source offset and Guide stay anchored to the same wall-clock instant.
+        var programStart = GetArchitectureProgramStartUtc();
         var programDuration = item.RunTimeTicks.HasValue && item.RunTimeTicks.Value > 0
             ? TimeSpan.FromTicks(item.RunTimeTicks.Value)
             : TimeSpan.FromHours(2);
@@ -212,6 +221,22 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         return _libraryManager.GetItemById(itemId);
     }
 
+    private DateTime GetArchitectureProgramStartUtc()
+    {
+        var raw = Plugin.Instance?.Configuration.ArchitectureLiveTvTestProgramStartUtc;
+        if (!string.IsNullOrWhiteSpace(raw)
+            && DateTime.TryParse(
+                raw,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var parsed))
+        {
+            return parsed.ToUniversalTime();
+        }
+
+        return DateTime.UtcNow.AddMinutes(-10);
+    }
+
     private MediaSourceInfo GetSource(string channelId, string? streamId)
     {
         if (!string.Equals(channelId, ArchitectureTestChannelId, StringComparison.Ordinal))
@@ -241,24 +266,108 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         source.RequiresClosing = false;
         source.Name = item.Name;
 
-        // A normal Live TV source is normalized by Jellyfin as an infinite stream. When the
-        // underlying library file is direct-played, LG webOS cannot seek that stream and changing
-        // subtitles reopens it at the beginning. Force the architecture proof through Jellyfin's
-        // transcoding/remux pipeline instead. That pipeline receives StartTimeTicks on every
-        // playback-info request, so wall-clock entry, manual seek and track changes can reopen the
-        // source at the requested position while the now-playing identity remains the LiveTvChannel.
+        // Force the architecture proof through Jellyfin's own HLS transcode/remux path.
         source.SupportsDirectPlay = false;
         source.SupportsDirectStream = false;
         source.SupportsTranscoding = true;
 
-        // Architecture proof v1.0.9: expose the channel media as an open-ended live source
-        // instead of a finite VOD source. Jellyfin's HLS pipeline otherwise preserves the
-        // absolute file position after a mid-file seek, which makes the Live TV OSD add that
-        // file offset to the wall-clock playback start time. Clearing RunTimeTicks keeps the
-        // Guide programme duration separate while allowing the emitted live stream timeline
-        // to be rebased around the point where the viewer joined the channel.
+        // v1.0.10 proof: shift the *input* rather than seeking the stock player after playback starts.
+        // A one-file ffconcat descriptor applies an inpoint and rebases that input timeline to zero.
+        // Jellyfin therefore sees a fresh Live TV stream starting at player position 0, while the
+        // bytes already correspond to the wall-clock point inside the scheduled programme.
+        var sourceRuntimeTicks = source.RunTimeTicks ?? item.RunTimeTicks;
+        var rebasedInput = CreateRebasedInput(source, sourceRuntimeTicks);
+        source.EncoderPath = rebasedInput.DescriptorPath;
+        source.EncoderProtocol = MediaProtocol.File;
+
+        // Keep the player-side stream timeline open-ended. The Guide programme keeps the real
+        // programme StartDate/EndDate; the HLS player should begin at position zero at tune time.
         source.RunTimeTicks = null;
 
+        _logger.LogInformation(
+            "Virtual TV architecture source rebased to {OffsetSeconds} seconds for {ItemName}. FFmpeg input: {DescriptorPath}",
+            rebasedInput.Offset.TotalSeconds,
+            item.Name,
+            rebasedInput.DescriptorPath);
+
         return source;
+    }
+
+    private (string DescriptorPath, TimeSpan Offset) CreateRebasedInput(
+        MediaSourceInfo source,
+        long? sourceRuntimeTicks)
+    {
+        if (source.Protocol != MediaProtocol.File || string.IsNullOrWhiteSpace(source.Path))
+        {
+            throw new NotSupportedException(
+                "The Virtual TV source-rebase architecture proof currently requires a file-backed Jellyfin media source.");
+        }
+
+        var now = DateTime.UtcNow;
+        var programStart = GetArchitectureProgramStartUtc();
+        var offset = now > programStart ? now - programStart : TimeSpan.Zero;
+
+        if (sourceRuntimeTicks.HasValue && sourceRuntimeTicks.Value > 0)
+        {
+            var maximumOffsetTicks = Math.Max(0, sourceRuntimeTicks.Value - TimeSpan.FromSeconds(1).Ticks);
+            if (offset.Ticks > maximumOffsetTicks)
+            {
+                offset = TimeSpan.FromTicks(maximumOffsetTicks);
+            }
+        }
+
+        var runtimeRoot = Path.Combine(_applicationPaths.CachePath, "virtualtv", "architecture-live");
+        Directory.CreateDirectory(runtimeRoot);
+        CleanupOldRuntimeDirectories(runtimeRoot);
+
+        var token = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var requestDirectory = Path.Combine(runtimeRoot, token);
+        Directory.CreateDirectory(requestDirectory);
+
+        var extension = Path.GetExtension(source.Path);
+        if (string.IsNullOrWhiteSpace(extension)
+            || extension.Length > 12
+            || extension.Any(ch => ch != '.' && !char.IsLetterOrDigit(ch)))
+        {
+            extension = ".media";
+        }
+
+        var linkedSourceName = "source" + extension.ToLowerInvariant();
+        var linkedSourcePath = Path.Combine(requestDirectory, linkedSourceName);
+        File.CreateSymbolicLink(linkedSourcePath, source.Path);
+
+        var descriptorPath = Path.Combine(requestDirectory, "source.ffconcat");
+        var descriptor =
+            "ffconcat version 1.0\n"
+            + "file '" + linkedSourceName + "'\n"
+            + "inpoint " + offset.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) + "\n";
+
+        File.WriteAllText(descriptorPath, descriptor, new UTF8Encoding(false));
+
+        return (descriptorPath, offset);
+    }
+
+    private static void CleanupOldRuntimeDirectories(string runtimeRoot)
+    {
+        var cutoff = DateTime.UtcNow.AddHours(-2);
+
+        foreach (var directory in Directory.EnumerateDirectories(runtimeRoot))
+        {
+            try
+            {
+                if (Directory.GetCreationTimeUtc(directory) < cutoff)
+                {
+                    Directory.Delete(directory, true);
+                }
+            }
+            catch (IOException)
+            {
+                // A currently active ffmpeg process may still have the source open.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Cleanup is best-effort and must never block channel playback.
+            }
+        }
     }
 }
