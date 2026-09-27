@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Session;
@@ -15,23 +18,26 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
-    private static readonly TimeSpan ArchitectureTestOffset = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan DuplicateGuard = TimeSpan.FromSeconds(15);
 
     private readonly ISessionManager _sessionManager;
+    private readonly ILibraryManager _libraryManager;
     private readonly ConcurrentDictionary<string, DateTime> _recentlyHandled = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LiveTvPlaybackCoordinator"/> class.
     /// </summary>
-    public LiveTvPlaybackCoordinator(ISessionManager sessionManager)
+    public LiveTvPlaybackCoordinator(
+        ISessionManager sessionManager,
+        ILibraryManager libraryManager)
     {
         _sessionManager = sessionManager;
+        _libraryManager = libraryManager;
     }
 
     /// <summary>
-    /// Applies the wall-clock position to the temporary architecture-test channel when it is
-    /// launched directly from Jellyfin's native Live TV UI.
+    /// Applies the real wall-clock position of the currently airing programme when a Virtual TV
+    /// channel is launched directly from Jellyfin's native Live TV UI.
     /// </summary>
     public async Task HandlePlaybackStartAsync(PlaybackStartEventArgs eventArgs)
     {
@@ -49,16 +55,33 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        var targetTicks = ArchitectureTestOffset.Ticks;
+        var now = DateTime.UtcNow;
+        var currentProgram = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.LiveTvProgram],
+            ChannelIds = [channel.Id],
+            MaxStartDate = now,
+            MinEndDate = now,
+            Limit = 1
+        })
+        .OfType<LiveTvProgram>()
+        .OrderByDescending(program => program.StartDate)
+        .FirstOrDefault();
+
+        if (currentProgram is null)
+        {
+            return;
+        }
+
+        var targetTicks = Math.Max(0, (now - currentProgram.StartDate).Ticks);
 
         // A stream restart caused by the seek/track change may emit another PlaybackStart event.
-        // If it is already at the requested position, there is nothing left to do.
+        // If it is already at the requested wall-clock position, there is nothing left to do.
         if (eventArgs.PlaybackPositionTicks >= targetTicks - TimeSpan.FromSeconds(5).Ticks)
         {
             return;
         }
 
-        var now = DateTime.UtcNow;
         if (_recentlyHandled.TryGetValue(session.Id, out var lastHandled)
             && now - lastHandled < DuplicateGuard)
         {
