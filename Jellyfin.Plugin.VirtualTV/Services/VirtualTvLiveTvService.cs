@@ -251,6 +251,14 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         source.SupportsDirectStream = false;
         source.SupportsTranscoding = true;
 
+        // Architecture proof v1.0.9: expose the channel media as an open-ended live source
+        // instead of a finite VOD source. Jellyfin's HLS pipeline otherwise preserves the
+        // absolute file position after a mid-file seek, which makes the Live TV OSD add that
+        // file offset to the wall-clock playback start time. Clearing RunTimeTicks keeps the
+        // Guide programme duration separate while allowing the emitted live stream timeline
+        // to be rebased around the point where the viewer joined the channel.
+        source.RunTimeTicks = null;
+
         return source;
     }
 }
