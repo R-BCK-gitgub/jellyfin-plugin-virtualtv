@@ -18,10 +18,8 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<PlaybackStateProtectionManager>();
-        serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
         serviceCollection.AddSingleton<ILiveTvService, VirtualTvLiveTvService>();
         serviceCollection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, ProtectedPlaybackStartConsumer>();
-        serviceCollection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, VirtualTvPlaybackStartConsumer>();
         serviceCollection.AddScoped<IEventConsumer<PlaybackProgressEventArgs>, ProtectedPlaybackProgressConsumer>();
         serviceCollection.AddScoped<IEventConsumer<PlaybackStopEventArgs>, ProtectedPlaybackStopConsumer>();
     }
