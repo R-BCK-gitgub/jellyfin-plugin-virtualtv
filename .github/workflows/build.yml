@@ -31,6 +31,7 @@ jobs:
           mkdir -p artifact/VirtualTV
           cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll artifact/VirtualTV/
           cp build.yaml artifact/VirtualTV/
+          cp meta.json artifact/VirtualTV/
 
       - name: Upload installable DLL
         uses: actions/upload-artifact@v4
