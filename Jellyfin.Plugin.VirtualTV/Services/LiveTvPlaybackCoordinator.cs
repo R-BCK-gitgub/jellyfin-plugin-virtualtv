@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Session;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
@@ -22,6 +23,7 @@ public sealed class LiveTvPlaybackCoordinator
 
     private readonly ISessionManager _sessionManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly ILogger<LiveTvPlaybackCoordinator> _logger;
     private readonly ConcurrentDictionary<string, DateTime> _recentlyHandled = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -29,10 +31,12 @@ public sealed class LiveTvPlaybackCoordinator
     /// </summary>
     public LiveTvPlaybackCoordinator(
         ISessionManager sessionManager,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        ILogger<LiveTvPlaybackCoordinator> logger)
     {
         _sessionManager = sessionManager;
         _libraryManager = libraryManager;
+        _logger = logger;
     }
 
     /// <summary>
@@ -90,8 +94,15 @@ public sealed class LiveTvPlaybackCoordinator
 
         _recentlyHandled[session.Id] = now;
 
-        // The PlaybackStart event means the stock client has already opened the Live TV item.
-        // A short delay gives the local player time to attach the transcoded source before seeking.
+        _logger.LogInformation(
+            "Virtual TV initial Live seek for session {SessionId}: programme {ProgramName}, target {TargetSeconds} seconds.",
+            session.Id,
+            currentProgram.Name,
+            TimeSpan.FromTicks(targetTicks).TotalSeconds);
+
+        // The PlaybackStart event means the stock client has already opened the full-timeline
+        // Live TV source. A short delay gives the local player time to attach the HLS/remux source
+        // before moving to the wall-clock programme position.
         await Task.Delay(500).ConfigureAwait(false);
 
         await _sessionManager.SendPlaystateCommand(

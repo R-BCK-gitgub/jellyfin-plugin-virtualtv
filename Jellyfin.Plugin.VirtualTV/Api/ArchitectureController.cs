@@ -187,6 +187,18 @@ public sealed class ArchitectureController : ControllerBase
             return BadRequest("The selected Jellyfin item no longer exists.");
         }
 
+        if (request.StartPositionTicks < 0)
+        {
+            return BadRequest("StartPositionTicks cannot be negative.");
+        }
+
+        if (item.RunTimeTicks.HasValue
+            && item.RunTimeTicks.Value > 0
+            && request.StartPositionTicks >= item.RunTimeTicks.Value)
+        {
+            return BadRequest("StartPositionTicks must be lower than the selected media runtime.");
+        }
+
         var plugin = global::Jellyfin.Plugin.VirtualTV.Plugin.Instance;
         if (plugin is null)
         {
@@ -195,7 +207,9 @@ public sealed class ArchitectureController : ControllerBase
 
         plugin.Configuration.ArchitectureLiveTvTestItemId = itemId.ToString("N");
         plugin.Configuration.ArchitectureLiveTvTestEnabled = true;
-        plugin.Configuration.ArchitectureLiveTvTestProgramStartUtc = DateTime.UtcNow.AddMinutes(-10).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        plugin.Configuration.ArchitectureLiveTvTestProgramStartUtc = DateTime.UtcNow
+            .Subtract(TimeSpan.FromTicks(request.StartPositionTicks))
+            .ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         plugin.SaveConfiguration();
 
         await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
@@ -213,14 +227,16 @@ public sealed class ArchitectureController : ControllerBase
             ChannelId = channel.Id.ToString("N"),
             ChannelName = channel.Name,
             ChannelNumber = channel.Number,
-            SourceItemName = item.Name
+            SourceItemName = item.Name,
+            StartPositionTicks = request.StartPositionTicks
         });
     }
 
     /// <summary>
     /// Plays the temporary native Jellyfin Live TV channel.
-    /// The underlying library item supplies media bytes but is not the now-playing item;
-    /// the source itself is rebased to the current wall-clock programme offset.
+    /// The underlying library item supplies media bytes but is not the now-playing item.
+    /// The full source timeline is retained and the playback coordinator applies the current
+    /// wall-clock programme offset after the stock client opens the channel.
     /// </summary>
     /// <param name="request">Live TV playback-test request.</param>
     /// <param name="cancellationToken">Request cancellation token.</param>
@@ -261,9 +277,9 @@ public sealed class ArchitectureController : ControllerBase
             command,
             cancellationToken).ConfigureAwait(false);
 
-        // v1.0.10 source-rebase proof: do not issue a post-start seek here.
-        // The Live TV media source itself starts at the current wall-clock offset while
-        // the stock Jellyfin player remains at position zero.
+        // The initial wall-clock seek is applied by LiveTvPlaybackCoordinator after Jellyfin
+        // reports PlaybackStart for the native Live TV channel. Keeping that responsibility
+        // in the event path also covers entry from Jellyfin's normal Live TV UI.
         return NoContent();
     }
 
@@ -342,6 +358,11 @@ public sealed class LiveTvTestSetupRequest
     /// Gets or sets the existing Jellyfin media item used as the channel source.
     /// </summary>
     public string ItemId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the wall-clock offset represented by the prepared programme start.
+    /// </summary>
+    public long StartPositionTicks { get; set; }
 }
 
 /// <summary>

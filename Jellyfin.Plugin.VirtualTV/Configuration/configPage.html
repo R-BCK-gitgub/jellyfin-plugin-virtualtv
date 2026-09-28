@@ -217,7 +217,7 @@
                             This proof exposes the selected Jellyfin movie or episode through a real Jellyfin Live TV channel. The channel, not the source media item, must be the now-playing item so the source item's Watched/Resume state is not touched.
                         </div>
                         <div class="fieldDescription" style="margin-bottom:1em;">
-                            This test reuses the Target Jellyfin session, Start offset and Test media selected above.
+                            This test reuses the Target Jellyfin session, Start offset and Test media selected above. The source keeps its original timeline so rewind and bitmap subtitles can be validated against the same timestamps.
                         </div>
                         <div style="display:flex;gap:.75em;flex-wrap:wrap;">
                             <button id="btnPrepareLiveTvTest" is="emby-button" type="button" class="raised button-submit emby-button">
@@ -875,6 +875,7 @@
 
                 function prepareLiveTvArchitectureTest() {
                     var itemId = page.querySelector('#architectureItem').value;
+                    var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
                     var status = page.querySelector('#liveTvArchitectureStatus');
 
                     if (!itemId) {
@@ -882,19 +883,25 @@
                         return;
                     }
 
-                    status.textContent = 'Creating the native Live TV test channel and refreshing the Jellyfin Guide…';
+                    if (isNaN(minutes) || minutes < 0) {
+                        Dashboard.alert('Start offset must be zero or higher.');
+                        return;
+                    }
+
+                    status.textContent = 'Creating the full-timeline Live TV test channel and refreshing the Jellyfin Guide…';
                     Dashboard.showLoadingMsg();
 
                     ApiClient.ajax({
                         type: 'POST',
                         url: ApiClient.getUrl('VirtualTV/Architecture/PrepareLiveTvTest'),
                         data: JSON.stringify({
-                            ItemId: itemId
+                            ItemId: itemId,
+                            StartPositionTicks: Math.round(minutes * 60 * 10000000)
                         }),
                         contentType: 'application/json'
                     }).then(function () {
                         Dashboard.hideLoadingMsg();
-                        status.textContent = 'Live TV test channel prepared as channel 9999. Jellyfin Guide data has been refreshed.';
+                        status.textContent = 'Live TV test channel prepared as channel 9999 at the selected wall-clock offset. Jellyfin Guide data has been refreshed.';
                     }).catch(function () {
                         Dashboard.hideLoadingMsg();
                         status.textContent = 'Unable to prepare the Live TV test channel. We will inspect the Jellyfin log before proceeding.';
