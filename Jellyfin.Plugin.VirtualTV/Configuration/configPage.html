@@ -1,9 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Virtual TV</title>
-    <style>
+<div id="VirtualTVConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<style>
         #VirtualTVConfigPage { --vtv-gap: 1rem; }
         #VirtualTVConfigPage * { box-sizing: border-box; }
         #VirtualTVConfigPage .vtv-shell { max-width: 1180px; margin: 0 auto; padding-bottom: 4rem; }
@@ -80,17 +77,13 @@
             #VirtualTVConfigPage .vtv-item-settings{grid-template-columns:1fr;}
         }
     </style>
-</head>
-<body>
-<div id="VirtualTVConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-     data-require="emby-input,emby-button,emby-select,emby-checkbox">
     <div data-role="content">
         <div class="content-primary vtv-shell">
             <div class="vtv-hero">
                 <div>
                     <h1>Virtual TV</h1>
                     <div class="vtv-subtle">Virtual linear channels built entirely from your Jellyfin libraries.</div>
-                    <div class="vtv-preview-pill"><span class="vtv-dot"></span> Final-shape preview · 1.0.12.test</div>
+                    <div class="vtv-preview-pill"><span class="vtv-dot"></span> Final-shape preview · 1.0.12.test.1</div>
                 </div>
                 <div class="vtv-actions">
                     <button id="btnTopCreate" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -648,5 +641,3 @@
 }());
 </script>
 </div>
-</body>
-</html>
