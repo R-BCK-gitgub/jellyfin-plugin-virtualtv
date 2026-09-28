@@ -8,73 +8,94 @@ namespace Jellyfin.Plugin.VirtualTV.Configuration;
 /// </summary>
 public sealed class ChannelConfiguration
 {
-    /// <summary>
-    /// Gets or sets the stable channel identifier.
-    /// </summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-
-    /// <summary>
-    /// Gets or sets the display name.
-    /// </summary>
     public string Name { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the channel number.
-    /// </summary>
     public int Number { get; set; }
-
-    /// <summary>
-    /// Gets or sets the immutable channel type: Series or Movies.
-    /// </summary>
     public string ChannelType { get; set; } = "Series";
-
-    /// <summary>
-    /// Gets or sets the immutable content mode.
-    /// </summary>
     public string ContentMode { get; set; } = "Sequential";
-
-    /// <summary>
-    /// Gets or sets the immutable scheduling method for series channels.
-    /// </summary>
     public string SchedulingMethod { get; set; } = "RepeatingSchedule";
-
-    /// <summary>
-    /// Gets or sets a value indicating whether every Jellyfin user can see the channel.
-    /// </summary>
     public bool VisibleToAllUsers { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets the Jellyfin user ids allowed to see the channel when visibility is restricted.
-    /// </summary>
     public List<string> VisibleUserIds { get; set; } = new();
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the channel broadcasts 24 hours.
-    /// </summary>
+    public string OwnerUserId { get; set; } = string.Empty;
     public bool Is24Hours { get; set; }
-
-    /// <summary>
-    /// Gets or sets the daily on-air start time using HH:mm.
-    /// </summary>
     public string OnAirStart { get; set; } = "07:00";
-
-    /// <summary>
-    /// Gets or sets the daily off-air start time using HH:mm. Values earlier than OnAirStart are interpreted as next day.
-    /// </summary>
     public string OffAirStart { get; set; } = "02:00";
-
-    /// <summary>
-    /// Gets or sets the Smart Schedule rotation period in months.
-    /// </summary>
     public int SmartRotationMonths { get; set; } = 2;
-
-    /// <summary>
-    /// Gets or sets the UTC creation timestamp.
-    /// </summary>
+    public int DynamicBlockMinutes { get; set; } = 30;
+    public List<ChannelContentConfiguration> Content { get; set; } = new();
+    public List<string> ManualSeriesOrder { get; set; } = new();
+    public List<string> RepeatingSeriesOrder { get; set; } = new();
+    public string SmartTemplateCreatedUtc { get; set; } = string.Empty;
     public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("O");
-
-    /// <summary>
-    /// Gets or sets a value indicating whether schedule-affecting changes are waiting for reconciliation.
-    /// </summary>
     public bool NeedsReconcile { get; set; } = true;
+}
+
+/// <summary>
+/// One explicitly selected series or movie in a channel.
+/// </summary>
+public sealed class ChannelContentConfiguration
+{
+    public string ItemId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string ItemType { get; set; } = string.Empty;
+    public bool AllSeasons { get; set; } = true;
+    public List<string> SeasonIds { get; set; } = new();
+    public bool IncludeSpecials { get; set; }
+    public int ConsecutiveEpisodes { get; set; } = 1;
+    public int SortOrder { get; set; }
+}
+
+/// <summary>
+/// Persisted materialized programme block.
+/// </summary>
+public sealed class ScheduleEntry
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ChannelId { get; set; } = string.Empty;
+    public string StartUtc { get; set; } = string.Empty;
+    public string EndUtc { get; set; } = string.Empty;
+    public string Kind { get; set; } = "Content";
+    public string ItemId { get; set; } = string.Empty;
+    public string SeriesId { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public string SeriesName { get; set; } = string.Empty;
+    public string Overview { get; set; } = string.Empty;
+    public int? SeasonNumber { get; set; }
+    public int? EpisodeNumber { get; set; }
+    public string DynamicRule { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Persisted schedule metadata used to keep shuffle decisions stable.
+/// </summary>
+public sealed class ChannelScheduleState
+{
+    public string ChannelId { get; set; } = string.Empty;
+    public List<ScheduleEntry> Entries { get; set; } = new();
+    public List<string> SeriesCycle { get; set; } = new();
+    public int SeriesCycleIndex { get; set; }
+    public List<ShuffleState> ContentShuffleStates { get; set; } = new();
+    public List<SeriesCursorState> SeriesCursors { get; set; } = new();
+    public string SmartTemplateCreatedUtc { get; set; } = string.Empty;
+    public List<string> SmartSeriesPattern { get; set; } = new();
+}
+
+/// <summary>
+/// One persisted shuffle-cycle state.
+/// </summary>
+public sealed class ShuffleState
+{
+    public string Key { get; set; } = string.Empty;
+    public List<string> ItemIds { get; set; } = new();
+    public int Index { get; set; }
+    public string LastItemId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Sequential cursor for a selected series.
+/// </summary>
+public sealed class SeriesCursorState
+{
+    public string SeriesId { get; set; } = string.Empty;
+    public int Index { get; set; }
 }
