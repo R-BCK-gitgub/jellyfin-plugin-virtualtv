@@ -215,8 +215,23 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
     private static string ToExternalId(string channelId) => ChannelPrefix + channelId;
 
+    internal static bool TryGetConfigurationChannelId(string? externalId, out string channelId)
+    {
+        channelId = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(externalId)
+            || !externalId.StartsWith(ChannelPrefix, StringComparison.OrdinalIgnoreCase)
+            || externalId.Length <= ChannelPrefix.Length)
+        {
+            return false;
+        }
+
+        channelId = externalId[ChannelPrefix.Length..];
+        return true;
+    }
+
     private static string? FromExternalId(string externalId)
-        => externalId.StartsWith(ChannelPrefix, StringComparison.OrdinalIgnoreCase)
-            ? externalId[ChannelPrefix.Length..]
+        => TryGetConfigurationChannelId(externalId, out var channelId)
+            ? channelId
             : null;
 }

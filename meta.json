@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Playback polish milestone: subtitle/audio stream restarts retain the active Virtual TV position, scheduled programmes no longer misuse Jellyfin's Live broadcast flag, episode labels include SxxExx, and the channel table has clearer visual column separation.",
+  "changelog": "Live-position reliability milestone: initial channel playback is aligned directly from the plugin's persisted schedule and confirmed with a second player seek, avoiding false 00:00 playback when Jellyfin's channel progress bar already shows the correct Live position.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.5.0.0",
+  "version": "1.6.0.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
