@@ -1,1017 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Virtual TV</title>
-    <style>
-        #VirtualTVConfigPage .vtv-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 1.5em;
-            margin-bottom: 1.5em;
-        }
-
-        #VirtualTVConfigPage .vtv-header h1 {
-            margin-bottom: .2em;
-        }
-
-        #VirtualTVConfigPage .vtv-muted {
-            opacity: .72;
-        }
-
-        #VirtualTVConfigPage .vtv-card {
-            border: 1px solid rgba(255,255,255,.14);
-            border-radius: .7em;
-            padding: 1.15em;
-            margin-bottom: 1em;
-            background: rgba(255,255,255,.035);
-        }
-
-        #VirtualTVConfigPage .vtv-channel-row {
-            display: grid;
-            grid-template-columns: minmax(4.5em, .5fr) minmax(12em, 2fr) minmax(10em, 1.2fr) auto;
-            gap: 1em;
-            align-items: center;
-        }
-
-        #VirtualTVConfigPage .vtv-number {
-            font-size: 1.55em;
-            font-weight: 700;
-        }
-
-        #VirtualTVConfigPage .vtv-channel-name {
-            font-size: 1.15em;
-            font-weight: 600;
-        }
-
-        #VirtualTVConfigPage .vtv-meta {
-            font-size: .92em;
-            opacity: .78;
-            margin-top: .25em;
-        }
-
-        #VirtualTVConfigPage .vtv-actions {
-            display: flex;
-            gap: .5em;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-
-        #VirtualTVConfigPage .vtv-form-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 1em 1.25em;
-        }
-
-        #VirtualTVConfigPage .vtv-span-2 {
-            grid-column: 1 / -1;
-        }
-
-        #VirtualTVConfigPage .vtv-section-title {
-            margin: 1.6em 0 .65em;
-            font-size: 1.15em;
-            font-weight: 600;
-        }
-
-        #VirtualTVConfigPage .vtv-users {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(12em, 1fr));
-            gap: .35em 1em;
-            margin-top: .5em;
-        }
-
-        #VirtualTVConfigPage .vtv-editor-actions {
-            display: flex;
-            gap: .75em;
-            margin-top: 1.5em;
-        }
-
-        #VirtualTVConfigPage .vtv-empty {
-            text-align: center;
-            padding: 2.5em 1em;
-            opacity: .78;
-        }
-
-        #VirtualTVConfigPage .vtv-badge {
-            display: inline-block;
-            padding: .2em .55em;
-            margin-left: .45em;
-            border-radius: 999px;
-            font-size: .78em;
-            background: rgba(0,164,220,.22);
-        }
-
-        #VirtualTVConfigPage .vtv-warning {
-            padding: .8em 1em;
-            border-radius: .5em;
-            background: rgba(255,183,0,.13);
-            margin-bottom: 1em;
-        }
-
-        #VirtualTVConfigPage .vtv-danger {
-            background: rgba(220,53,69,.16);
-        }
-
-        #VirtualTVConfigPage .vtv-test-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 1em 1.25em;
-        }
-
-        #VirtualTVConfigPage .vtv-test-status {
-            margin-top: .8em;
-            min-height: 1.4em;
-        }
-
-        @media (max-width: 800px) {
-            #VirtualTVConfigPage .vtv-header {
-                display: block;
-            }
-
-            #VirtualTVConfigPage .vtv-header button {
-                margin-top: 1em;
-            }
-
-            #VirtualTVConfigPage .vtv-channel-row,
-            #VirtualTVConfigPage .vtv-form-grid {
-                grid-template-columns: 1fr;
-            }
-
-            #VirtualTVConfigPage .vtv-span-2 {
-                grid-column: auto;
-            }
-
-            #VirtualTVConfigPage .vtv-actions {
-                justify-content: flex-start;
-            }
-        }
-    </style>
+<meta charset="utf-8">
+<title>Virtual TV</title>
+<style>
+#VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
+#VirtualTVConfigPage .vtv-muted{opacity:.72}
+#VirtualTVConfigPage .vtv-card{border:1px solid rgba(255,255,255,.14);border-radius:.7em;padding:1.15em;margin-bottom:1em;background:rgba(255,255,255,.035)}
+#VirtualTVConfigPage .vtv-channel-row{display:grid;grid-template-columns:minmax(4.5em,.5fr) minmax(12em,2fr) minmax(12em,1.4fr) auto;gap:1em;align-items:center}
+#VirtualTVConfigPage .vtv-number{font-size:1.55em;font-weight:700}
+#VirtualTVConfigPage .vtv-channel-name{font-size:1.15em;font-weight:600}
+#VirtualTVConfigPage .vtv-meta{font-size:.92em;opacity:.78;margin-top:.25em}
+#VirtualTVConfigPage .vtv-actions{display:flex;gap:.5em;flex-wrap:wrap;justify-content:flex-end}
+#VirtualTVConfigPage .vtv-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1em 1.25em}
+#VirtualTVConfigPage .vtv-span-2{grid-column:1/-1}
+#VirtualTVConfigPage .vtv-section-title{margin:1.6em 0 .65em;font-size:1.15em;font-weight:600}
+#VirtualTVConfigPage .vtv-editor-actions{display:flex;gap:.75em;margin-top:1.5em}
+#VirtualTVConfigPage .vtv-empty{text-align:center;padding:2.5em 1em;opacity:.78}
+#VirtualTVConfigPage .vtv-warning{padding:.8em 1em;border-radius:.5em;background:rgba(255,183,0,.13);margin-bottom:1em}
+#VirtualTVConfigPage .vtv-search-results,#VirtualTVConfigPage .vtv-selected{display:grid;gap:.5em;margin-top:.65em}
+#VirtualTVConfigPage .vtv-media-row{display:flex;align-items:center;justify-content:space-between;gap:1em;padding:.65em .75em;border:1px solid rgba(255,255,255,.12);border-radius:.5em}
+@media(max-width:800px){#VirtualTVConfigPage .vtv-header{display:block}#VirtualTVConfigPage .vtv-header button{margin-top:1em}#VirtualTVConfigPage .vtv-channel-row,#VirtualTVConfigPage .vtv-form-grid{grid-template-columns:1fr}#VirtualTVConfigPage .vtv-span-2{grid-column:auto}#VirtualTVConfigPage .vtv-actions{justify-content:flex-start}}
+</style>
 </head>
 <body>
-    <div id="VirtualTVConfigPage"
-         data-role="page"
-         class="page type-interior pluginConfigurationPage"
-         data-require="emby-input,emby-button,emby-select,emby-checkbox">
-        <div data-role="content">
-            <div class="content-primary">
-                <div class="vtv-header">
-                    <div>
-                        <h1>Virtual TV</h1>
-                        <div class="vtv-muted">Create and manage virtual linear TV channels inside Jellyfin.</div>
-                    </div>
-                    <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">
-                        Create channel
-                    </button>
-                </div>
-
-                <div id="channelListSection">
-                    <div id="channelList"></div>
-
-                    <div id="architectureTestCard" class="vtv-card" style="margin-top:1.5em;">
-                        <h2>Playback architecture test</h2>
-                        <div class="vtv-muted" style="margin-bottom:1em;">
-                            Temporary technical validation required by the v1 specification. It proves that the plugin can target an existing Jellyfin session and start a Jellyfin media item at an exact offset using the stock player.
-                        </div>
-                        <div class="vtv-test-grid">
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="architectureSession">Target Jellyfin session</label>
-                                <select id="architectureSession" is="emby-select" class="emby-select-withcolor emby-select"></select>
-                                <div class="fieldDescription">Only recently active sessions that Jellyfin reports to this administrator are shown.</div>
-                            </div>
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="architectureOffset">Start offset (minutes)</label>
-                                <input id="architectureOffset" type="number" is="emby-input" min="0" step="0.5" value="2" />
-                            </div>
-                            <div class="inputContainer vtv-span-2">
-                                <label class="inputLabel inputLabelUnfocused" for="architectureSearch">Find a test episode or movie</label>
-                                <input id="architectureSearch" type="text" is="emby-input" placeholder="Type part of a title" />
-                            </div>
-                            <div class="vtv-span-2">
-                                <button id="btnArchitectureSearch" is="emby-button" type="button" class="raised emby-button">Search media</button>
-                            </div>
-                            <div class="selectContainer vtv-span-2">
-                                <label class="selectLabel" for="architectureItem">Test media</label>
-                                <select id="architectureItem" is="emby-select" class="emby-select-withcolor emby-select">
-                                    <option value="">Search for an episode or movie first</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div style="display:flex;gap:.75em;flex-wrap:wrap;">
-                            <button id="btnRunArchitectureTest" is="emby-button" type="button" class="raised emby-button">
-                                Start normal playback test
-                            </button>
-                            <button id="btnRunProtectedArchitectureTest" is="emby-button" type="button" class="raised button-submit emby-button">
-                                Start protected playback test
-                            </button>
-                        </div>
-                        <div class="fieldDescription" style="margin-top:.75em;">
-                            Protected test: starts at the requested offset but continuously restores the item's pre-test Watched/Resume state after Jellyfin playback reports.
-                        </div>
-                        <div id="architectureStatus" class="vtv-test-status vtv-muted"></div>
-                    </div>
-
-                    <div id="liveTvArchitectureTestCard" class="vtv-card">
-                        <h2>Native Live TV architecture test</h2>
-                        <div class="vtv-muted" style="margin-bottom:1em;">
-                            This proof exposes the selected Jellyfin movie or episode through a real Jellyfin Live TV channel. The channel, not the source media item, must be the now-playing item so the source item's Watched/Resume state is not touched.
-                        </div>
-                        <div class="fieldDescription" style="margin-bottom:1em;">
-                            This test reuses the Target Jellyfin session, Start offset and Test media selected above. The source keeps its original timeline so rewind and bitmap subtitles can be validated against the same timestamps.
-                        </div>
-                        <div style="display:flex;gap:.75em;flex-wrap:wrap;">
-                            <button id="btnPrepareLiveTvTest" is="emby-button" type="button" class="raised button-submit emby-button">
-                                Prepare Live TV test channel
-                            </button>
-                            <button id="btnRunLiveTvTest" is="emby-button" type="button" class="raised emby-button">
-                                Start Live TV channel test
-                            </button>
-                            <button id="btnRemoveLiveTvTest" is="emby-button" type="button" class="raised emby-button">
-                                Remove Live TV test channel
-                            </button>
-                        </div>
-                        <div id="liveTvArchitectureStatus" class="vtv-test-status vtv-muted"></div>
-                    </div>
-                </div>
-
-                <div id="channelEditor" class="vtv-card" style="display:none;">
-                    <h2 id="editorTitle">Create channel</h2>
-                    <div id="immutableNotice" class="vtv-warning" style="display:none;">
-                        Channel type, content mode and scheduling method are structural settings and cannot be changed after creation.
-                    </div>
-
-                    <form id="channelForm">
-                        <div class="vtv-form-grid">
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="channelName">Channel name</label>
-                                <input id="channelName" type="text" is="emby-input" required maxlength="80" />
-                                <div class="fieldDescription">The name shown in Live TV and Guide.</div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="channelNumber">Channel number</label>
-                                <input id="channelNumber" type="number" is="emby-input" required min="1" step="1" />
-                                <div class="fieldDescription">Numbers may contain gaps. Collisions shift existing channels upward.</div>
-                            </div>
-
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="channelType">Channel type</label>
-                                <select id="channelType" is="emby-select" class="emby-select-withcolor emby-select">
-                                    <option value="Series">Series</option>
-                                    <option value="Movies">Movies</option>
-                                </select>
-                            </div>
-
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="contentMode">Content mode</label>
-                                <select id="contentMode" is="emby-select" class="emby-select-withcolor emby-select"></select>
-                                <div id="watchedModeDescription" class="fieldDescription"></div>
-                            </div>
-
-                            <div id="schedulingContainer" class="selectContainer">
-                                <label class="selectLabel" for="schedulingMethod">Series scheduling</label>
-                                <select id="schedulingMethod" is="emby-select" class="emby-select-withcolor emby-select">
-                                    <option value="RepeatingSchedule">Repeating Schedule</option>
-                                    <option value="RandomSchedule">Random Schedule</option>
-                                    <option value="ManualOrder">Manual Order</option>
-                                    <option value="SmartSchedule">Smart Schedule</option>
-                                </select>
-                            </div>
-
-                            <div id="smartRotationContainer" class="selectContainer" style="display:none;">
-                                <label class="selectLabel" for="smartRotation">Smart template rotation</label>
-                                <select id="smartRotation" is="emby-select" class="emby-select-withcolor emby-select">
-                                    <option value="1">1 month</option>
-                                    <option value="2" selected>2 months</option>
-                                    <option value="3">3 months</option>
-                                    <option value="6">6 months</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="vtv-section-title">Visibility</div>
-                        <div id="personalChannelNotice" class="vtv-warning" style="display:none;">
-                            Watched-dependent channels are personal in v1 and are restricted to the administrator creating the channel.
-                        </div>
-
-                        <div id="visibilityControls">
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="visibilityMode">Who can see this channel?</label>
-                                <select id="visibilityMode" is="emby-select" class="emby-select-withcolor emby-select">
-                                    <option value="all">All users</option>
-                                    <option value="selected">Selected users</option>
-                                </select>
-                            </div>
-                            <div id="userSelectionContainer" style="display:none;">
-                                <div class="fieldDescription">Select one or more Jellyfin users.</div>
-                                <div id="userSelection" class="vtv-users"></div>
-                            </div>
-                        </div>
-
-                        <div class="vtv-section-title">Operating hours</div>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="is24Hours" type="checkbox" is="emby-checkbox" />
-                                <span>24 Hours</span>
-                            </label>
-                            <div class="fieldDescription">If disabled, the default schedule is on air from 07:00 until 02:00 the following day.</div>
-                        </div>
-
-                        <div id="operatingHoursFields" class="vtv-form-grid">
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="onAirStart">On air from</label>
-                                <input id="onAirStart" type="time" is="emby-input" value="07:00" />
-                            </div>
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="offAirStart">Off air from</label>
-                                <input id="offAirStart" type="time" is="emby-input" value="02:00" />
-                            </div>
-                        </div>
-
-                        <div class="vtv-editor-actions">
-                            <button type="submit" is="emby-button" class="raised button-submit emby-button">Save channel</button>
-                            <button id="btnCancelEdit" type="button" is="emby-button" class="raised emby-button">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <script type="text/javascript">
-            (function () {
-                var page = document.querySelector('#VirtualTVConfigPage');
-                var pluginId = '2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1';
-                var state = {
-                    config: null,
-                    users: [],
-                    editingId: null
-                };
-
-                function escapeHtml(value) {
-                    return String(value || '')
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&#039;');
-                }
-
-                function normalizeConfig(config) {
-                    config = config || {};
-                    config.Channels = Array.isArray(config.Channels) ? config.Channels : [];
-                    config.Channels.forEach(function (channel) {
-                        channel.VisibleUserIds = Array.isArray(channel.VisibleUserIds) ? channel.VisibleUserIds : [];
-                        channel.VisibleToAllUsers = channel.VisibleToAllUsers !== false;
-                        channel.Is24Hours = channel.Is24Hours === true;
-                        channel.OnAirStart = channel.OnAirStart || '07:00';
-                        channel.OffAirStart = channel.OffAirStart || '02:00';
-                        channel.SmartRotationMonths = channel.SmartRotationMonths || 2;
-                    });
-                    return config;
-                }
-
-                function nextChannelNumber() {
-                    if (!state.config || !state.config.Channels.length) {
-                        return 1;
-                    }
-
-                    var highest = Math.max.apply(null, state.config.Channels.map(function (c) {
-                        return Number(c.Number) || 0;
-                    }));
-
-                    return highest + 1;
-                }
-
-                function isWatchedDependent(mode) {
-                    return mode === 'NextUnwatched' || mode === 'RandomUnwatched';
-                }
-
-                function modeLabel(mode) {
-                    switch (mode) {
-                        case 'RandomShuffleCycle': return 'Random / Shuffle Cycle';
-                        case 'NextUnwatched': return 'Next Unwatched';
-                        case 'RandomUnwatched': return 'Random Unwatched';
-                        default: return 'Sequential';
-                    }
-                }
-
-                function schedulingLabel(method) {
-                    switch (method) {
-                        case 'RandomSchedule': return 'Random Schedule';
-                        case 'ManualOrder': return 'Manual Order';
-                        case 'SmartSchedule': return 'Smart Schedule';
-                        default: return 'Repeating Schedule';
-                    }
-                }
-
-                function operatingHoursLabel(channel) {
-                    if (channel.Is24Hours) {
-                        return '24 Hours';
-                    }
-
-                    return (channel.OnAirStart || '07:00') + ' – ' + (channel.OffAirStart || '02:00');
-                }
-
-                function renderChannels() {
-                    var container = page.querySelector('#channelList');
-                    var channels = (state.config && state.config.Channels ? state.config.Channels.slice() : [])
-                        .sort(function (a, b) { return Number(a.Number) - Number(b.Number); });
-
-                    if (!channels.length) {
-                        container.innerHTML =
-                            '<div class="vtv-card vtv-empty">' +
-                                '<div style="font-size:1.15em;font-weight:600;margin-bottom:.4em;">No Virtual TV channels yet</div>' +
-                                '<div>Create your first channel to start building the lineup.</div>' +
-                            '</div>';
-                        return;
-                    }
-
-                    container.innerHTML = channels.map(function (channel) {
-                        var personal = isWatchedDependent(channel.ContentMode)
-                            ? '<span class="vtv-badge">Personal admin-only</span>'
-                            : '';
-
-                        var schedule = channel.ChannelType === 'Series'
-                            ? schedulingLabel(channel.SchedulingMethod)
-                            : 'Movie rotation';
-
-                        return '<div class="vtv-card">' +
-                            '<div class="vtv-channel-row">' +
-                                '<div class="vtv-number">' + escapeHtml(channel.Number) + '</div>' +
-                                '<div>' +
-                                    '<div class="vtv-channel-name">' + escapeHtml(channel.Name) + personal + '</div>' +
-                                    '<div class="vtv-meta">' + escapeHtml(channel.ChannelType) + ' · ' +
-                                        escapeHtml(modeLabel(channel.ContentMode)) + '</div>' +
-                                '</div>' +
-                                '<div>' +
-                                    '<div>' + escapeHtml(schedule) + '</div>' +
-                                    '<div class="vtv-meta">' + escapeHtml(operatingHoursLabel(channel)) + '</div>' +
-                                '</div>' +
-                                '<div class="vtv-actions">' +
-                                    '<button is="emby-button" type="button" class="raised emby-button btnEditChannel" data-id="' + escapeHtml(channel.Id) + '">Edit</button>' +
-                                    '<button is="emby-button" type="button" class="raised emby-button btnDeleteChannel" data-id="' + escapeHtml(channel.Id) + '">Delete</button>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>';
-                    }).join('');
-
-                    Array.prototype.forEach.call(container.querySelectorAll('.btnEditChannel'), function (button) {
-                        button.addEventListener('click', function () {
-                            openEditor(button.getAttribute('data-id'));
-                        });
-                    });
-
-                    Array.prototype.forEach.call(container.querySelectorAll('.btnDeleteChannel'), function (button) {
-                        button.addEventListener('click', function () {
-                            deleteChannel(button.getAttribute('data-id'));
-                        });
-                    });
-                }
-
-                function populateContentModes(selectedValue) {
-                    var type = page.querySelector('#channelType').value;
-                    var select = page.querySelector('#contentMode');
-                    var options = type === 'Movies'
-                        ? [
-                            ['RandomShuffleCycle', 'Random / Shuffle Cycle'],
-                            ['RandomUnwatched', 'Random Unwatched']
-                        ]
-                        : [
-                            ['Sequential', 'Sequential'],
-                            ['RandomShuffleCycle', 'Random / Shuffle Cycle'],
-                            ['NextUnwatched', 'Next Unwatched'],
-                            ['RandomUnwatched', 'Random Unwatched']
-                        ];
-
-                    select.innerHTML = options.map(function (option) {
-                        return '<option value="' + option[0] + '">' + option[1] + '</option>';
-                    }).join('');
-
-                    if (selectedValue && options.some(function (option) { return option[0] === selectedValue; })) {
-                        select.value = selectedValue;
-                    }
-
-                    updateConditionalFields();
-                }
-
-                function updateConditionalFields() {
-                    var type = page.querySelector('#channelType').value;
-                    var mode = page.querySelector('#contentMode').value;
-                    var scheduling = page.querySelector('#schedulingMethod').value;
-                    var watchedDependent = isWatchedDependent(mode);
-
-                    page.querySelector('#schedulingContainer').style.display = type === 'Series' ? '' : 'none';
-                    page.querySelector('#smartRotationContainer').style.display =
-                        type === 'Series' && scheduling === 'SmartSchedule' ? '' : 'none';
-
-                    page.querySelector('#watchedModeDescription').textContent = watchedDependent
-                        ? 'Uses the administrator\'s Jellyfin Watched/Resume state.'
-                        : 'Does not use personal Watched/Resume state for content selection.';
-
-                    page.querySelector('#personalChannelNotice').style.display = watchedDependent ? '' : 'none';
-                    page.querySelector('#visibilityControls').style.display = watchedDependent ? 'none' : '';
-
-                    page.querySelector('#userSelectionContainer').style.display =
-                        !watchedDependent && page.querySelector('#visibilityMode').value === 'selected' ? '' : 'none';
-
-                    page.querySelector('#operatingHoursFields').style.display =
-                        page.querySelector('#is24Hours').checked ? 'none' : '';
-                }
-
-                function renderUserSelection(selectedIds) {
-                    var container = page.querySelector('#userSelection');
-                    selectedIds = selectedIds || [];
-
-                    if (!state.users.length) {
-                        container.innerHTML = '<div class="vtv-muted">No users available.</div>';
-                        return;
-                    }
-
-                    state.users
-                        .slice()
-                        .sort(function (a, b) { return String(a.Name || '').localeCompare(String(b.Name || '')); })
-                        .forEach(function (user) {
-                            var id = user.Id || '';
-                            var checked = selectedIds.indexOf(id) !== -1 ? ' checked' : '';
-                            var wrapper = document.createElement('div');
-                            wrapper.className = 'checkboxContainer';
-                            wrapper.innerHTML =
-                                '<label class="emby-checkbox-label">' +
-                                    '<input type="checkbox" is="emby-checkbox" class="visibleUserCheckbox" value="' + escapeHtml(id) + '"' + checked + ' />' +
-                                    '<span>' + escapeHtml(user.Name || id) + '</span>' +
-                                '</label>';
-                            container.appendChild(wrapper);
-                        });
-                }
-
-                function selectedUserIds() {
-                    return Array.prototype.map.call(
-                        page.querySelectorAll('.visibleUserCheckbox:checked'),
-                        function (input) { return input.value; }
-                    );
-                }
-
-                function setStructuralDisabled(disabled) {
-                    page.querySelector('#channelType').disabled = disabled;
-                    page.querySelector('#contentMode').disabled = disabled;
-                    page.querySelector('#schedulingMethod').disabled = disabled;
-                    page.querySelector('#smartRotation').disabled = disabled;
-                }
-
-                function resetEditor() {
-                    state.editingId = null;
-                    page.querySelector('#editorTitle').textContent = 'Create channel';
-                    page.querySelector('#immutableNotice').style.display = 'none';
-                    page.querySelector('#channelName').value = '';
-                    page.querySelector('#channelNumber').value = nextChannelNumber();
-                    page.querySelector('#channelType').value = 'Series';
-                    page.querySelector('#schedulingMethod').value = 'RepeatingSchedule';
-                    page.querySelector('#smartRotation').value = '2';
-                    page.querySelector('#visibilityMode').value = 'all';
-                    page.querySelector('#is24Hours').checked = false;
-                    page.querySelector('#onAirStart').value = '07:00';
-                    page.querySelector('#offAirStart').value = '02:00';
-                    setStructuralDisabled(false);
-                    populateContentModes('Sequential');
-                    page.querySelector('#userSelection').innerHTML = '';
-                    renderUserSelection([]);
-                    updateConditionalFields();
-                }
-
-                function openEditor(id) {
-                    var channel = id && state.config
-                        ? state.config.Channels.find(function (c) { return c.Id === id; })
-                        : null;
-
-                    resetEditor();
-
-                    if (channel) {
-                        state.editingId = channel.Id;
-                        page.querySelector('#editorTitle').textContent = 'Edit channel';
-                        page.querySelector('#immutableNotice').style.display = '';
-                        page.querySelector('#channelName').value = channel.Name || '';
-                        page.querySelector('#channelNumber').value = channel.Number || 1;
-                        page.querySelector('#channelType').value = channel.ChannelType || 'Series';
-                        page.querySelector('#schedulingMethod').value = channel.SchedulingMethod || 'RepeatingSchedule';
-                        page.querySelector('#smartRotation').value = String(channel.SmartRotationMonths || 2);
-                        page.querySelector('#visibilityMode').value = channel.VisibleToAllUsers ? 'all' : 'selected';
-                        page.querySelector('#is24Hours').checked = channel.Is24Hours === true;
-                        page.querySelector('#onAirStart').value = channel.OnAirStart || '07:00';
-                        page.querySelector('#offAirStart').value = channel.OffAirStart || '02:00';
-                        populateContentModes(channel.ContentMode);
-                        page.querySelector('#userSelection').innerHTML = '';
-                        renderUserSelection(channel.VisibleUserIds || []);
-                        setStructuralDisabled(true);
-                        updateConditionalFields();
-                    }
-
-                    page.querySelector('#channelEditor').style.display = '';
-                    page.querySelector('#channelListSection').style.display = 'none';
-                    page.querySelector('#btnCreateChannel').style.display = 'none';
-                    page.querySelector('#channelName').focus();
-                }
-
-                function closeEditor() {
-                    page.querySelector('#channelEditor').style.display = 'none';
-                    page.querySelector('#channelListSection').style.display = '';
-                    page.querySelector('#btnCreateChannel').style.display = '';
-                    state.editingId = null;
-                }
-
-                function makeRoomForNumber(number, excludeId) {
-                    var occupant = state.config.Channels.find(function (channel) {
-                        return channel.Id !== excludeId && Number(channel.Number) === number;
-                    });
-
-                    if (!occupant) {
-                        return;
-                    }
-
-                    makeRoomForNumber(number + 1, excludeId);
-                    occupant.Number = number + 1;
-                }
-
-                function saveConfiguration(onComplete) {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.updatePluginConfiguration(pluginId, state.config).then(function (result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
-                        if (onComplete) {
-                            onComplete();
-                        }
-                    }).catch(function () {
-                        Dashboard.hideLoadingMsg();
-                        Dashboard.alert('Unable to save the Virtual TV configuration.');
-                    });
-                }
-
-                function saveChannel(event) {
-                    event.preventDefault();
-
-                    var name = page.querySelector('#channelName').value.trim();
-                    var number = parseInt(page.querySelector('#channelNumber').value, 10);
-
-                    if (!name) {
-                        Dashboard.alert('Please enter a channel name.');
-                        return false;
-                    }
-
-                    if (!number || number < 1) {
-                        Dashboard.alert('Channel number must be 1 or higher.');
-                        return false;
-                    }
-
-                    var existing = state.editingId
-                        ? state.config.Channels.find(function (c) { return c.Id === state.editingId; })
-                        : null;
-
-                    var channelType = existing ? existing.ChannelType : page.querySelector('#channelType').value;
-                    var contentMode = existing ? existing.ContentMode : page.querySelector('#contentMode').value;
-                    var schedulingMethod = existing
-                        ? existing.SchedulingMethod
-                        : (channelType === 'Series' ? page.querySelector('#schedulingMethod').value : '');
-
-                    var watchedDependent = isWatchedDependent(contentMode);
-                    var visibleToAll = watchedDependent
-                        ? false
-                        : page.querySelector('#visibilityMode').value === 'all';
-
-                    var visibleIds = watchedDependent
-                        ? [ApiClient.getCurrentUserId()]
-                        : (visibleToAll ? [] : selectedUserIds());
-
-                    if (!watchedDependent && !visibleToAll && !visibleIds.length) {
-                        Dashboard.alert('Select at least one Jellyfin user or choose All users.');
-                        return false;
-                    }
-
-                    makeRoomForNumber(number, state.editingId);
-
-                    if (!existing) {
-                        existing = {
-                            Id: (window.crypto && window.crypto.randomUUID)
-                                ? window.crypto.randomUUID().replace(/-/g, '')
-                                : String(Date.now()) + String(Math.random()).replace('.', ''),
-                            CreatedUtc: new Date().toISOString()
-                        };
-                        state.config.Channels.push(existing);
-                    }
-
-                    existing.Name = name;
-                    existing.Number = number;
-                    existing.ChannelType = channelType;
-                    existing.ContentMode = contentMode;
-                    existing.SchedulingMethod = schedulingMethod;
-                    existing.VisibleToAllUsers = visibleToAll;
-                    existing.VisibleUserIds = visibleIds;
-                    existing.Is24Hours = page.querySelector('#is24Hours').checked;
-                    existing.OnAirStart = page.querySelector('#onAirStart').value || '07:00';
-                    existing.OffAirStart = page.querySelector('#offAirStart').value || '02:00';
-                    existing.SmartRotationMonths = parseInt(
-                        existing.SchedulingMethod === 'SmartSchedule'
-                            ? page.querySelector('#smartRotation').value
-                            : (existing.SmartRotationMonths || '2'),
-                        10
-                    );
-                    existing.NeedsReconcile = true;
-
-                    state.config.Channels.sort(function (a, b) {
-                        return Number(a.Number) - Number(b.Number);
-                    });
-
-                    saveConfiguration(function () {
-                        closeEditor();
-                        renderChannels();
-                    });
-
-                    return false;
-                }
-
-                function deleteChannel(id) {
-                    var channel = state.config.Channels.find(function (c) { return c.Id === id; });
-                    if (!channel) {
-                        return;
-                    }
-
-                    if (!window.confirm('Delete channel "' + channel.Name + '"? This removes its Virtual TV configuration.')) {
-                        return;
-                    }
-
-                    state.config.Channels = state.config.Channels.filter(function (c) { return c.Id !== id; });
-                    saveConfiguration(function () {
-                        renderChannels();
-                    });
-                }
-
-                function loadArchitectureSessions() {
-                    var select = page.querySelector('#architectureSession');
-                    var userId = ApiClient.getCurrentUserId();
-
-                    return ApiClient.getSessions({
-                        controllableByUserId: userId,
-                        activeWithinSeconds: 900
-                    }).then(function (sessions) {
-                        sessions = sessions || [];
-                        var deviceId = ApiClient.deviceId();
-
-                        sessions.sort(function (a, b) {
-                            var aCurrent = a.DeviceId === deviceId ? 0 : 1;
-                            var bCurrent = b.DeviceId === deviceId ? 0 : 1;
-                            return aCurrent - bCurrent;
-                        });
-
-                        if (!sessions.length) {
-                            select.innerHTML = '<option value="">No active controllable sessions found</option>';
-                            return;
-                        }
-
-                        select.innerHTML = sessions.map(function (session) {
-                            var label = [
-                                session.Client || 'Jellyfin',
-                                session.DeviceName || session.DeviceId || 'Unknown device'
-                            ].join(' — ');
-
-                            if (session.DeviceId === deviceId) {
-                                label += ' (this browser)';
-                            }
-
-                            return '<option value="' + escapeHtml(session.Id) + '">' + escapeHtml(label) + '</option>';
-                        }).join('');
-                    });
-                }
-
-                function searchArchitectureMedia() {
-                    var query = page.querySelector('#architectureSearch').value.trim();
-                    var select = page.querySelector('#architectureItem');
-
-                    if (!query) {
-                        Dashboard.alert('Type part of an episode or movie title first.');
-                        return;
-                    }
-
-                    Dashboard.showLoadingMsg();
-
-                    ApiClient.getItems(ApiClient.getCurrentUserId(), {
-                        Recursive: true,
-                        IncludeItemTypes: 'Episode,Movie',
-                        SearchTerm: query,
-                        Limit: 50,
-                        SortBy: 'SortName'
-                    }).then(function (result) {
-                        var items = result && result.Items ? result.Items : [];
-
-                        if (!items.length) {
-                            select.innerHTML = '<option value="">No matching episodes or movies found</option>';
-                            Dashboard.hideLoadingMsg();
-                            return;
-                        }
-
-                        select.innerHTML = items.map(function (item) {
-                            var parts = [];
-                            if (item.SeriesName) {
-                                parts.push(item.SeriesName);
-                            }
-
-                            if (item.ParentIndexNumber != null && item.IndexNumber != null) {
-                                parts.push('S' + String(item.ParentIndexNumber).padStart(2, '0') + 'E' + String(item.IndexNumber).padStart(2, '0'));
-                            }
-
-                            parts.push(item.Name || item.Id);
-                            return '<option value="' + escapeHtml(item.Id) + '">' + escapeHtml(parts.join(' — ')) + '</option>';
-                        }).join('');
-
-                        Dashboard.hideLoadingMsg();
-                    }).catch(function () {
-                        Dashboard.hideLoadingMsg();
-                        Dashboard.alert('Unable to search Jellyfin media.');
-                    });
-                }
-
-                function runArchitectureTest(protectedState) {
-                    var sessionId = page.querySelector('#architectureSession').value;
-                    var itemId = page.querySelector('#architectureItem').value;
-                    var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
-                    var status = page.querySelector('#architectureStatus');
-
-                    if (!sessionId) {
-                        Dashboard.alert('Select an active Jellyfin session.');
-                        return;
-                    }
-
-                    if (!itemId) {
-                        Dashboard.alert('Search for and select a test episode or movie.');
-                        return;
-                    }
-
-                    if (isNaN(minutes) || minutes < 0) {
-                        Dashboard.alert('Start offset must be zero or higher.');
-                        return;
-                    }
-
-                    status.textContent = protectedState
-                        ? 'Capturing current user state and sending protected playback command…'
-                        : 'Sending playback command…';
-
-                    ApiClient.ajax({
-                        type: 'POST',
-                        url: ApiClient.getUrl(protectedState
-                            ? 'VirtualTV/Architecture/ProtectedPlaybackTest'
-                            : 'VirtualTV/Architecture/PlaybackTest'),
-                        data: JSON.stringify({
-                            SessionId: sessionId,
-                            ItemId: itemId,
-                            StartPositionTicks: Math.round(minutes * 60 * 10000000)
-                        }),
-                        contentType: 'application/json'
-                    }).then(function () {
-                        status.textContent = protectedState
-                            ? 'Protected playback started. After stopping, verify that the previous Watched/Resume state is unchanged.'
-                            : 'Playback command accepted by Jellyfin. Confirm the player started at the requested offset.';
-                    }).catch(function () {
-                        status.textContent = protectedState
-                            ? 'Protected playback test failed. We will inspect the Jellyfin log before proceeding.'
-                            : 'Playback test failed. We will inspect the Jellyfin log before proceeding.';
-                    });
-                }
-
-                function prepareLiveTvArchitectureTest() {
-                    var itemId = page.querySelector('#architectureItem').value;
-                    var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
-                    var status = page.querySelector('#liveTvArchitectureStatus');
-
-                    if (!itemId) {
-                        Dashboard.alert('Search for and select a test episode or movie first.');
-                        return;
-                    }
-
-                    if (isNaN(minutes) || minutes < 0) {
-                        Dashboard.alert('Start offset must be zero or higher.');
-                        return;
-                    }
-
-                    status.textContent = 'Creating the full-timeline Live TV test channel and refreshing the Jellyfin Guide…';
-                    Dashboard.showLoadingMsg();
-
-                    ApiClient.ajax({
-                        type: 'POST',
-                        url: ApiClient.getUrl('VirtualTV/Architecture/PrepareLiveTvTest'),
-                        data: JSON.stringify({
-                            ItemId: itemId,
-                            StartPositionTicks: Math.round(minutes * 60 * 10000000)
-                        }),
-                        contentType: 'application/json'
-                    }).then(function () {
-                        Dashboard.hideLoadingMsg();
-                        status.textContent = 'Live TV test channel prepared as channel 9999 at the selected wall-clock offset. Jellyfin Guide data has been refreshed.';
-                    }).catch(function () {
-                        Dashboard.hideLoadingMsg();
-                        status.textContent = 'Unable to prepare the Live TV test channel. We will inspect the Jellyfin log before proceeding.';
-                    });
-                }
-
-                function runLiveTvArchitectureTest() {
-                    var sessionId = page.querySelector('#architectureSession').value;
-                    var minutes = parseFloat(page.querySelector('#architectureOffset').value || '0');
-                    var status = page.querySelector('#liveTvArchitectureStatus');
-
-                    if (!sessionId) {
-                        Dashboard.alert('Select an active Jellyfin session.');
-                        return;
-                    }
-
-                    if (isNaN(minutes) || minutes < 0) {
-                        Dashboard.alert('Start offset must be zero or higher.');
-                        return;
-                    }
-
-                    status.textContent = 'Sending the native Live TV channel to the selected Jellyfin session…';
-
-                    ApiClient.ajax({
-                        type: 'POST',
-                        url: ApiClient.getUrl('VirtualTV/Architecture/LiveTvPlaybackTest'),
-                        data: JSON.stringify({
-                            SessionId: sessionId,
-                            StartPositionTicks: Math.round(minutes * 60 * 10000000)
-                        }),
-                        contentType: 'application/json'
-                    }).then(function () {
-                        status.textContent = 'Live TV playback command accepted. Confirm playback and then verify the source media Resume state.';
-                    }).catch(function () {
-                        status.textContent = 'Live TV playback test failed. We will inspect the Jellyfin log before proceeding.';
-                    });
-                }
-
-                function removeLiveTvArchitectureTest() {
-                    var status = page.querySelector('#liveTvArchitectureStatus');
-                    status.textContent = 'Removing the temporary Live TV test channel and refreshing the Jellyfin Guide…';
-                    Dashboard.showLoadingMsg();
-
-                    ApiClient.ajax({
-                        type: 'POST',
-                        url: ApiClient.getUrl('VirtualTV/Architecture/RemoveLiveTvTest')
-                    }).then(function () {
-                        Dashboard.hideLoadingMsg();
-                        status.textContent = 'Temporary Live TV test channel removed.';
-                    }).catch(function () {
-                        Dashboard.hideLoadingMsg();
-                        status.textContent = 'Unable to remove the Live TV test channel. We will inspect the Jellyfin log.';
-                    });
-                }
-
-                function loadPage() {
-                    Dashboard.showLoadingMsg();
-
-                    Promise.all([
-                        ApiClient.getPluginConfiguration(pluginId),
-                        ApiClient.getUsers(),
-                        loadArchitectureSessions()
-                    ]).then(function (results) {
-                        state.config = normalizeConfig(results[0]);
-                        state.users = results[1] || [];
-                        renderChannels();
-                        closeEditor();
-                        Dashboard.hideLoadingMsg();
-                    }).catch(function () {
-                        Dashboard.hideLoadingMsg();
-                        Dashboard.alert('Unable to load the Virtual TV configuration.');
-                    });
-                }
-
-                page.querySelector('#btnCreateChannel').addEventListener('click', function () {
-                    openEditor(null);
-                });
-
-                page.querySelector('#btnCancelEdit').addEventListener('click', function () {
-                    closeEditor();
-                });
-
-                page.querySelector('#channelType').addEventListener('change', function () {
-                    populateContentModes(null);
-                });
-
-                page.querySelector('#contentMode').addEventListener('change', updateConditionalFields);
-                page.querySelector('#schedulingMethod').addEventListener('change', updateConditionalFields);
-                page.querySelector('#visibilityMode').addEventListener('change', updateConditionalFields);
-                page.querySelector('#is24Hours').addEventListener('change', updateConditionalFields);
-                page.querySelector('#channelForm').addEventListener('submit', saveChannel);
-                page.querySelector('#btnArchitectureSearch').addEventListener('click', searchArchitectureMedia);
-                page.querySelector('#architectureSearch').addEventListener('keydown', function (event) {
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        searchArchitectureMedia();
-                    }
-                });
-                page.querySelector('#btnRunArchitectureTest').addEventListener('click', function () {
-                    runArchitectureTest(false);
-                });
-                page.querySelector('#btnRunProtectedArchitectureTest').addEventListener('click', function () {
-                    runArchitectureTest(true);
-                });
-                page.querySelector('#btnPrepareLiveTvTest').addEventListener('click', prepareLiveTvArchitectureTest);
-                page.querySelector('#btnRunLiveTvTest').addEventListener('click', runLiveTvArchitectureTest);
-                page.querySelector('#btnRemoveLiveTvTest').addEventListener('click', removeLiveTvArchitectureTest);
-                page.addEventListener('pageshow', loadPage);
-            }());
-        </script>
-    </div>
+<div id="VirtualTVConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div data-role="content"><div class="content-primary">
+<div class="vtv-header">
+<div><h1>Virtual TV</h1><div class="vtv-muted">Create real linear TV channels from media already in Jellyfin.</div></div>
+<button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
+</div>
+
+<div id="channelListSection">
+<div class="vtv-warning">Real-channel testing milestone: Series channels currently use <strong>Sequential + Repeating Schedule</strong>; Movie channels use <strong>Random / Shuffle Cycle</strong>. Additional v1 modes will be enabled in later functional increments.</div>
+<div id="channelList"></div>
+</div>
+
+<div id="channelEditor" class="vtv-card" style="display:none;">
+<h2 id="editorTitle">Create channel</h2>
+<div id="immutableNotice" class="vtv-warning" style="display:none;">Channel type is structural. To change it, create a new channel.</div>
+<form id="channelForm">
+<div class="vtv-form-grid">
+<div class="inputContainer"><label class="inputLabel inputLabelUnfocused" for="channelName">Channel name</label><input id="channelName" type="text" is="emby-input" required maxlength="80"></div>
+<div class="inputContainer"><label class="inputLabel inputLabelUnfocused" for="channelNumber">Channel number</label><input id="channelNumber" type="number" is="emby-input" required min="1" step="1"></div>
+<div class="selectContainer"><label class="selectLabel" for="channelType">Channel type</label><select id="channelType" is="emby-select" class="emby-select-withcolor emby-select"><option value="Series">Series</option><option value="Movies">Movies</option></select></div>
+<div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Playback mode</label><input id="modeDisplay" type="text" is="emby-input" disabled><div class="fieldDescription">Fixed for this real-channel milestone.</div></div>
+</div>
+
+<div class="vtv-section-title">Content</div>
+<div class="fieldDescription" id="contentHelp"></div>
+<div class="vtv-form-grid" style="margin-top:.75em;">
+<div class="inputContainer vtv-span-2"><label class="inputLabel inputLabelUnfocused" for="mediaSearch">Find content</label><input id="mediaSearch" type="text" is="emby-input" placeholder="Type part of a title"></div>
+<div class="vtv-span-2"><button id="btnSearchMedia" is="emby-button" type="button" class="raised emby-button">Search</button></div>
+</div>
+<div id="mediaSearchResults" class="vtv-search-results"></div>
+
+<div class="vtv-section-title">Selected content</div>
+<div id="selectedMedia" class="vtv-selected"></div>
+
+<div class="vtv-section-title">Operating hours</div>
+<div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input id="is24Hours" type="checkbox" is="emby-checkbox"><span>24 Hours</span></label><div class="fieldDescription">If disabled, the default is on air 07:00–02:00 the following day.</div></div>
+<div id="operatingHoursFields" class="vtv-form-grid">
+<div class="inputContainer"><label class="inputLabel inputLabelUnfocused" for="onAirStart">On air from</label><input id="onAirStart" type="time" is="emby-input" value="07:00"></div>
+<div class="inputContainer"><label class="inputLabel inputLabelUnfocused" for="offAirStart">Off air from</label><input id="offAirStart" type="time" is="emby-input" value="02:00"></div>
+</div>
+<div class="vtv-editor-actions"><button type="submit" is="emby-button" class="raised button-submit emby-button">Save channel</button><button id="btnCancelEdit" type="button" is="emby-button" class="raised emby-button">Cancel</button></div>
+</form>
+</div>
+</div></div>
+
+<script type="text/javascript">
+(function(){
+var page=document.querySelector('#VirtualTVConfigPage'),pluginId='2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1';
+var state={config:null,editingId:null,selectedItems:[],searchResults:[]};
+function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
+function normalize(c){c=c||{};c.Channels=Array.isArray(c.Channels)?c.Channels:[];c.Channels.forEach(function(x){x.SelectedItemIds=Array.isArray(x.SelectedItemIds)?x.SelectedItemIds:[];x.Is24Hours=x.Is24Hours===true;x.OnAirStart=x.OnAirStart||'07:00';x.OffAirStart=x.OffAirStart||'02:00';});return c;}
+function nextNumber(){if(!state.config.Channels.length)return 1;return Math.max.apply(null,state.config.Channels.map(function(c){return Number(c.Number)||0;}))+1;}
+function modeLabel(c){return c.ChannelType==='Movies'?'Random / Shuffle Cycle':'Sequential · Repeating Schedule';}
+function scheduleLabel(c){return c.ScheduleEndUtc?'Schedule through '+new Date(c.ScheduleEndUtc).toLocaleString():'Schedule not generated';}
+function renderChannels(){
+var box=page.querySelector('#channelList'),chs=state.config.Channels.slice().sort(function(a,b){return Number(a.Number)-Number(b.Number);});
+if(!chs.length){box.innerHTML='<div class="vtv-card vtv-empty"><div style="font-size:1.15em;font-weight:600;margin-bottom:.4em;">No Virtual TV channels yet</div><div>Create a channel, select content, then generate its 30-day schedule.</div></div>';return;}
+box.innerHTML=chs.map(function(c){return '<div class="vtv-card"><div class="vtv-channel-row"><div class="vtv-number">'+esc(c.Number)+'</div><div><div class="vtv-channel-name">'+esc(c.Name)+'</div><div class="vtv-meta">'+esc(c.ChannelType)+' · '+esc(modeLabel(c))+'</div></div><div><div>'+esc((c.SelectedItemIds||[]).length)+' selected</div><div class="vtv-meta">'+esc(scheduleLabel(c))+'</div></div><div class="vtv-actions"><button is="emby-button" type="button" class="raised button-submit emby-button btnGenerate" data-id="'+esc(c.Id)+'">Generate schedule</button><button is="emby-button" type="button" class="raised emby-button btnEdit" data-id="'+esc(c.Id)+'">Edit</button><button is="emby-button" type="button" class="raised emby-button btnDelete" data-id="'+esc(c.Id)+'">Delete</button></div></div></div>';}).join('');
+Array.prototype.forEach.call(box.querySelectorAll('.btnGenerate'),function(b){b.addEventListener('click',function(){generateSchedule(b.getAttribute('data-id'));});});
+Array.prototype.forEach.call(box.querySelectorAll('.btnEdit'),function(b){b.addEventListener('click',function(){openEditor(b.getAttribute('data-id'));});});
+Array.prototype.forEach.call(box.querySelectorAll('.btnDelete'),function(b){b.addEventListener('click',function(){deleteChannel(b.getAttribute('data-id'));});});
+}
+function setTypeUi(){var t=page.querySelector('#channelType').value;page.querySelector('#modeDisplay').value=t==='Movies'?'Random / Shuffle Cycle':'Sequential · Repeating Schedule';page.querySelector('#contentHelp').textContent=t==='Movies'?'Select one or more Jellyfin movies. The generated schedule uses persisted shuffle cycles.':'Select one or more Jellyfin series. All regular seasons are included; Specials are excluded in this milestone.';}
+function renderSelected(){var box=page.querySelector('#selectedMedia');if(!state.selectedItems.length){box.innerHTML='<div class="vtv-muted">No content selected yet.</div>';return;}box.innerHTML=state.selectedItems.map(function(i){return '<div class="vtv-media-row"><div><strong>'+esc(i.Name)+'</strong><div class="vtv-meta">'+esc(i.Type||'')+'</div></div><button is="emby-button" type="button" class="raised emby-button btnRemoveMedia" data-id="'+esc(i.Id)+'">Remove</button></div>';}).join('');Array.prototype.forEach.call(box.querySelectorAll('.btnRemoveMedia'),function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');state.selectedItems=state.selectedItems.filter(function(i){return i.Id!==id;});renderSelected();});});}
+function renderSearchResults(){var box=page.querySelector('#mediaSearchResults');if(!state.searchResults.length){box.innerHTML='';return;}box.innerHTML=state.searchResults.map(function(i){var a=state.selectedItems.some(function(s){return s.Id===i.Id;});return '<div class="vtv-media-row"><div><strong>'+esc(i.Name)+'</strong><div class="vtv-meta">'+esc(i.Type||'')+'</div></div><button is="emby-button" type="button" class="raised emby-button btnAddMedia" data-id="'+esc(i.Id)+'" '+(a?'disabled':'')+'>'+(a?'Added':'Add')+'</button></div>';}).join('');Array.prototype.forEach.call(box.querySelectorAll('.btnAddMedia'),function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id'),i=state.searchResults.find(function(x){return x.Id===id;});if(i&&!state.selectedItems.some(function(x){return x.Id===id;})){state.selectedItems.push(i);renderSelected();renderSearchResults();}});});}
+function loadSelected(ids){state.selectedItems=[];renderSelected();if(!ids||!ids.length)return Promise.resolve();return ApiClient.getItems(ApiClient.getCurrentUserId(),{Ids:ids.join(','),Recursive:true,Limit:500}).then(function(r){state.selectedItems=(r&&r.Items?r.Items:[]).map(function(i){return{Id:i.Id,Name:i.Name,Type:i.Type};});renderSelected();});}
+function updateHours(){page.querySelector('#operatingHoursFields').style.display=page.querySelector('#is24Hours').checked?'none':'';}
+function resetEditor(){state.editingId=null;state.selectedItems=[];state.searchResults=[];page.querySelector('#editorTitle').textContent='Create channel';page.querySelector('#immutableNotice').style.display='none';page.querySelector('#channelName').value='';page.querySelector('#channelNumber').value=nextNumber();page.querySelector('#channelType').value='Series';page.querySelector('#channelType').disabled=false;page.querySelector('#mediaSearch').value='';page.querySelector('#mediaSearchResults').innerHTML='';page.querySelector('#is24Hours').checked=false;page.querySelector('#onAirStart').value='07:00';page.querySelector('#offAirStart').value='02:00';setTypeUi();renderSelected();updateHours();}
+function openEditor(id){resetEditor();var c=id?state.config.Channels.find(function(x){return x.Id===id;}):null;if(c){state.editingId=c.Id;page.querySelector('#editorTitle').textContent='Edit channel';page.querySelector('#immutableNotice').style.display='';page.querySelector('#channelName').value=c.Name||'';page.querySelector('#channelNumber').value=c.Number||1;page.querySelector('#channelType').value=c.ChannelType||'Series';page.querySelector('#channelType').disabled=true;page.querySelector('#is24Hours').checked=c.Is24Hours===true;page.querySelector('#onAirStart').value=c.OnAirStart||'07:00';page.querySelector('#offAirStart').value=c.OffAirStart||'02:00';setTypeUi();updateHours();loadSelected(c.SelectedItemIds||[]);}page.querySelector('#channelEditor').style.display='';page.querySelector('#channelListSection').style.display='none';page.querySelector('#btnCreateChannel').style.display='none';page.querySelector('#channelName').focus();}
+function closeEditor(){page.querySelector('#channelEditor').style.display='none';page.querySelector('#channelListSection').style.display='';page.querySelector('#btnCreateChannel').style.display='';state.editingId=null;}
+function makeRoom(n,exclude){var o=state.config.Channels.find(function(c){return c.Id!==exclude&&Number(c.Number)===n;});if(o){makeRoom(n+1,exclude);o.Number=n+1;}}
+function refreshGuide(){return ApiClient.ajax({type:'POST',url:ApiClient.getUrl('VirtualTV/Channels/RefreshGuide')});}
+function saveConfig(done){Dashboard.showLoadingMsg();ApiClient.updatePluginConfiguration(pluginId,state.config).then(function(r){Dashboard.processPluginConfigurationUpdateResult(r);return refreshGuide();}).then(function(){Dashboard.hideLoadingMsg();if(done)done();}).catch(function(){Dashboard.hideLoadingMsg();Dashboard.alert('Unable to save the Virtual TV configuration.');});}
+function saveChannel(e){e.preventDefault();var name=page.querySelector('#channelName').value.trim(),number=parseInt(page.querySelector('#channelNumber').value,10);if(!name){Dashboard.alert('Please enter a channel name.');return false;}if(!number||number<1){Dashboard.alert('Channel number must be 1 or higher.');return false;}if(!state.selectedItems.length){Dashboard.alert('Select at least one series or movie.');return false;}var existing=state.editingId?state.config.Channels.find(function(c){return c.Id===state.editingId;}):null,type=existing?existing.ChannelType:page.querySelector('#channelType').value;makeRoom(number,state.editingId);if(!existing){existing={Id:(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID().replace(/-/g,''):String(Date.now())+String(Math.random()).replace('.',''),CreatedUtc:new Date().toISOString()};state.config.Channels.push(existing);}existing.Name=name;existing.Number=number;existing.ChannelType=type;existing.ContentMode=type==='Movies'?'RandomShuffleCycle':'Sequential';existing.SchedulingMethod=type==='Series'?'RepeatingSchedule':'';existing.SelectedItemIds=state.selectedItems.map(function(i){return i.Id;});existing.VisibleToAllUsers=true;existing.VisibleUserIds=[];existing.Is24Hours=page.querySelector('#is24Hours').checked;existing.OnAirStart=page.querySelector('#onAirStart').value||'07:00';existing.OffAirStart=page.querySelector('#offAirStart').value||'02:00';existing.NeedsReconcile=true;existing.ScheduleGeneratedUtc='';existing.ScheduleEndUtc='';state.config.Channels.sort(function(a,b){return Number(a.Number)-Number(b.Number);});saveConfig(function(){closeEditor();renderChannels();});return false;}
+function searchMedia(){var q=page.querySelector('#mediaSearch').value.trim();if(!q){Dashboard.alert('Type part of a title first.');return;}var type=page.querySelector('#channelType').value==='Movies'?'Movie':'Series';Dashboard.showLoadingMsg();ApiClient.getItems(ApiClient.getCurrentUserId(),{Recursive:true,IncludeItemTypes:type,SearchTerm:q,Limit:100,SortBy:'SortName'}).then(function(r){Dashboard.hideLoadingMsg();state.searchResults=(r&&r.Items?r.Items:[]).map(function(i){return{Id:i.Id,Name:i.Name,Type:i.Type};});renderSearchResults();}).catch(function(){Dashboard.hideLoadingMsg();Dashboard.alert('Unable to search Jellyfin media.');});}
+function generateSchedule(id){var c=state.config.Channels.find(function(x){return x.Id===id;});if(!c)return;if(!c.SelectedItemIds||!c.SelectedItemIds.length){Dashboard.alert('Edit the channel and select content first.');return;}Dashboard.showLoadingMsg();ApiClient.ajax({type:'POST',url:ApiClient.getUrl('VirtualTV/Channels/'+encodeURIComponent(id)+'/GenerateSchedule')}).then(function(){return ApiClient.getPluginConfiguration(pluginId);}).then(function(cfg){state.config=normalize(cfg);Dashboard.hideLoadingMsg();renderChannels();Dashboard.alert('Schedule generated. The channel is now available in Jellyfin Live TV / Guide.');}).catch(function(){Dashboard.hideLoadingMsg();Dashboard.alert('Schedule generation failed. Check the Jellyfin log for details.');});}
+function deleteChannel(id){var c=state.config.Channels.find(function(x){return x.Id===id;});if(!c)return;if(!window.confirm('Delete channel "'+c.Name+'"?'))return;state.config.Channels=state.config.Channels.filter(function(x){return x.Id!==id;});Dashboard.showLoadingMsg();ApiClient.updatePluginConfiguration(pluginId,state.config).then(function(r){Dashboard.processPluginConfigurationUpdateResult(r);return ApiClient.ajax({type:'DELETE',url:ApiClient.getUrl('VirtualTV/Channels/'+encodeURIComponent(id)+'/Schedule')});}).then(function(){Dashboard.hideLoadingMsg();renderChannels();}).catch(function(){Dashboard.hideLoadingMsg();Dashboard.alert('Unable to delete the channel cleanly.');});}
+function loadPage(){Dashboard.showLoadingMsg();ApiClient.getPluginConfiguration(pluginId).then(function(cfg){state.config=normalize(cfg);renderChannels();closeEditor();Dashboard.hideLoadingMsg();}).catch(function(){Dashboard.hideLoadingMsg();Dashboard.alert('Unable to load the Virtual TV configuration.');});}
+page.querySelector('#btnCreateChannel').addEventListener('click',function(){openEditor(null);});
+page.querySelector('#btnCancelEdit').addEventListener('click',closeEditor);
+page.querySelector('#channelForm').addEventListener('submit',saveChannel);
+page.querySelector('#channelType').addEventListener('change',function(){state.selectedItems=[];state.searchResults=[];setTypeUi();renderSelected();renderSearchResults();});
+page.querySelector('#is24Hours').addEventListener('change',updateHours);
+page.querySelector('#btnSearchMedia').addEventListener('click',searchMedia);
+page.querySelector('#mediaSearch').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();searchMedia();}});
+page.addEventListener('pageshow',loadPage);
+})();
+</script>
+</div>
 </body>
 </html>
