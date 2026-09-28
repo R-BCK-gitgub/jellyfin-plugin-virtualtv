@@ -5,9 +5,12 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using Jellyfin.Plugin.VirtualTV.Services;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -40,11 +43,16 @@ public sealed class VirtualTvController : ControllerBase
 
     private readonly VirtualTvScheduler _scheduler;
     private readonly IGuideManager _guideManager;
+    private readonly IUserManager _userManager;
 
-    public VirtualTvController(VirtualTvScheduler scheduler, IGuideManager guideManager)
+    public VirtualTvController(
+        VirtualTvScheduler scheduler,
+        IGuideManager guideManager,
+        IUserManager userManager)
     {
         _scheduler = scheduler;
         _guideManager = guideManager;
+        _userManager = userManager;
     }
 
     [HttpGet("Channels")]
@@ -97,6 +105,12 @@ public sealed class VirtualTvController : ControllerBase
             return BadRequest(validation);
         }
 
+        var ownerValidation = ValidateWatchedDependentOwner(request);
+        if (ownerValidation is not null)
+        {
+            return BadRequest(ownerValidation);
+        }
+
         ShiftNumberCollisions(plugin.Configuration.Channels, request.Number, null);
         plugin.Configuration.Channels.Add(request);
         plugin.SaveConfiguration();
@@ -133,6 +147,12 @@ public sealed class VirtualTvController : ControllerBase
         if (validation is not null)
         {
             return BadRequest(validation);
+        }
+
+        var ownerValidation = ValidateWatchedDependentOwner(request);
+        if (ownerValidation is not null)
+        {
+            return BadRequest(ownerValidation);
         }
 
         var scheduleChanged = ScheduleFingerprint(existing) != ScheduleFingerprint(request);
@@ -354,47 +374,58 @@ public sealed class VirtualTvController : ControllerBase
         return JsonSerializer.Serialize(scheduleRelevant);
     }
 
-    private static void ShiftNumberCollisions(List<ChannelConfiguration> channels, int targetNumber, string? movingId)
+    private string? ValidateWatchedDependentOwner(ChannelConfiguration channel)
     {
-        var occupied = channels
-            .Where(c => movingId is null || !string.Equals(c.Id, movingId, StringComparison.OrdinalIgnoreCase))
-            .ToDictionary(c => c.Number);
+        var watchedDependent = string.Equals(channel.ContentMode, "NextUnwatched", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(channel.ContentMode, "RandomUnwatched", StringComparison.OrdinalIgnoreCase);
 
-        var number = targetNumber;
-        while (occupied.TryGetValue(number, out var channel))
+        if (!watchedDependent)
         {
-            occupied.Remove(number);
-            number++;
-            while (occupied.ContainsKey(number))
-            {
-                var next = occupied[number];
-                occupied.Remove(number);
-                next.Number = number + 1;
-                occupied[next.Number] = next;
-                number++;
-            }
-
-            channel.Number = targetNumber + 1;
-            occupied[channel.Number] = channel;
-            break;
+            return null;
         }
 
-        // Defensive normalization in case the starting configuration already contained duplicates.
-        foreach (var duplicateGroup in channels
-                     .Where(c => movingId is null || !string.Equals(c.Id, movingId, StringComparison.OrdinalIgnoreCase))
-                     .GroupBy(c => c.Number)
-                     .Where(g => g.Count() > 1))
+        if (!Guid.TryParse(channel.OwnerUserId, out var ownerId))
         {
-            var next = duplicateGroup.Key;
-            foreach (var duplicate in duplicateGroup.Skip(1))
-            {
-                do
-                {
-                    next++;
-                }
-                while (channels.Any(c => c != duplicate && c.Number == next));
+            return "Watched-dependent channels require an administrator owner.";
+        }
 
-                duplicate.Number = next;
+        var owner = _userManager.GetUserById(ownerId);
+        if (owner is null || !owner.HasPermission(PermissionKind.IsAdministrator))
+        {
+            return "Watched-dependent channels can only belong to a Jellyfin administrator.";
+        }
+
+        channel.VisibleToAllUsers = false;
+        channel.VisibleUserIds = [channel.OwnerUserId];
+        return null;
+    }
+
+    private static void ShiftNumberCollisions(List<ChannelConfiguration> channels, int targetNumber, string? movingId)
+    {
+        var candidates = channels
+            .Where(c => movingId is null || !string.Equals(c.Id, movingId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var byNumber = candidates
+            .GroupBy(c => c.Number)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        if (!byNumber.ContainsKey(targetNumber))
+        {
+            return;
+        }
+
+        var lastOccupied = targetNumber;
+        while (byNumber.ContainsKey(lastOccupied + 1))
+        {
+            lastOccupied++;
+        }
+
+        for (var number = lastOccupied; number >= targetNumber; number--)
+        {
+            if (byNumber.TryGetValue(number, out var existing))
+            {
+                existing.Number = number + 1;
             }
         }
     }
