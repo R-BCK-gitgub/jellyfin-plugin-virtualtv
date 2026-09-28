@@ -2,7 +2,7 @@ name: Build Virtual TV Plugin
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "preview/**" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
