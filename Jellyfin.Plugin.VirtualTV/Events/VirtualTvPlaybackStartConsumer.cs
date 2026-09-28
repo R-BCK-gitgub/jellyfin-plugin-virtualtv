@@ -6,17 +6,24 @@ using MediaBrowser.Controller.Library;
 namespace Jellyfin.Plugin.VirtualTV.Events;
 
 /// <summary>
-/// Applies the materialized wall-clock position after a native Virtual TV channel starts.
+/// Coordinates the channel-to-source handoff and keeps protected library state unchanged.
 /// </summary>
 public sealed class VirtualTvPlaybackStartConsumer : IEventConsumer<PlaybackStartEventArgs>
 {
     private readonly LiveTvPlaybackCoordinator _coordinator;
+    private readonly PlaybackStateProtectionManager _stateProtection;
 
-    public VirtualTvPlaybackStartConsumer(LiveTvPlaybackCoordinator coordinator)
+    public VirtualTvPlaybackStartConsumer(
+        LiveTvPlaybackCoordinator coordinator,
+        PlaybackStateProtectionManager stateProtection)
     {
         _coordinator = coordinator;
+        _stateProtection = stateProtection;
     }
 
-    public Task OnEvent(PlaybackStartEventArgs eventArgs)
-        => _coordinator.HandlePlaybackStartAsync(eventArgs);
+    public async Task OnEvent(PlaybackStartEventArgs eventArgs)
+    {
+        await _coordinator.HandlePlaybackStartAsync(eventArgs).ConfigureAwait(false);
+        _stateProtection.RestoreIfProtected(eventArgs, clearAfterRestore: false);
+    }
 }
