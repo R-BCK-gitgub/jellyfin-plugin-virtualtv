@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Final-shape 1.0.12.test preview: channel configuration, persistent schedules, native Live TV/Guide exposure, scheduling tasks and validation dashboard.",
+  "changelog": "1.0.12.test.1 fixes Jellyfin configuration-page CSS loading so the final-shape preview layout renders correctly.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.0.12.9000",
+  "version": "1.0.12.9001",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
