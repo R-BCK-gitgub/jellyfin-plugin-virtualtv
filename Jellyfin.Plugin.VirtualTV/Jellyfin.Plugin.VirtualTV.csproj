@@ -11,6 +11,7 @@
     <AssemblyVersion>1.0.12.9000</AssemblyVersion>
     <FileVersion>1.0.12.9000</FileVersion>
     <InformationalVersion>1.0.12.test</InformationalVersion>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
