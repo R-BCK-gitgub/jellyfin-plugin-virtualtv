@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "UI correction milestone: custom CSS is now embedded inside the Jellyfin plugin page where the web client retains it, restoring responsive selectable content cards and a modern one-channel-per-row management table. Playback remains the validated 1.6 wall-clock alignment implementation.",
+  "changelog": "Playback architecture patch: replaces delayed post-start Live TV seek retries with a source-item PlayNow handoff using wall-clock StartPositionTicks, while preserving the source episode's Jellyfin watched/resume state. The 1.8 UI is unchanged.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.8.0.0",
+  "version": "1.8.1.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
