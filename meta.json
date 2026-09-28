@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Live-position reliability milestone plus content-picker UI polish: deterministic wall-clock playback alignment, equal-size responsive dark content cards, simplified year/library labels, and strong blue selected-state feedback.",
+  "changelog": "UI reliability milestone: verified embedded configuration UI, responsive equal-size content cards with clear blue selection states, and a modern responsive channel-management card layout. Playback logic remains the 1.6 wall-clock alignment implementation.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.6.0.0",
+  "version": "1.7.0.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
