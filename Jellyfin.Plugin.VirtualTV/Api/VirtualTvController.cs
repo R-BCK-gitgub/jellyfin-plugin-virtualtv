@@ -222,8 +222,8 @@ public sealed class VirtualTvController : ControllerBase
     {
         return Ok(new
         {
-            Version = "1.0.12.test",
-            Build = "1.0.12.9000",
+            Version = "1.0.12.test.1",
+            Build = "1.0.12.9001",
             Purpose = "Final-shape preview based on the v1.0 functional specification.",
             Proven = new[]
             {
