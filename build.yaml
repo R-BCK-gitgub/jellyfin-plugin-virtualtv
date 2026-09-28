@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.2.0.0"
+version: "1.3.0.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Real-channel milestone: clean production UI, Jellyfin series/movie selection, persisted 30-day schedules, native Live TV/Guide channels, and wall-clock playback using the validated full-timeline architecture.
+  Library-first channel configuration milestone: compatible library filtering, checkbox title selection, table-based channel management, automatic cleanup of the retired channel 9999, and removal of architecture-test code.

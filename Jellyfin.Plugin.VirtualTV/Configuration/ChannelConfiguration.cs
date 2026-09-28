@@ -13,7 +13,18 @@ public sealed class ChannelConfiguration
     public string SchedulingMethod { get; set; } = "RepeatingSchedule";
     public bool VisibleToAllUsers { get; set; } = true;
     public List<string> VisibleUserIds { get; set; } = new();
+
+    /// <summary>
+    /// Jellyfin library ids selected to feed this channel.
+    /// Series channels only accept TV-show libraries and movie channels only accept movie libraries.
+    /// </summary>
+    public List<string> SelectedLibraryIds { get; set; } = new();
+
+    /// <summary>
+    /// Explicitly selected Series ids for Series channels or Movie ids for Movie channels.
+    /// </summary>
     public List<string> SelectedItemIds { get; set; } = new();
+
     public bool Is24Hours { get; set; }
     public string OnAirStart { get; set; } = "07:00";
     public string OffAirStart { get; set; } = "02:00";
