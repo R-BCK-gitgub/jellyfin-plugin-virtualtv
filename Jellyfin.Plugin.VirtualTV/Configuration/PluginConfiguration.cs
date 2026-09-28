@@ -8,31 +8,16 @@ namespace Jellyfin.Plugin.VirtualTV.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
-    /// </summary>
     public PluginConfiguration()
     {
         Channels = new List<ChannelConfiguration>();
     }
 
-    /// <summary>
-    /// Gets or sets the persisted Virtual TV channels.
-    /// </summary>
+    public int SchemaVersion { get; set; } = 1;
     public List<ChannelConfiguration> Channels { get; set; }
 
-    /// <summary>
-    /// Gets or sets a value indicating whether the temporary Live TV architecture test channel is enabled.
-    /// </summary>
+    // Kept only for the incremental architecture-validation path inherited from v1.0.12.
     public bool ArchitectureLiveTvTestEnabled { get; set; }
-
-    /// <summary>
-    /// Gets or sets the Jellyfin media item used as the temporary Live TV architecture test source.
-    /// </summary>
     public string ArchitectureLiveTvTestItemId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the stable UTC start time of the temporary architecture-test programme.
-    /// </summary>
     public string ArchitectureLiveTvTestProgramStartUtc { get; set; } = string.Empty;
 }
