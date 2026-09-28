@@ -122,8 +122,8 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
         if (string.Equals(channelId, ArchitectureTestChannelId, StringComparison.Ordinal))
         {
-            var source = GetArchitectureSource(null, openForPlayback: false);
-            return Task.FromResult(new List<MediaSourceInfo> { source });
+            var architectureSource = GetArchitectureSource(null, openForPlayback: false);
+            return Task.FromResult(new List<MediaSourceInfo> { architectureSource });
         }
 
         var channel = FindChannel(channelId)
