@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.0.12.9000"
+version: "1.0.12.9001"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Final-shape 1.0.12.test preview with channel management, persisted scheduling, native Live TV/Guide exposure and scheduled maintenance tasks.
+  1.0.12.test.1 fixes Jellyfin configuration-page CSS loading so the final-shape preview layout renders correctly.
