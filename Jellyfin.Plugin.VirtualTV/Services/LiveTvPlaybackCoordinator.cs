@@ -13,30 +13,40 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
-/// Aligns a newly opened Virtual TV channel with the wall-clock position of the
-/// materialized programme that is currently on air.
+/// Converts a native Virtual TV channel tune into normal Jellyfin item playback at the
+/// exact wall-clock programme position. The offset is supplied as StartPositionTicks on
+/// the PlayNow command, so the player opens the source at the requested timeline position
+/// instead of opening at 00:00 and attempting a later Live TV seek.
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
-    // A second seek is intentional. Some TV clients finish rebuilding the video element
-    // after the first PlaybackStart notification. Reissuing the same wall-clock alignment
-    // once the player is fully attached prevents an apparently-correct progress bar from
-    // playing the underlying source file from 00:00.
-    private static readonly TimeSpan FirstSeekDelay = TimeSpan.FromMilliseconds(850);
-    private static readonly TimeSpan ConfirmationSeekDelay = TimeSpan.FromMilliseconds(1400);
+    // Small allowance for command delivery and player setup. The wall-clock position is
+    // calculated immediately before the PlayNow command; this keeps the source within
+    // roughly one second of the linear-TV clock without relying on a post-start Seek.
+    private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
+
+    // Jellyfin can occasionally emit more than one PlaybackStart notification for the same
+    // channel tune. Suppress duplicate handoffs while still allowing an intentional retune.
+    private static readonly TimeSpan DuplicateHandoffWindow = TimeSpan.FromSeconds(5);
 
     private readonly ISessionManager _sessionManager;
+    private readonly ILibraryManager _libraryManager;
     private readonly VirtualTvScheduleStore _scheduleStore;
+    private readonly PlaybackStateProtectionManager _stateProtection;
     private readonly ILogger<LiveTvPlaybackCoordinator> _logger;
-    private readonly ConcurrentDictionary<string, long> _alignmentGeneration = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, HandoffStamp> _lastHandoff = new(StringComparer.Ordinal);
 
     public LiveTvPlaybackCoordinator(
         ISessionManager sessionManager,
+        ILibraryManager libraryManager,
         VirtualTvScheduleStore scheduleStore,
+        PlaybackStateProtectionManager stateProtection,
         ILogger<LiveTvPlaybackCoordinator> logger)
     {
         _sessionManager = sessionManager;
+        _libraryManager = libraryManager;
         _scheduleStore = scheduleStore;
+        _stateProtection = stateProtection;
         _logger = logger;
     }
 
@@ -51,41 +61,93 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        var activeEntry = FindActiveEntry(configurationChannelId, DateTime.UtcNow);
+        // Re-evaluate the schedule at handoff time rather than trusting the programme that was
+        // current when the Guide row was rendered. This also handles a tune exactly on a boundary.
+        var nowUtc = DateTime.UtcNow;
+        var activeEntry = FindActiveEntry(configurationChannelId, nowUtc);
         if (activeEntry is null || activeEntry.IsOffAir)
         {
             _logger.LogWarning(
-                "Virtual TV could not align session {SessionId}: no active materialized programme was found for channel {ChannelName}.",
+                "Virtual TV cannot hand off session {SessionId}: no active programme was found for channel {ChannelName}.",
                 eventArgs.Session.Id,
                 channel.Name);
             return;
         }
 
+        if (!Guid.TryParse(activeEntry.SourceItemId, out var sourceItemId))
+        {
+            _logger.LogError(
+                "Virtual TV cannot hand off channel {ChannelName}: schedule entry {EntryId} has invalid source item id {SourceItemId}.",
+                channel.Name,
+                activeEntry.Id,
+                activeEntry.SourceItemId);
+            return;
+        }
+
+        var sourceItem = _libraryManager.GetItemById(sourceItemId);
+        if (sourceItem is null)
+        {
+            _logger.LogError(
+                "Virtual TV cannot hand off channel {ChannelName}: Jellyfin source item {SourceItemId} no longer exists.",
+                channel.Name,
+                sourceItemId);
+            return;
+        }
+
         var sessionId = eventArgs.Session.Id;
-        var generation = _alignmentGeneration.AddOrUpdate(sessionId, 1, static (_, current) => current + 1);
+        if (IsDuplicateHandoff(sessionId, activeEntry.Id, nowUtc))
+        {
+            _logger.LogDebug(
+                "Virtual TV ignored a duplicate handoff for session {SessionId}, programme {ProgramName}.",
+                sessionId,
+                activeEntry.Name);
+            return;
+        }
+
+        var targetTicks = CalculateTargetTicks(activeEntry, sourceItem.RunTimeTicks, nowUtc);
+        var target = TimeSpan.FromTicks(targetTicks);
+
+        if (eventArgs.Session.UserId != Guid.Empty)
+        {
+            if (!_stateProtection.BeginProtection(sessionId, sourceItemId, eventArgs.Session.UserId))
+            {
+                _logger.LogWarning(
+                    "Virtual TV could not capture watched/resume state for {ItemName} in session {SessionId}. Playback will continue, but state protection is unavailable for this tune.",
+                    sourceItem.Name,
+                    sessionId);
+            }
+        }
+
+        var command = new PlayRequest
+        {
+            ItemIds = [sourceItemId],
+            StartPositionTicks = targetTicks,
+            PlayCommand = PlayCommand.PlayNow
+        };
 
         _logger.LogInformation(
-            "Virtual TV starting wall-clock alignment for session {SessionId}: channel {ChannelName}, programme {ProgramName}, programme start {ProgramStartUtc}.",
+            "Virtual TV handoff: session {SessionId}, channel {ChannelName}, programme {ProgramName}, programme start {ProgramStartUtc:o}, wall clock {NowUtc:o}, source {SourceItemId}, StartPosition {TargetSeconds:F1}s.",
             sessionId,
             channel.Name,
             activeEntry.Name,
-            activeEntry.GetStartUtc());
+            activeEntry.GetStartUtc(),
+            nowUtc,
+            sourceItemId,
+            target.TotalSeconds);
 
-        await Task.Delay(FirstSeekDelay).ConfigureAwait(false);
-        if (!IsCurrentGeneration(sessionId, generation))
+        try
         {
-            return;
+            await _sessionManager.SendPlayCommand(
+                sessionId,
+                sessionId,
+                command,
+                CancellationToken.None).ConfigureAwait(false);
         }
-
-        await SendWallClockSeekAsync(sessionId, channel.Name, activeEntry, "initial").ConfigureAwait(false);
-
-        await Task.Delay(ConfirmationSeekDelay).ConfigureAwait(false);
-        if (!IsCurrentGeneration(sessionId, generation))
+        catch
         {
-            return;
+            _stateProtection.CancelProtection(sessionId, restore: true);
+            throw;
         }
-
-        await SendWallClockSeekAsync(sessionId, channel.Name, activeEntry, "confirmation").ConfigureAwait(false);
     }
 
     private VirtualTvScheduleEntry? FindActiveEntry(string channelId, DateTime nowUtc)
@@ -95,38 +157,41 @@ public sealed class LiveTvPlaybackCoordinator
                 && entry.GetStartUtc() <= nowUtc
                 && entry.GetEndUtc() > nowUtc);
 
-    private bool IsCurrentGeneration(string sessionId, long generation)
-        => _alignmentGeneration.TryGetValue(sessionId, out var current) && current == generation;
-
-    private async Task SendWallClockSeekAsync(
-        string sessionId,
-        string channelName,
-        VirtualTvScheduleEntry entry,
-        string attempt)
+    private long CalculateTargetTicks(VirtualTvScheduleEntry entry, long? runTimeTicks, DateTime nowUtc)
     {
-        var nowUtc = DateTime.UtcNow;
-        var targetTicks = Math.Max(0, (nowUtc - entry.GetStartUtc()).Ticks);
+        var rawTicks = Math.Max(
+            0,
+            (nowUtc.Add(CommandTransitCompensation) - entry.GetStartUtc()).Ticks);
 
-        // The source selected by VirtualTvLiveTvService is the full original file, so this
-        // seek is intentionally programme-relative. Do not trust PlaybackStart.PositionTicks:
-        // Jellyfin can report the EPG/live-channel position there even while the media source
-        // itself is still rendering from the beginning of the episode.
-        _logger.LogInformation(
-            "Virtual TV {Attempt} wall-clock seek for session {SessionId}: channel {ChannelName}, programme {ProgramName}, target {TargetSeconds:F1}s.",
-            attempt,
-            sessionId,
-            channelName,
-            entry.Name,
-            TimeSpan.FromTicks(targetTicks).TotalSeconds);
+        if (!runTimeTicks.HasValue || runTimeTicks.Value <= 0)
+        {
+            return rawTicks;
+        }
 
-        await _sessionManager.SendPlaystateCommand(
-            sessionId,
-            sessionId,
-            new PlaystateRequest
-            {
-                Command = PlaystateCommand.Seek,
-                SeekPositionTicks = targetTicks
-            },
-            CancellationToken.None).ConfigureAwait(false);
+        // Never ask Jellyfin to start at or beyond EOF. Keeping one second of media available
+        // also avoids an immediate stop when tuning very close to the programme boundary.
+        var latestSafeTick = Math.Max(0, runTimeTicks.Value - TimeSpan.TicksPerSecond);
+        return Math.Min(rawTicks, latestSafeTick);
     }
+
+    private bool IsDuplicateHandoff(string sessionId, string entryId, DateTime nowUtc)
+    {
+        var previous = _lastHandoff.GetOrAdd(sessionId, _ => new HandoffStamp(entryId, nowUtc));
+        if (string.Equals(previous.EntryId, entryId, StringComparison.Ordinal)
+            && nowUtc - previous.CreatedUtc < DuplicateHandoffWindow)
+        {
+            // The first event creates the stamp and must not be suppressed.
+            if (previous.CreatedUtc == nowUtc)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        _lastHandoff[sessionId] = new HandoffStamp(entryId, nowUtc);
+        return false;
+    }
+
+    private sealed record HandoffStamp(string EntryId, DateTime CreatedUtc);
 }
