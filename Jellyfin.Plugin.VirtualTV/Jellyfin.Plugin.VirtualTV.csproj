@@ -7,10 +7,10 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.12.9000</Version>
-    <AssemblyVersion>1.0.12.9000</AssemblyVersion>
-    <FileVersion>1.0.12.9000</FileVersion>
-    <InformationalVersion>1.0.12.test</InformationalVersion>
+    <Version>1.0.12.9001</Version>
+    <AssemblyVersion>1.0.12.9001</AssemblyVersion>
+    <FileVersion>1.0.12.9001</FileVersion>
+    <InformationalVersion>1.0.12.test.1</InformationalVersion>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
