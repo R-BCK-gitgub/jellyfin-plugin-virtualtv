@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Jellyfin.Database.Implementations.Entities;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
@@ -37,6 +40,7 @@ public sealed class PlaybackStateProtectionManager
     /// <summary>
     /// Captures watched/resume-related values before a Virtual TV handoff starts.
     /// If the same session was already protected, its previous snapshot is restored first.
+    /// Alternate versions are included because Jellyfin can propagate completion between versions.
     /// </summary>
     public bool BeginProtection(string sessionId, Guid itemId, Guid userId)
     {
@@ -49,8 +53,28 @@ public sealed class PlaybackStateProtectionManager
             return false;
         }
 
-        var data = _userDataManager.GetUserData(user, item);
-        if (data is null)
+        IReadOnlyList<BaseItem> protectedItems = item is Video video
+            ? video.GetAllVersions().Cast<BaseItem>().ToArray()
+            : [item];
+
+        var states = new List<ItemUserStateSnapshot>(protectedItems.Count);
+        foreach (var protectedItem in protectedItems)
+        {
+            var data = _userDataManager.GetUserData(user, protectedItem);
+            if (data is null)
+            {
+                continue;
+            }
+
+            states.Add(new ItemUserStateSnapshot(
+                protectedItem.Id,
+                data.PlaybackPositionTicks,
+                data.Played,
+                data.PlayCount,
+                data.LastPlayedDate));
+        }
+
+        if (states.Count == 0)
         {
             return false;
         }
@@ -58,16 +82,14 @@ public sealed class PlaybackStateProtectionManager
         _active[sessionId] = new PlaybackStateSnapshot(
             itemId,
             userId,
-            data.PlaybackPositionTicks,
-            data.Played,
-            data.PlayCount,
-            data.LastPlayedDate,
+            states,
             DateTime.UtcNow);
 
         _logger.LogDebug(
-            "Virtual TV protected Jellyfin user state for session {SessionId}, item {ItemId}.",
+            "Virtual TV protected Jellyfin user state for session {SessionId}, item {ItemId}, {StateCount} version(s).",
             sessionId,
-            itemId);
+            itemId,
+            states.Count);
 
         return true;
     }
@@ -90,7 +112,7 @@ public sealed class PlaybackStateProtectionManager
             return;
         }
 
-        if (eventArgs.Item.Id != snapshot.ItemId)
+        if (eventArgs.Item.Id != snapshot.RootItemId)
         {
             return;
         }
@@ -122,37 +144,49 @@ public sealed class PlaybackStateProtectionManager
     private void Restore(PlaybackStateSnapshot snapshot)
     {
         var user = _userManager.GetUserById(snapshot.UserId);
-        var item = _libraryManager.GetItemById(snapshot.ItemId);
-        if (user is null || item is null)
+        if (user is null)
         {
             return;
         }
 
-        var data = _userDataManager.GetUserData(user, item);
-        if (data is null)
+        foreach (var state in snapshot.States)
         {
-            return;
+            var item = _libraryManager.GetItemById(state.ItemId);
+            if (item is null)
+            {
+                continue;
+            }
+
+            var data = _userDataManager.GetUserData(user, item);
+            if (data is null)
+            {
+                continue;
+            }
+
+            data.PlaybackPositionTicks = state.PlaybackPositionTicks;
+            data.Played = state.Played;
+            data.PlayCount = state.PlayCount;
+            data.LastPlayedDate = state.LastPlayedDate;
+
+            _userDataManager.SaveUserData(
+                user,
+                item,
+                data,
+                UserDataSaveReason.UpdateUserData,
+                CancellationToken.None);
         }
-
-        data.PlaybackPositionTicks = snapshot.PlaybackPositionTicks;
-        data.Played = snapshot.Played;
-        data.PlayCount = snapshot.PlayCount;
-        data.LastPlayedDate = snapshot.LastPlayedDate;
-
-        _userDataManager.SaveUserData(
-            user,
-            item,
-            data,
-            UserDataSaveReason.UpdateUserData,
-            CancellationToken.None);
     }
 
     private sealed record PlaybackStateSnapshot(
-        Guid ItemId,
+        Guid RootItemId,
         Guid UserId,
+        IReadOnlyList<ItemUserStateSnapshot> States,
+        DateTime CreatedUtc);
+
+    private sealed record ItemUserStateSnapshot(
+        Guid ItemId,
         long PlaybackPositionTicks,
         bool Played,
         int PlayCount,
-        DateTime? LastPlayedDate,
-        DateTime CreatedUtc);
+        DateTime? LastPlayedDate);
 }
