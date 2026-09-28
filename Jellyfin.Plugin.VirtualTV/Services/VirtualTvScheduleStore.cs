@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using MediaBrowser.Common.Configuration;
 
@@ -22,7 +24,11 @@ public sealed class VirtualTvScheduleStore
         lock (_gate)
         {
             var path = GetPath(channelId);
-            if (!File.Exists(path)) return Array.Empty<VirtualTvScheduleEntry>();
+            if (!File.Exists(path))
+            {
+                return Array.Empty<VirtualTvScheduleEntry>();
+            }
+
             try
             {
                 return JsonSerializer.Deserialize<List<VirtualTvScheduleEntry>>(File.ReadAllText(path)) ?? [];
@@ -51,13 +57,31 @@ public sealed class VirtualTvScheduleStore
         lock (_gate)
         {
             var path = GetPath(channelId);
-            if (File.Exists(path)) File.Delete(path);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
     }
 
     private string GetPath(string channelId)
     {
-        if (!Guid.TryParse(channelId, out var parsed)) throw new ArgumentException("Channel id must be a GUID.", nameof(channelId));
-        return Path.Combine(_root, parsed.ToString("N") + ".json");
+        if (string.IsNullOrWhiteSpace(channelId))
+        {
+            throw new ArgumentException("Channel id cannot be empty.", nameof(channelId));
+        }
+
+        // Current channels use GUID ids, but early development versions created a few
+        // browser-generated numeric ids. Keep those channels fully functional instead of
+        // forcing a destructive migration. Non-GUID ids are converted to a deterministic,
+        // filesystem-safe SHA-256 key.
+        if (Guid.TryParse(channelId, out var parsed))
+        {
+            return Path.Combine(_root, parsed.ToString("N") + ".json");
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(channelId));
+        var safeKey = Convert.ToHexString(hash).ToLowerInvariant();
+        return Path.Combine(_root, safeKey + ".json");
     }
 }

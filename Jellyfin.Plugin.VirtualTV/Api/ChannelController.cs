@@ -12,6 +12,7 @@ using MediaBrowser.Model.LiveTv;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Api;
 
@@ -27,19 +28,22 @@ public sealed class ChannelController : ControllerBase
     private readonly IGuideManager _guideManager;
     private readonly ILiveTvManager _liveTvManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly ILogger<ChannelController> _logger;
 
     public ChannelController(
         VirtualTvScheduleGenerator generator,
         VirtualTvScheduleStore store,
         IGuideManager guideManager,
         ILiveTvManager liveTvManager,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        ILogger<ChannelController> logger)
     {
         _generator = generator;
         _store = store;
         _guideManager = guideManager;
         _liveTvManager = liveTvManager;
         _libraryManager = libraryManager;
+        _logger = logger;
     }
 
     [HttpPost("{channelId}/GenerateSchedule")]
@@ -51,40 +55,93 @@ public sealed class ChannelController : ControllerBase
 
         if (plugin is null || channel is null)
         {
-            return NotFound("Virtual TV channel not found.");
+            return NotFound(new
+            {
+                Stage = "lookup",
+                Message = "Virtual TV channel not found."
+            });
         }
+
+        IReadOnlyList<VirtualTvScheduleEntry> entries;
 
         try
         {
-            var entries = _generator.Generate(channel);
-            plugin.SaveConfiguration();
-            await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Generating Virtual TV schedule for channel {ChannelName} ({ChannelId}).",
+                channel.Name,
+                channel.Id);
 
-            return Ok(new
-            {
-                Count = entries.Count,
-                GeneratedUtc = channel.ScheduleGeneratedUtc,
-                EndUtc = channel.ScheduleEndUtc
-            });
+            entries = _generator.Generate(channel);
+            plugin.SaveConfiguration();
+
+            _logger.LogInformation(
+                "Generated {Count} Virtual TV schedule entries for channel {ChannelName}; horizon ends {EndUtc}.",
+                entries.Count,
+                channel.Name,
+                channel.ScheduleEndUtc);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ex.Message);
+            _logger.LogWarning(ex, "Virtual TV schedule generation rejected for channel {ChannelName}.", channel.Name);
+            return BadRequest(new
+            {
+                Stage = "generation",
+                Message = ex.Message
+            });
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Virtual TV schedule generation failed for channel {ChannelName}.", channel.Name);
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                Stage = "generation",
+                Message = "The schedule could not be generated."
+            });
+        }
+
+        var guideRefreshed = true;
+        string? warning = null;
+
+        try
+        {
+            await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            guideRefreshed = false;
+            warning = "The schedule was generated, but Jellyfin could not refresh the Live TV Guide automatically.";
+            _logger.LogWarning(ex, "Virtual TV schedule was generated for {ChannelName}, but Guide refresh failed.", channel.Name);
+        }
+
+        return Ok(new
+        {
+            Count = entries.Count,
+            GeneratedUtc = channel.ScheduleGeneratedUtc,
+            EndUtc = channel.ScheduleEndUtc,
+            GuideRefreshed = guideRefreshed,
+            Warning = warning
+        });
     }
 
     [HttpPost("RefreshGuide")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> RefreshGuide(CancellationToken cancellationToken)
     {
-        await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
-        return NoContent();
+        try
+        {
+            await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Virtual TV requested a Guide refresh, but Jellyfin could not complete it.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                Stage = "guide",
+                Message = "Jellyfin could not refresh the Live TV Guide."
+            });
+        }
     }
 
-    /// <summary>
-    /// Removes the one-off channel 9999 used by the retired playback architecture test.
-    /// Safe to call repeatedly.
-    /// </summary>
     [HttpPost("CleanupLegacyTestChannel")]
     public async Task<IActionResult> CleanupLegacyTestChannel(CancellationToken cancellationToken)
     {
@@ -114,7 +171,14 @@ public sealed class ChannelController : ControllerBase
 
         if (legacyChannels.Count > 0)
         {
-            await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Legacy Virtual TV test channel was removed, but Guide refresh failed.");
+            }
         }
 
         return Ok(new { Removed = legacyChannels.Count });
@@ -124,13 +188,28 @@ public sealed class ChannelController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteSchedule(string channelId, CancellationToken cancellationToken)
     {
-        if (!Guid.TryParse(channelId, out _))
+        if (string.IsNullOrWhiteSpace(channelId))
         {
-            return BadRequest("Invalid channel id.");
+            return BadRequest(new
+            {
+                Stage = "schedule",
+                Message = "Invalid channel id."
+            });
         }
 
         _store.Delete(channelId);
-        await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The schedule reset itself succeeded. Do not report the configuration save as failed
+            // merely because Jellyfin could not refresh the Guide at that exact moment.
+            _logger.LogWarning(ex, "Virtual TV schedule was reset for channel {ChannelId}, but Guide refresh failed.", channelId);
+        }
+
         return NoContent();
     }
 }

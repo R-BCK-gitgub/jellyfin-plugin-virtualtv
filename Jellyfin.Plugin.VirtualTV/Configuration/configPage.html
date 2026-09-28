@@ -13,12 +13,22 @@
 #VirtualTVConfigPage .vtv-editor-actions{display:flex;gap:.75em;margin-top:1.5em;flex-wrap:wrap}
 #VirtualTVConfigPage .vtv-empty{text-align:center;padding:2.5em 1em;opacity:.78}
 #VirtualTVConfigPage .vtv-warning{padding:.8em 1em;border-radius:.5em;background:rgba(255,183,0,.13);margin-bottom:1em}
-#VirtualTVConfigPage .vtv-table-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:.65em}
-#VirtualTVConfigPage .vtv-table{width:100%;border-collapse:collapse;min-width:1080px}
-#VirtualTVConfigPage .vtv-table th,#VirtualTVConfigPage .vtv-table td{padding:.8em .75em;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;vertical-align:middle}
-#VirtualTVConfigPage .vtv-table th{font-size:.88em;opacity:.75;font-weight:600}
+#VirtualTVConfigPage .vtv-table-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.16);border-radius:.65em}
+#VirtualTVConfigPage .vtv-table{width:100%;border-collapse:separate;border-spacing:0;min-width:1260px}
+#VirtualTVConfigPage .vtv-table th,#VirtualTVConfigPage .vtv-table td{padding:1em 1.1em;border-bottom:1px solid rgba(255,255,255,.11);text-align:left;vertical-align:middle}
+#VirtualTVConfigPage .vtv-table th:not(:last-child),#VirtualTVConfigPage .vtv-table td:not(:last-child){border-right:1px solid rgba(255,255,255,.1)}
+#VirtualTVConfigPage .vtv-table th{font-size:.86em;opacity:.82;font-weight:700;background:rgba(255,255,255,.055);white-space:nowrap}
+#VirtualTVConfigPage .vtv-table tbody tr:nth-child(even){background:rgba(255,255,255,.018)}
 #VirtualTVConfigPage .vtv-table tbody tr:last-child td{border-bottom:0}
-#VirtualTVConfigPage .vtv-table .vtv-actions{white-space:nowrap}
+#VirtualTVConfigPage .vtv-table th:nth-child(1){min-width:4.5em}
+#VirtualTVConfigPage .vtv-table th:nth-child(2){min-width:10em}
+#VirtualTVConfigPage .vtv-table th:nth-child(3){min-width:6em}
+#VirtualTVConfigPage .vtv-table th:nth-child(4){min-width:15em}
+#VirtualTVConfigPage .vtv-table th:nth-child(5){min-width:11em}
+#VirtualTVConfigPage .vtv-table th:nth-child(6){min-width:5em}
+#VirtualTVConfigPage .vtv-table th:nth-child(7){min-width:7em}
+#VirtualTVConfigPage .vtv-table th:nth-child(8){min-width:12em}
+#VirtualTVConfigPage .vtv-table .vtv-actions{white-space:nowrap;min-width:20em}
 #VirtualTVConfigPage .vtv-table .vtv-actions button{margin:.15em}
 #VirtualTVConfigPage .vtv-channel-name{font-weight:600}
 #VirtualTVConfigPage .vtv-meta{font-size:.9em;opacity:.72;margin-top:.2em}
@@ -26,10 +36,15 @@
 #VirtualTVConfigPage .vtv-library-option{padding:.65em .75em;border:1px solid rgba(255,255,255,.12);border-radius:.5em}
 #VirtualTVConfigPage .vtv-content-toolbar{display:flex;gap:.65em;align-items:flex-end;flex-wrap:wrap;margin:.8em 0}
 #VirtualTVConfigPage .vtv-content-toolbar .inputContainer{flex:1 1 18em;margin:0}
-#VirtualTVConfigPage .vtv-content-list{border:1px solid rgba(255,255,255,.12);border-radius:.55em;max-height:34em;overflow:auto}
-#VirtualTVConfigPage .vtv-content-row{display:grid;grid-template-columns:2.2em minmax(12em,2fr) minmax(10em,1fr) 5em;align-items:center;gap:.7em;padding:.6em .75em;border-bottom:1px solid rgba(255,255,255,.08)}
-#VirtualTVConfigPage .vtv-content-row:last-child{border-bottom:0}
-#VirtualTVConfigPage .vtv-content-head{font-size:.85em;opacity:.7;font-weight:600;background:rgba(255,255,255,.035);position:sticky;top:0;z-index:1}
+#VirtualTVConfigPage .vtv-content-list{max-height:38em;overflow:auto;padding:.2em}
+#VirtualTVConfigPage .vtv-content-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(13.5em,1fr));gap:.8em}
+#VirtualTVConfigPage .vtv-content-card{appearance:none;-webkit-appearance:none;display:flex;flex-direction:column;gap:.55em;min-height:8.2em;padding:1em;border:2px solid rgba(255,255,255,.13);border-radius:.65em;background:rgba(255,255,255,.035);color:inherit;text-align:left;cursor:pointer;transition:border-color .12s ease,background .12s ease,box-shadow .12s ease}
+#VirtualTVConfigPage .vtv-content-card:hover{border-color:rgba(0,164,220,.58);background:rgba(255,255,255,.055)}
+#VirtualTVConfigPage .vtv-content-card:focus{outline:2px solid rgba(0,164,220,.72);outline-offset:2px}
+#VirtualTVConfigPage .vtv-content-card.selected{border-color:#00A4DC;background:rgba(0,164,220,.09);box-shadow:inset 0 0 0 1px #00A4DC}
+#VirtualTVConfigPage .vtv-content-title{font-size:1.02em;font-weight:700;line-height:1.25}
+#VirtualTVConfigPage .vtv-content-details{margin-top:auto;display:grid;gap:.28em;font-size:.9em;opacity:.83}
+#VirtualTVConfigPage .vtv-content-detail-label{opacity:.65;margin-right:.35em}
 #VirtualTVConfigPage .vtv-count{margin:.45em 0 .7em;font-size:.92em;opacity:.8}
 @media(max-width:800px){
   #VirtualTVConfigPage .vtv-header{display:block}
@@ -357,26 +372,31 @@
       return;
     }
 
-    box.innerHTML=
-      '<div class="vtv-content-row vtv-content-head"><div></div><div>Title</div><div>Library</div><div>Year</div></div>'+
-      items.map(function(item){
-        var checked=state.selectedItemIds.indexOf(item.Id)!==-1?' checked':'';
-        return '<label class="vtv-content-row">'+
-          '<div><input type="checkbox" is="emby-checkbox" class="contentCheckbox" value="'+esc(item.Id)+'"'+checked+'></div>'+
-          '<div>'+esc(item.Name)+'</div>'+
-          '<div>'+esc(libraryName(item.LibraryId))+'</div>'+
-          '<div>'+esc(item.ProductionYear)+'</div>'+
-        '</label>';
-      }).join('');
+    box.innerHTML='<div class="vtv-content-grid">'+items.map(function(item){
+      var selected=state.selectedItemIds.indexOf(item.Id)!==-1;
+      return '<button type="button" class="vtv-content-card'+(selected?' selected':'')+'" data-id="'+esc(item.Id)+'" aria-pressed="'+(selected?'true':'false')+'">'+
+        '<div class="vtv-content-title">'+esc(item.Name)+'</div>'+
+        '<div class="vtv-content-details">'+
+          '<div><span class="vtv-content-detail-label">Year</span>'+esc(item.ProductionYear||'—')+'</div>'+
+          '<div><span class="vtv-content-detail-label">Library</span>'+esc(libraryName(item.LibraryId))+'</div>'+
+        '</div>'+
+      '</button>';
+    }).join('')+'</div>';
 
-    Array.prototype.forEach.call(box.querySelectorAll('.contentCheckbox'),function(input){
-      input.addEventListener('change',function(){
-        var id=input.value;
-        if(input.checked){
-          if(state.selectedItemIds.indexOf(id)===-1)state.selectedItemIds.push(id);
+    Array.prototype.forEach.call(box.querySelectorAll('.vtv-content-card'),function(card){
+      card.addEventListener('click',function(){
+        var id=card.getAttribute('data-id');
+        var index=state.selectedItemIds.indexOf(id);
+        if(index===-1){
+          state.selectedItemIds.push(id);
+          card.classList.add('selected');
+          card.setAttribute('aria-pressed','true');
         }else{
-          state.selectedItemIds=state.selectedItemIds.filter(function(x){return x!==id;});
+          state.selectedItemIds.splice(index,1);
+          card.classList.remove('selected');
+          card.setAttribute('aria-pressed','false');
         }
+
         page.querySelector('#contentCount').textContent=state.selectedItemIds.length+' selected of '+state.availableItems.length+' available · '+visibleItems().length+' shown';
       });
     });
@@ -521,6 +541,34 @@
     return JSON.stringify(a)===JSON.stringify(b);
   }
 
+  function newChannelId(){
+    if(window.crypto&&window.crypto.randomUUID){
+      return window.crypto.randomUUID().replace(/-/g,'');
+    }
+
+    var bytes=new Uint8Array(16);
+    if(window.crypto&&window.crypto.getRandomValues){
+      window.crypto.getRandomValues(bytes);
+    }else{
+      for(var i=0;i<bytes.length;i++)bytes[i]=Math.floor(Math.random()*256);
+    }
+
+    bytes[6]=(bytes[6]&15)|64;
+    bytes[8]=(bytes[8]&63)|128;
+
+    return Array.prototype.map.call(bytes,function(value){
+      return value.toString(16).padStart(2,'0');
+    }).join('');
+  }
+
+  function parseApiResult(value){
+    if(!value)return {};
+    if(typeof value==='string'){
+      try{return JSON.parse(value);}catch(e){return {};}
+    }
+    return value;
+  }
+
   function refreshGuide(){
     return ApiClient.ajax({type:'POST',url:ApiClient.getUrl('VirtualTV/Channels/RefreshGuide')});
   }
@@ -531,15 +579,28 @@
 
   function saveConfiguration(afterSave,scheduleResetId){
     Dashboard.showLoadingMsg();
+    var saved=false;
+    var postSaveWarning=false;
+
     ApiClient.updatePluginConfiguration(pluginId,state.config).then(function(result){
+      saved=true;
       Dashboard.processPluginConfigurationUpdateResult(result);
-      return scheduleResetId?deleteSchedule(scheduleResetId):refreshGuide();
+      var postSave=scheduleResetId?deleteSchedule(scheduleResetId):refreshGuide();
+      return postSave.catch(function(){
+        postSaveWarning=true;
+        return null;
+      });
     }).then(function(){
       Dashboard.hideLoadingMsg();
       if(afterSave)afterSave();
+      if(postSaveWarning){
+        Dashboard.alert('Settings saved. Jellyfin could not refresh the Live TV Guide automatically; the saved configuration was not lost.');
+      }
     }).catch(function(){
       Dashboard.hideLoadingMsg();
-      Dashboard.alert('Unable to save the Virtual TV configuration.');
+      Dashboard.alert(saved
+        ? 'Settings were saved, but a follow-up Live TV operation failed.'
+        : 'Unable to save the Virtual TV configuration.');
     });
   }
 
@@ -583,9 +644,7 @@
 
     if(!existing){
       existing={
-        Id:(window.crypto&&window.crypto.randomUUID)
-          ?window.crypto.randomUUID().replace(/-/g,'')
-          :String(Date.now())+String(Math.random()).replace('.',''),
+        Id:newChannelId(),
         CreatedUtc:new Date().toISOString()
       };
       state.config.Channels.push(existing);
@@ -634,19 +693,29 @@
     }
 
     Dashboard.showLoadingMsg();
+    var generationResult={};
+
     ApiClient.ajax({
       type:'POST',
       url:ApiClient.getUrl('VirtualTV/Channels/'+encodeURIComponent(id)+'/GenerateSchedule')
-    }).then(function(){
+    }).then(function(result){
+      generationResult=parseApiResult(result);
       return ApiClient.getPluginConfiguration(pluginId);
     }).then(function(config){
       state.config=normalize(config);
       Dashboard.hideLoadingMsg();
       renderChannels();
-      Dashboard.alert('Schedule generated. The channel is available in Jellyfin Live TV / Guide.');
-    }).catch(function(){
+
+      if(generationResult.GuideRefreshed===false){
+        Dashboard.alert(generationResult.Warning||'Schedule generated, but Jellyfin could not refresh the Live TV Guide automatically.');
+      }else{
+        Dashboard.alert('Schedule generated and published to Jellyfin Live TV / Guide.');
+      }
+    }).catch(function(error){
       Dashboard.hideLoadingMsg();
-      Dashboard.alert('Schedule generation failed. Check the Jellyfin log for details.');
+      var details=parseApiResult(error&&error.responseText?error.responseText:null);
+      var message=details&&details.Message?details.Message:'Schedule generation failed. Check the Jellyfin log for details.';
+      Dashboard.alert(message);
     });
   }
 

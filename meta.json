@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Library-first channel configuration milestone: compatible library filtering, checkbox title selection, table-based channel management, automatic cleanup of the retired channel 9999, and removal of architecture-test code.",
+  "changelog": "Schedule reliability and UI milestone: supports legacy channel ids, stage-aware save/schedule errors, responsive content cards with #00A4DC selection outline, and clearer channel-table column separation.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.3.0.0",
+  "version": "1.4.0.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
