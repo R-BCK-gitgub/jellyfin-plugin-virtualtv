@@ -89,7 +89,9 @@ public sealed class VirtualTvScheduler
         lock (_gate)
         {
             var previous = _store.Load(channel.Id);
-            var cutoff = GetRegenerationCutoff(channel, previous, nowUtc);
+            var cutoff = previous.Entries.Count == 0
+                ? GetInitialAnchorUtc(channel, nowUtc)
+                : GetRegenerationCutoff(channel, previous, nowUtc);
             var preserved = previous.Entries
                 .Where(e => ParseUtc(e.StartUtc) is DateTime start && start < cutoff)
                 .OrderBy(e => e.StartUtc, StringComparer.Ordinal)
@@ -209,13 +211,13 @@ public sealed class VirtualTvScheduler
 
             if (string.Equals(entry.Kind, "DynamicSeries", StringComparison.OrdinalIgnoreCase))
             {
-                return ResolveDynamicSeries(channel, entry);
+                return ResolveDynamicSeries(channel, entry, state);
             }
 
             if (string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(channel.ContentMode, "RandomUnwatched", StringComparison.OrdinalIgnoreCase))
             {
-                return ResolveMovieRandomUnwatched(channel, entry);
+                return ResolveMovieRandomUnwatched(channel, entry, state);
             }
 
             if (!Guid.TryParse(entry.ItemId, out var itemId))
@@ -316,9 +318,16 @@ public sealed class VirtualTvScheduler
 
             if (eligibleContent.Count == 0)
             {
-                AddEntry(state, channel.Id, cursor, targetEndUtc, "ContentNotAvailable", string.Empty, string.Empty,
-                    "Content Not Available", string.Empty, "Channel has no content.", null, null, string.Empty);
-                break;
+                var unavailableEnd = cursor.AddHours(1);
+                if (unavailableEnd > targetEndUtc)
+                {
+                    unavailableEnd = targetEndUtc;
+                }
+
+                AddEntry(state, channel.Id, cursor, unavailableEnd, "ContentNotAvailable", string.Empty, string.Empty,
+                    "! Content Not Available", string.Empty, "Channel has no content.", null, null, string.Empty);
+                cursor = unavailableEnd;
+                continue;
             }
 
             var before = cursor;
@@ -402,8 +411,12 @@ public sealed class VirtualTvScheduler
         if (IsWatchedDependent(channel))
         {
             var end = cursor.AddMinutes(NormalizeDynamicMinutes(channel.DynamicBlockMinutes, false));
+            var seriesOverview = Guid.TryParse(selected.ItemId, out var selectedSeriesId)
+                ? _libraryManager.GetItemById(selectedSeriesId)?.Overview ?? string.Empty
+                : string.Empty;
+
             AddEntry(state, channel.Id, cursor, end, "DynamicSeries", string.Empty, selected.ItemId,
-                selected.Name, selected.Name, "Dynamic block — episode is resolved when playback starts.",
+                selected.Name, selected.Name, seriesOverview,
                 null, null, channel.ContentMode);
             return end;
         }
@@ -612,7 +625,7 @@ public sealed class VirtualTvScheduler
             .ToList();
     }
 
-    private PlaybackResolution ResolveDynamicSeries(ChannelConfiguration channel, ScheduleEntry entry)
+    private PlaybackResolution ResolveDynamicSeries(ChannelConfiguration channel, ScheduleEntry entry, ChannelScheduleState state)
     {
         var selected = channel.Content.FirstOrDefault(c => string.Equals(c.ItemId, entry.SeriesId, StringComparison.OrdinalIgnoreCase));
         var user = GetOwnerUser(channel);
@@ -639,20 +652,28 @@ public sealed class VirtualTvScheduler
         else
         {
             var pool = episodes.Where(e => !IsWatched(user, e)).ToList();
-            item = pool.Count > 0
-                ? (Episode)ChooseRuntimeRandom(
+            if (pool.Count > 0)
+            {
+                item = (Episode)ChooseRuntimeRandom(
                     channel.Id + ":" + selected.ItemId + ":ru",
-                    pool.Cast<BaseItem>().ToList())
-                : (Episode)ChooseRuntimeRandom(
-                    channel.Id + ":" + selected.ItemId + ":ru-fallback",
-                    episodes.Cast<BaseItem>().ToList());
+                    pool.Cast<BaseItem>().ToList());
+            }
+            else
+            {
+                var fallbackId = NextShuffleId(
+                    state,
+                    "runtime-ru-fallback:" + selected.ItemId,
+                    episodes.Select(e => e.Id.ToString("N")).ToList());
+                _store.Save(state);
+                item = episodes.First(e => string.Equals(e.Id.ToString("N"), fallbackId, StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var resume = GetResume(user, item);
         return new PlaybackResolution(item, entry, TimeSpan.FromTicks(Math.Max(0, resume)), true, string.Empty, string.Empty);
     }
 
-    private PlaybackResolution ResolveMovieRandomUnwatched(ChannelConfiguration channel, ScheduleEntry entry)
+    private PlaybackResolution ResolveMovieRandomUnwatched(ChannelConfiguration channel, ScheduleEntry entry, ChannelScheduleState state)
     {
         var user = GetOwnerUser(channel);
         if (user is null)
@@ -678,13 +699,26 @@ public sealed class VirtualTvScheduler
             .ToList();
 
         var unwatched = all.Where(i => !IsWatched(user, i)).ToList();
-        var pool = unwatched.Count > 0 ? unwatched : all;
-        if (pool.Count == 0)
+        if (all.Count == 0)
         {
             return PlaybackResolution.Message("Content Not Available", "Channel has no movies.");
         }
 
-        var replacement = ChooseRuntimeRandom(channel.Id + ":movie-ru", pool);
+        BaseItem replacement;
+        if (unwatched.Count > 0)
+        {
+            replacement = ChooseRuntimeRandom(channel.Id + ":movie-ru", unwatched);
+        }
+        else
+        {
+            var fallbackId = NextShuffleId(
+                state,
+                "runtime-movie-ru-fallback",
+                all.Select(i => i.Id.ToString("N")).ToList());
+            _store.Save(state);
+            replacement = all.First(i => string.Equals(i.Id.ToString("N"), fallbackId, StringComparison.OrdinalIgnoreCase));
+        }
+
         var message = scheduled is not null && IsWatched(user, scheduled)
             ? "This movie has already been watched. Selecting another unwatched movie…"
             : string.Empty;
