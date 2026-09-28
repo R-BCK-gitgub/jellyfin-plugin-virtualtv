@@ -7,6 +7,10 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+concurrency:
+  group: virtualtv-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,6 +24,52 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Read plugin version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj").getroot()
+          version = root.findtext(".//Version")
+          if not version:
+              raise SystemExit("Version not found in csproj")
+          print(version.strip())
+          PY
+          )
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Plugin version: $VERSION"
+
+      - name: Validate package metadata versions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = ET.parse("Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj").getroot()
+          version = (root.findtext(".//Version") or "").strip()
+
+          meta = json.loads(Path("meta.json").read_text(encoding="utf-8"))
+          meta_version = str(meta.get("version", "")).strip()
+
+          build_text = Path("build.yaml").read_text(encoding="utf-8")
+          match = re.search(r'^version:\s*["\']?([^"\'\s]+)["\']?\s*$', build_text, re.MULTILINE)
+          build_version = match.group(1) if match else ""
+
+          values = {
+              "csproj": version,
+              "meta.json": meta_version,
+              "build.yaml": build_version,
+          }
+
+          print("Version check:", values)
+          if not version or len(set(values.values())) != 1:
+              raise SystemExit(f"Version mismatch: {values}")
+          PY
+
       - name: Restore dependencies
         run: dotnet restore Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj
 
@@ -27,15 +77,21 @@ jobs:
         run: dotnet build Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj --configuration Release --no-restore
 
       - name: Prepare install package
+        shell: bash
         run: |
+          rm -rf artifact
           mkdir -p artifact/VirtualTV
           cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll artifact/VirtualTV/
           cp build.yaml artifact/VirtualTV/
           cp meta.json artifact/VirtualTV/
 
-      - name: Upload installable DLL
+          echo "Package contents:"
+          find artifact/VirtualTV -maxdepth 1 -type f -printf "%f\n" | sort
+
+      - name: Upload versioned install package
         uses: actions/upload-artifact@v4
         with:
-          name: VirtualTV-Jellyfin-12.1
+          name: VirtualTV-Jellyfin-12.1-v${{ steps.version.outputs.version }}
           path: artifact/VirtualTV/
           if-no-files-found: error
+          retention-days: 90
