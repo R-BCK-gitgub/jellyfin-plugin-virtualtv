@@ -5,6 +5,7 @@ using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.VirtualTV;
@@ -14,11 +15,17 @@ namespace Jellyfin.Plugin.VirtualTV;
 /// </summary>
 public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
 {
-    /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        serviceCollection.AddSingleton<ScheduleStore>();
+        serviceCollection.AddSingleton<VirtualTvScheduler>();
         serviceCollection.AddSingleton<PlaybackStateProtectionManager>();
         serviceCollection.AddSingleton<ILiveTvService, VirtualTvLiveTvService>();
+
+        serviceCollection.AddSingleton<IScheduledTask, ExtendChannelSchedulesTask>();
+        serviceCollection.AddSingleton<IScheduledTask, ReconcileChannelSchedulesTask>();
+        serviceCollection.AddHostedService<VirtualTvStartupService>();
+
         serviceCollection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, ProtectedPlaybackStartConsumer>();
         serviceCollection.AddScoped<IEventConsumer<PlaybackProgressEventArgs>, ProtectedPlaybackProgressConsumer>();
         serviceCollection.AddScoped<IEventConsumer<PlaybackStopEventArgs>, ProtectedPlaybackStopConsumer>();
