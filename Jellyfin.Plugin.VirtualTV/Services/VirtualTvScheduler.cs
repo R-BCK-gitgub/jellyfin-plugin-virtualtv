@@ -11,7 +11,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Dto;
+using MediaBrowser.Controller.Dto;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
@@ -632,14 +632,20 @@ public sealed class VirtualTvScheduler
         if (chronological)
         {
             item = episodes.FirstOrDefault(e => !IsWatched(user, e))
-                ?? ChooseRuntimeRandom(channel.Id + ":" + selected.ItemId + ":nu-fallback", episodes);
+                ?? (Episode)ChooseRuntimeRandom(
+                    channel.Id + ":" + selected.ItemId + ":nu-fallback",
+                    episodes.Cast<BaseItem>().ToList());
         }
         else
         {
             var pool = episodes.Where(e => !IsWatched(user, e)).ToList();
             item = pool.Count > 0
-                ? ChooseRuntimeRandom(channel.Id + ":" + selected.ItemId + ":ru", pool)
-                : ChooseRuntimeRandom(channel.Id + ":" + selected.ItemId + ":ru-fallback", episodes);
+                ? (Episode)ChooseRuntimeRandom(
+                    channel.Id + ":" + selected.ItemId + ":ru",
+                    pool.Cast<BaseItem>().ToList())
+                : (Episode)ChooseRuntimeRandom(
+                    channel.Id + ":" + selected.ItemId + ":ru-fallback",
+                    episodes.Cast<BaseItem>().ToList());
         }
 
         var resume = GetResume(user, item);
