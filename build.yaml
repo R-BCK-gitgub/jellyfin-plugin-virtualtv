@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.7.0.0"
+version: "1.8.0.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  UI reliability milestone: verified embedded configuration UI, responsive equal-size content cards with clear blue selection states, and a modern responsive channel-management card layout. Playback logic remains the 1.6 wall-clock alignment implementation.
+  UI correction milestone: custom CSS is now embedded inside the Jellyfin plugin page where the web client retains it, restoring responsive selectable content cards and a modern one-channel-per-row management table. Playback remains the validated 1.6 wall-clock alignment implementation.

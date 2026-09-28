@@ -76,22 +76,100 @@ jobs:
       - name: Build plugin
         run: dotnet build Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj --configuration Release --no-restore
 
+      - name: Validate Virtual TV page structure
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          page = Path("Jellyfin.Plugin.VirtualTV/Configuration/configPage.html").read_text(encoding="utf-8")
+
+          page_start = page.index('<div id="VirtualTVConfigPage"')
+          content_start = page.index('<div data-role="content">', page_start)
+          style_start = page.index('<style>', page_start)
+          style_end = page.index('</style>', style_start)
+
+          if not (page_start < style_start < style_end < content_start):
+              raise SystemExit("Virtual TV CSS must live inside the plugin page div before page content.")
+
+          head_end = page.index('</head>')
+          if '<style>' in page[:head_end]:
+              raise SystemExit("Head-level CSS detected. Jellyfin plugin pages do not reliably retain head styles.")
+
+          required = [
+              'data-ui-version="1.8.0.0"',
+              'class="vtv-channel-table"',
+              'class="vtv-content-grid"',
+              'class="vtv-content-card',
+              'vtv-content-year',
+              'vtv-content-library',
+              'background:#15566c',
+          ]
+          missing = [token for token in required if token not in page]
+          if missing:
+              raise SystemExit(f"Missing expected UI tokens: {missing}")
+
+          forbidden = [
+              'vtv-channel-card',
+              'vtv-content-detail-label">Year',
+              'vtv-content-detail-label">Library',
+          ]
+          present = [token for token in forbidden if token in page]
+          if present:
+              raise SystemExit(f"Obsolete UI tokens still present: {present}")
+
+          print("Virtual TV page structure validation passed.")
+          PY
+
+      - name: Validate Live playback invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          coordinator = Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
+          service = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
+
+          required_coordinator = [
+              '_scheduleStore.Load(channelId)',
+              'entry.GetStartUtc() <= nowUtc',
+              'entry.GetEndUtc() > nowUtc',
+              'targetTicks = Math.Max(0, (nowUtc - entry.GetStartUtc()).Ticks)',
+              'FirstSeekDelay = TimeSpan.FromMilliseconds(850)',
+              'ConfirmationSeekDelay = TimeSpan.FromMilliseconds(1400)',
+          ]
+          missing = [token for token in required_coordinator if token not in coordinator]
+          if missing:
+              raise SystemExit(f"Playback alignment invariant missing: {missing}")
+
+          if coordinator.count('await SendWallClockSeekAsync(') != 2:
+              raise SystemExit("Playback alignment must issue exactly two wall-clock seek attempts.")
+
+          if 'eventArgs.PlaybackPositionTicks' in coordinator:
+              raise SystemExit("Playback alignment must not trust Jellyfin PlaybackStart position as source-file position.")
+
+          required_service = [
+              '_scheduleStore.Load(channel.Id)',
+              'item.GetStartUtc() <= now',
+              'item.GetEndUtc() > now',
+              'GetStaticMediaSources(item, false)',
+              'source.RunTimeTicks = null',
+          ]
+          missing = [token for token in required_service if token not in service]
+          if missing:
+              raise SystemExit(f"Live source-selection invariant missing: {missing}")
+
+          print("Live playback invariants validation passed.")
+          PY
+
       - name: Validate embedded Virtual TV UI
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.7.0.0"' "$DLL"
-          grep -a -q 'vtv-channel-card' "$DLL"
-          grep -a -q 'vtv-content-year' "$DLL"
+          grep -a -q 'data-ui-version="1.8.0.0"' "$DLL"
+          grep -a -q 'vtv-channel-table' "$DLL"
+          grep -a -q 'vtv-content-card' "$DLL"
           grep -a -q 'background:#15566c' "$DLL"
-          if grep -a -q 'vtv-content-detail-label">Year' "$DLL"; then
-            echo "Old content-card markup is still embedded in the DLL."
-            exit 1
-          fi
-          if grep -a -q 'vtv-content-detail-label">Library' "$DLL"; then
-            echo "Old content-card markup is still embedded in the DLL."
-            exit 1
-          fi
           echo "Embedded UI validation passed."
 
       - name: Prepare install package
