@@ -273,15 +273,18 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
         if (openForPlayback)
         {
-            // v1.0.11 proof: create the wall-clock rebase only when Jellyfin actually opens the
-            // Live TV stream. The opened source receives a unique id and is then held by Jellyfin
-            // under a LiveStreamId. Track changes should reuse that same opened media source
-            // instead of calculating a new "live now" inpoint.
+            // v1.0.12 proof: create the wall-clock rebase only when Jellyfin actually opens the
+            // Live TV stream, while preserving the underlying Jellyfin media-source id.
+            //
+            // Jellyfin's client-side PGS/VobSub renderer fetches bitmap subtitles through
+            // /Videos/{itemId}/{mediaSourceId}/Subtitles/.... The subtitle encoder resolves that
+            // mediaSourceId against the item's normal playback sources, so replacing it with a
+            // Virtual TV-only id makes the subtitle request fail. Keeping the original id lets
+            // Jellyfin resolve and extract the source subtitle without burning it into the video.
             var sourceRuntimeTicks = source.RunTimeTicks ?? item.RunTimeTicks;
             var rebasedInput = CreateRebasedInput(source, sourceRuntimeTicks);
             source.EncoderPath = rebasedInput.DescriptorPath;
             source.EncoderProtocol = MediaProtocol.File;
-            source.Id = "virtualtv-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
 
             _logger.LogInformation(
                 "Virtual TV opened stable architecture source {SourceId} rebased to {OffsetSeconds} seconds for {ItemName}. FFmpeg input: {DescriptorPath}",
