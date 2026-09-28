@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 public sealed class VirtualTvLiveTvService : ILiveTvService
 {
     public const string ServiceName = "Virtual TV";
+    public const string ArchitectureTestChannelId = "virtualtv-architecture-test";
     private const string ChannelPrefix = "virtualtv-";
 
     private readonly ILibraryManager _libraryManager;
