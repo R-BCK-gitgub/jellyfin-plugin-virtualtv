@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Live-position reliability milestone: initial channel playback is aligned directly from the plugin's persisted schedule and confirmed with a second player seek, avoiding false 00:00 playback when Jellyfin's channel progress bar already shows the correct Live position.",
+  "changelog": "Live-position reliability milestone plus content-picker UI polish: deterministic wall-clock playback alignment, equal-size responsive dark content cards, simplified year/library labels, and strong blue selected-state feedback.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
