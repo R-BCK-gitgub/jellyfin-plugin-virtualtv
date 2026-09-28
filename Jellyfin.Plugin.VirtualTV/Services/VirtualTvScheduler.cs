@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -697,8 +698,14 @@ public sealed class VirtualTvScheduler
             }
 
             var episodes = GetEligibleEpisodes(channel, selected, true);
+            var scheduledSeason = entry.SeasonNumber ?? -1;
+            var scheduledEpisode = entry.EpisodeNumber ?? -1;
             var next = episodes.FirstOrDefault(e =>
-                ParseEpisodePosition(e) > (entry.SeasonNumber ?? -1, entry.EpisodeNumber ?? -1));
+            {
+                var position = ParseEpisodePosition(e);
+                return position.Season > scheduledSeason
+                    || (position.Season == scheduledSeason && position.Episode > scheduledEpisode);
+            });
             next ??= episodes.FirstOrDefault();
             if (next is not null)
             {
