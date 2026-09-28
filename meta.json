@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Preserves the underlying Jellyfin media-source id so client-rendered PGS/VobSub subtitles can be fetched without server-side video transcoding.",
+  "changelog": "Final-shape 1.0.12.test preview: channel configuration, persistent schedules, native Live TV/Guide exposure, scheduling tasks and validation dashboard.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.0.12.0",
+  "version": "1.0.12.9000",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
