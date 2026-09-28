@@ -15,8 +15,12 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<VirtualTvScheduleStore>();
         serviceCollection.AddSingleton<VirtualTvScheduleGenerator>();
+        serviceCollection.AddSingleton<PlaybackStateProtectionManager>();
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
         serviceCollection.AddSingleton<ILiveTvService, VirtualTvLiveTvService>();
+
         serviceCollection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, VirtualTvPlaybackStartConsumer>();
+        serviceCollection.AddScoped<IEventConsumer<PlaybackProgressEventArgs>, VirtualTvPlaybackProgressConsumer>();
+        serviceCollection.AddScoped<IEventConsumer<PlaybackStopEventArgs>, VirtualTvPlaybackStopConsumer>();
     }
 }

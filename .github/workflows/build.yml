@@ -97,7 +97,7 @@ jobs:
               raise SystemExit("Head-level CSS detected. Jellyfin plugin pages do not reliably retain head styles.")
 
           required = [
-              'data-ui-version="1.8.0.0"',
+              'data-ui-version="1.8.1.0"',
               'class="vtv-channel-table"',
               'class="vtv-content-grid"',
               'class="vtv-content-card',
@@ -128,45 +128,91 @@ jobs:
           from pathlib import Path
 
           coordinator = Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
+          protection = Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text(encoding="utf-8")
+          registrator = Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8")
+          start_consumer = Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStartConsumer.cs").read_text(encoding="utf-8")
+          progress_consumer = Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackProgressConsumer.cs").read_text(encoding="utf-8")
+          stop_consumer = Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text(encoding="utf-8")
           service = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
 
+          # Playback must now start the scheduled library item at the wall-clock offset.
           required_coordinator = [
               '_scheduleStore.Load(channelId)',
               'entry.GetStartUtc() <= nowUtc',
               'entry.GetEndUtc() > nowUtc',
-              'targetTicks = Math.Max(0, (nowUtc - entry.GetStartUtc()).Ticks)',
-              'FirstSeekDelay = TimeSpan.FromMilliseconds(850)',
-              'ConfirmationSeekDelay = TimeSpan.FromMilliseconds(1400)',
+              'activeEntry.SourceItemId',
+              'StartPositionTicks = targetTicks',
+              'PlayCommand = PlayCommand.PlayNow',
+              'await _sessionManager.SendPlayCommand(',
+              'CommandTransitCompensation = TimeSpan.FromSeconds(1)',
+              '_stateProtection.BeginProtection(',
           ]
           missing = [token for token in required_coordinator if token not in coordinator]
           if missing:
-              raise SystemExit(f"Playback alignment invariant missing: {missing}")
+              raise SystemExit(f"Playback handoff invariant missing: {missing}")
 
-          if coordinator.count('await SendWallClockSeekAsync(') != 2:
-              raise SystemExit("Playback alignment must issue exactly two wall-clock seek attempts.")
+          # The old architecture is specifically forbidden: no delayed post-start Seek retries.
+          forbidden_coordinator = [
+              'SendPlaystateCommand',
+              'PlaystateCommand.Seek',
+              'FirstSeekDelay',
+              'ConfirmationSeekDelay',
+              'SendWallClockSeekAsync',
+          ]
+          present = [token for token in forbidden_coordinator if token in coordinator]
+          if present:
+              raise SystemExit(f"Legacy post-start seek logic is still present: {present}")
 
-          if 'eventArgs.PlaybackPositionTicks' in coordinator:
-              raise SystemExit("Playback alignment must not trust Jellyfin PlaybackStart position as source-file position.")
+          # Watched/resume state must be captured and continuously restored while the source
+          # item is temporarily used as the transport for the virtual channel.
+          required_protection = [
+              'PlaybackPositionTicks',
+              'data.Played',
+              'data.PlayCount',
+              'data.LastPlayedDate',
+              'SaveUserData(',
+              'CancelProtection(sessionId, restore: true)',
+          ]
+          missing = [token for token in required_protection if token not in protection]
+          if missing:
+              raise SystemExit(f"State-protection invariant missing: {missing}")
 
+          required_registrations = [
+              'AddSingleton<PlaybackStateProtectionManager>()',
+              'IEventConsumer<PlaybackStartEventArgs>',
+              'IEventConsumer<PlaybackProgressEventArgs>',
+              'IEventConsumer<PlaybackStopEventArgs>',
+          ]
+          missing = [token for token in required_registrations if token not in registrator]
+          if missing:
+              raise SystemExit(f"Playback event registration missing: {missing}")
+
+          if 'RestoreIfProtected(eventArgs, clearAfterRestore: false)' not in start_consumer:
+              raise SystemExit("PlaybackStart consumer must restore protected source state.")
+          if 'RestoreIfProtected(eventArgs, clearAfterRestore: false)' not in progress_consumer:
+              raise SystemExit("PlaybackProgress consumer must keep source state unchanged.")
+          if 'RestoreIfProtected(eventArgs, clearAfterRestore: true)' not in stop_consumer:
+              raise SystemExit("PlaybackStop consumer must restore and clear source state.")
+
+          # The native channel still resolves the correct scheduled file before the handoff.
           required_service = [
               '_scheduleStore.Load(channel.Id)',
               'item.GetStartUtc() <= now',
               'item.GetEndUtc() > now',
               'GetStaticMediaSources(item, false)',
-              'source.RunTimeTicks = null',
           ]
           missing = [token for token in required_service if token not in service]
           if missing:
               raise SystemExit(f"Live source-selection invariant missing: {missing}")
 
-          print("Live playback invariants validation passed.")
+          print("Live playback handoff and state-protection validations passed.")
           PY
 
       - name: Validate embedded Virtual TV UI
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.8.0.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.8.1.0"' "$DLL"
           grep -a -q 'vtv-channel-table' "$DLL"
           grep -a -q 'vtv-content-card' "$DLL"
           grep -a -q 'background:#15566c' "$DLL"
