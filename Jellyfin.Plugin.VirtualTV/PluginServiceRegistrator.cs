@@ -18,5 +18,6 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
         serviceCollection.AddSingleton<ILiveTvService, VirtualTvLiveTvService>();
         serviceCollection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, VirtualTvPlaybackStartConsumer>();
+        serviceCollection.AddScoped<IEventConsumer<PlaybackProgressEventArgs>, VirtualTvPlaybackProgressConsumer>();
     }
 }

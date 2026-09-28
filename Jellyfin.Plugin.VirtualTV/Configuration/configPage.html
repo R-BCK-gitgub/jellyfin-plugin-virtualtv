@@ -13,23 +13,17 @@
 #VirtualTVConfigPage .vtv-editor-actions{display:flex;gap:.75em;margin-top:1.5em;flex-wrap:wrap}
 #VirtualTVConfigPage .vtv-empty{text-align:center;padding:2.5em 1em;opacity:.78}
 #VirtualTVConfigPage .vtv-warning{padding:.8em 1em;border-radius:.5em;background:rgba(255,183,0,.13);margin-bottom:1em}
-#VirtualTVConfigPage .vtv-table-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.16);border-radius:.65em}
-#VirtualTVConfigPage .vtv-table{width:100%;border-collapse:separate;border-spacing:0;min-width:1260px}
-#VirtualTVConfigPage .vtv-table th,#VirtualTVConfigPage .vtv-table td{padding:1em 1.1em;border-bottom:1px solid rgba(255,255,255,.11);text-align:left;vertical-align:middle}
-#VirtualTVConfigPage .vtv-table th:not(:last-child),#VirtualTVConfigPage .vtv-table td:not(:last-child){border-right:1px solid rgba(255,255,255,.1)}
-#VirtualTVConfigPage .vtv-table th{font-size:.86em;opacity:.82;font-weight:700;background:rgba(255,255,255,.055);white-space:nowrap}
-#VirtualTVConfigPage .vtv-table tbody tr:nth-child(even){background:rgba(255,255,255,.018)}
-#VirtualTVConfigPage .vtv-table tbody tr:last-child td{border-bottom:0}
-#VirtualTVConfigPage .vtv-table th:nth-child(1){min-width:4.5em}
-#VirtualTVConfigPage .vtv-table th:nth-child(2){min-width:10em}
-#VirtualTVConfigPage .vtv-table th:nth-child(3){min-width:6em}
-#VirtualTVConfigPage .vtv-table th:nth-child(4){min-width:15em}
-#VirtualTVConfigPage .vtv-table th:nth-child(5){min-width:11em}
-#VirtualTVConfigPage .vtv-table th:nth-child(6){min-width:5em}
-#VirtualTVConfigPage .vtv-table th:nth-child(7){min-width:7em}
-#VirtualTVConfigPage .vtv-table th:nth-child(8){min-width:12em}
-#VirtualTVConfigPage .vtv-table .vtv-actions{white-space:nowrap;min-width:20em}
-#VirtualTVConfigPage .vtv-table .vtv-actions button{margin:.15em}
+#VirtualTVConfigPage .vtv-table-wrap{overflow-x:auto}
+#VirtualTVConfigPage .vtv-table{width:100%;border-collapse:separate;border-spacing:0 .65em;min-width:1320px;table-layout:fixed}
+#VirtualTVConfigPage .vtv-table th{padding:.35em 1.1em .55em;text-align:left;font-size:.82em;opacity:.72;font-weight:700;white-space:nowrap}
+#VirtualTVConfigPage .vtv-table td{padding:1em 1.1em;text-align:left;vertical-align:middle;background:rgba(255,255,255,.045);border-top:1px solid rgba(255,255,255,.13);border-bottom:1px solid rgba(255,255,255,.13);overflow-wrap:anywhere}
+#VirtualTVConfigPage .vtv-table td+td{border-left:1px solid rgba(255,255,255,.12)}
+#VirtualTVConfigPage .vtv-table td:first-child{border-left:1px solid rgba(255,255,255,.13);border-radius:.65em 0 0 .65em}
+#VirtualTVConfigPage .vtv-table td:last-child{border-right:1px solid rgba(255,255,255,.13);border-radius:0 .65em .65em 0}
+#VirtualTVConfigPage .vtv-table .vtv-actions{white-space:nowrap}
+#VirtualTVConfigPage .vtv-table .vtv-actions button{margin:.15em .2em}
+#VirtualTVConfigPage .vtv-cell-primary{font-weight:700}
+#VirtualTVConfigPage .vtv-cell-secondary{font-size:.86em;opacity:.68;margin-top:.22em}
 #VirtualTVConfigPage .vtv-channel-name{font-weight:600}
 #VirtualTVConfigPage .vtv-meta{font-size:.9em;opacity:.72;margin-top:.2em}
 #VirtualTVConfigPage .vtv-library-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15em,1fr));gap:.55em .9em;margin-top:.75em}
@@ -225,15 +219,16 @@
 
     var rows=channels.map(function(c){
       var libraries=(c.SelectedLibraryIds||[]).map(libraryName).join(', ')||'—';
+      var modeParts=modeLabel(c).split(' · ');
       return '<tr>'+
-        '<td><strong>'+esc(c.Number)+'</strong></td>'+
-        '<td><div class="vtv-channel-name">'+esc(c.Name)+'</div></td>'+
-        '<td>'+esc(c.ChannelType)+'</td>'+
-        '<td>'+esc(modeLabel(c))+'</td>'+
-        '<td>'+esc(libraries)+'</td>'+
-        '<td>'+esc((c.SelectedItemIds||[]).length)+'</td>'+
-        '<td>'+esc(hoursLabel(c))+'</td>'+
-        '<td>'+esc(scheduleLabel(c))+'</td>'+
+        '<td><div class="vtv-cell-primary">'+esc(c.Number)+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc(c.Name)+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc(c.ChannelType)+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc(modeParts[0]||'')+'</div><div class="vtv-cell-secondary">'+esc(modeParts[1]||'')+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc(libraries)+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc((c.SelectedItemIds||[]).length)+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc(hoursLabel(c))+'</div></td>'+
+        '<td><div class="vtv-cell-primary">'+esc(scheduleLabel(c))+'</div></td>'+
         '<td class="vtv-actions">'+
           '<button is="emby-button" type="button" class="raised button-submit emby-button btnGenerate" data-id="'+esc(c.Id)+'">Generate schedule</button>'+
           '<button is="emby-button" type="button" class="raised emby-button btnEdit" data-id="'+esc(c.Id)+'">Edit</button>'+
@@ -243,6 +238,9 @@
     }).join('');
 
     box.innerHTML='<div class="vtv-table-wrap"><table class="vtv-table">'+
+      '<colgroup>'+
+        '<col style="width:5%"><col style="width:11%"><col style="width:7%"><col style="width:18%"><col style="width:12%"><col style="width:6%"><col style="width:8%"><col style="width:13%"><col style="width:20%">'+
+      '</colgroup>'+
       '<thead><tr>'+
         '<th>No.</th><th>Channel</th><th>Type</th><th>Playback / schedule</th><th>Libraries</th><th>Titles</th><th>Hours</th><th>Schedule</th><th>Actions</th>'+
       '</tr></thead><tbody>'+rows+'</tbody></table></div>';

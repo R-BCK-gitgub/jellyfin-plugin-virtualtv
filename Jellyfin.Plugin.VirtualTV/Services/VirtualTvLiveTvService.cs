@@ -71,10 +71,9 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         if (channel is null)
             return Task.FromResult<IEnumerable<ProgramInfo>>(Array.Empty<ProgramInfo>());
 
-        var now = DateTime.UtcNow;
         var programs = _scheduleStore.Load(channel.Id)
             .Where(entry => entry.GetEndUtc() > startDateUtc && entry.GetStartUtc() < endDateUtc)
-            .Select(entry => ToProgram(channelId, entry, now))
+            .Select(entry => ToProgram(channelId, entry))
             .ToArray();
 
         return Task.FromResult<IEnumerable<ProgramInfo>>(programs);
@@ -161,7 +160,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         return source;
     }
 
-    private static ProgramInfo ToProgram(string channelId, VirtualTvScheduleEntry entry, DateTime now)
+    private static ProgramInfo ToProgram(string channelId, VirtualTvScheduleEntry entry)
     {
         var start = entry.GetStartUtc();
         var end = entry.GetEndUtc();
@@ -176,7 +175,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
                 Overview = "This Virtual TV channel is currently off air.",
                 StartDate = start,
                 EndDate = end,
-                IsLive = start <= now && end > now
+                IsLive = false
             };
         }
 
@@ -190,11 +189,11 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             Id = "virtualtv-program-" + entry.Id,
             ChannelId = channelId,
             Name = entry.IsMovie ? entry.Name : entry.SeriesName,
-            EpisodeTitle = entry.IsMovie ? null : entry.Name,
+            EpisodeTitle = entry.IsMovie ? null : FormatEpisodeTitle(entry),
             Overview = entry.Overview,
             StartDate = start,
             EndDate = end,
-            IsLive = start <= now && end > now,
+            IsLive = false,
             IsMovie = entry.IsMovie,
             IsSeries = !entry.IsMovie,
             SeasonNumber = entry.SeasonNumber,
@@ -202,6 +201,16 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             ProductionYear = entry.ProductionYear,
             OriginalAirDate = premiereDate
         };
+    }
+
+    private static string FormatEpisodeTitle(VirtualTvScheduleEntry entry)
+    {
+        if (entry.SeasonNumber.HasValue && entry.EpisodeNumber.HasValue)
+        {
+            return $"S{entry.SeasonNumber.Value:00}E{entry.EpisodeNumber.Value:00} {entry.Name}";
+        }
+
+        return entry.Name;
     }
 
     private static string ToExternalId(string channelId) => ChannelPrefix + channelId;
