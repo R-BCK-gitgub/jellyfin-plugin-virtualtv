@@ -891,27 +891,23 @@ public sealed class LiveTvPlaybackCoordinator
         IReadOnlyList<VirtualTvScheduleEntry> schedule,
         string currentEntryId)
     {
-        for (var index = 0; index < schedule.Count; index++)
+        var index = -1;
+        for (var candidate = 0; candidate < schedule.Count; candidate++)
         {
-            if (!string.Equals(schedule[index].Id, currentEntryId, StringComparison.Ordinal))
+            if (string.Equals(schedule[candidate].Id, currentEntryId, StringComparison.Ordinal))
             {
-                continue;
+                index = candidate;
+                break;
             }
-
-            for (var next = index + 1; next < schedule.Count; next++)
-            {
-                if (!schedule[next].IsOffAir)
-                {
-                    return schedule[next];
-                }
-
-                return null;
-            }
-
-            break;
         }
 
-        return null;
+        if (index < 0 || index + 1 >= schedule.Count)
+        {
+            return null;
+        }
+
+        var next = schedule[index + 1];
+        return next.IsOffAir ? null : next;
     }
 
     private static bool IsAtPhysicalEnd(PlaybackStopEventArgs eventArgs)
