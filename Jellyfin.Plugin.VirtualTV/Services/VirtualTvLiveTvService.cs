@@ -124,8 +124,19 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
         var now = DateTime.UtcNow;
         var entry = _scheduleStore.Load(channel.Id)
-            .FirstOrDefault(item => !item.IsOffAir && item.GetStartUtc() <= now && item.GetEndUtc() > now)
-            ?? throw new InvalidOperationException("No playable Virtual TV programme is scheduled for the current time.");
+            .FirstOrDefault(item => item.GetStartUtc() <= now && item.GetEndUtc() > now)
+            ?? throw new InvalidOperationException("Schedule needs to be generated.");
+
+        if (entry.IsOffAir)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(entry.Overview)
+                ? "This Virtual TV channel is Off Air."
+                : entry.Overview);
+
+        if (entry.IsContentUnavailable)
+            throw new InvalidOperationException("Content Not Available.");
+
+        if (entry.IsScheduleUnavailable)
+            throw new InvalidOperationException("Schedule needs to be generated.");
 
         if (!Guid.TryParse(entry.SourceItemId, out var itemId))
             throw new InvalidOperationException("The scheduled source item id is invalid.");
@@ -165,14 +176,20 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         var start = entry.GetStartUtc();
         var end = entry.GetEndUtc();
 
-        if (entry.IsOffAir)
+        if (entry.IsOffAir || entry.IsContentUnavailable || entry.IsScheduleUnavailable)
         {
+            var name = entry.IsOffAir
+                ? "Off Air"
+                : entry.IsContentUnavailable
+                    ? "Content Not Available"
+                    : "Schedule Not Available";
+
             return new ProgramInfo
             {
-                Id = "virtualtv-offair-" + entry.Id,
+                Id = "virtualtv-status-" + entry.Id,
                 ChannelId = channelId,
-                Name = "Off Air",
-                Overview = "This Virtual TV channel is currently off air.",
+                Name = name,
+                Overview = string.IsNullOrWhiteSpace(entry.Overview) ? name : entry.Overview,
                 StartDate = start,
                 EndDate = end,
                 IsLive = false
