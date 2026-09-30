@@ -7,6 +7,13 @@ public sealed class ChannelConfiguration
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional channel description shown on the Jellyfin Live TV channel details page.
+    /// This is presentation metadata only and does not affect scheduling or playback.
+    /// </summary>
+    public string Description { get; set; } = string.Empty;
+
     public int Number { get; set; }
     public string ChannelType { get; set; } = "Series";
 
