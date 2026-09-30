@@ -54,8 +54,8 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             .Select(channel => new ChannelInfo
             {
                 Id = ToExternalId(channel.Id),
-                Name = channel.Name,
-                Number = channel.Number.ToString(CultureInfo.InvariantCulture),
+                Name = GetFrontendChannelName(channel),
+                Number = GetFrontendChannelNumber(channel),
                 ChannelType = ChannelType.TV,
                 CallSign = "VTV" + channel.Number.ToString(CultureInfo.InvariantCulture),
                 Tags = ["Virtual TV"]
@@ -269,7 +269,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             Id = "virtualtv-program-" + entry.Id,
             ChannelId = channelId,
             Name = entry.IsMovie ? entry.Name : entry.SeriesName,
-            EpisodeTitle = entry.IsMovie || entry.IsDynamicBlock ? null : FormatEpisodeTitle(entry),
+            EpisodeTitle = entry.IsMovie || entry.IsDynamicBlock ? null : entry.Name,
             Overview = entry.Overview,
             StartDate = start,
             EndDate = end,
@@ -283,15 +283,11 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         };
     }
 
-    private static string FormatEpisodeTitle(VirtualTvScheduleEntry entry)
-    {
-        if (entry.SeasonNumber.HasValue && entry.EpisodeNumber.HasValue)
-        {
-            return $"S{entry.SeasonNumber.Value:00}E{entry.EpisodeNumber.Value:00} {entry.Name}";
-        }
+    private static string GetFrontendChannelNumber(ChannelConfiguration channel)
+        => "Channel " + channel.Number.ToString(CultureInfo.InvariantCulture);
 
-        return entry.Name;
-    }
+    private static string GetFrontendChannelName(ChannelConfiguration channel)
+        => "- " + channel.Name;
 
     private static string ToExternalId(string channelId) => ChannelPrefix + channelId;
 
