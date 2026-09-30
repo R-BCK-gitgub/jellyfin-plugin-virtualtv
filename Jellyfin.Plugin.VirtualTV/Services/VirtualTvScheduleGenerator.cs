@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -89,7 +91,6 @@ public sealed class VirtualTvScheduleGenerator
     public IReadOnlyList<VirtualTvScheduleEntry> GenerateNewSchedule(ChannelConfiguration channel)
     {
         Normalize(channel);
-        EnsureSelectedContent(channel);
 
         var nowUtc = DateTime.UtcNow;
         var existing = _store.Load(channel.Id).OrderBy(item => item.GetStartUtc()).ToList();
@@ -173,7 +174,16 @@ public sealed class VirtualTvScheduleGenerator
             return retained;
         }
 
-        var append = BuildRange(channel, lastEndUtc, targetUtc, retained);
+        IReadOnlyList<VirtualTvScheduleEntry> append;
+        if (IsSmart(channel))
+        {
+            append = BuildSmartAppendWithRotation(channel, lastEndUtc, targetUtc, retained);
+        }
+        else
+        {
+            append = BuildRange(channel, lastEndUtc, targetUtc, retained);
+        }
+
         var combined = CombineAndTrim(retained, append, nowUtc);
         Save(channel, combined, nowUtc);
         return combined;
@@ -221,6 +231,78 @@ public sealed class VirtualTvScheduleGenerator
     /// </summary>
     public IReadOnlyList<VirtualTvScheduleEntry> Recover(ChannelConfiguration channel)
         => Extend(channel);
+
+    /// <summary>
+    /// Detects library/watched-state changes that require future schedule reconciliation.
+    /// Series watched-dependent modes resolve episodes at runtime, so their watched-state
+    /// changes intentionally do not affect this fingerprint.
+    /// </summary>
+    public bool HasReconcileChanges(ChannelConfiguration channel)
+    {
+        Normalize(channel);
+        return !string.Equals(
+            channel.ContentFingerprint,
+            ComputeContentFingerprint(channel),
+            StringComparison.Ordinal);
+    }
+
+    private IReadOnlyList<VirtualTvScheduleEntry> BuildSmartAppendWithRotation(
+        ChannelConfiguration channel,
+        DateTime startUtc,
+        DateTime targetUtc,
+        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+    {
+        var result = new List<VirtualTvScheduleEntry>();
+        var cursor = startUtc;
+        var workingPrefix = prefix.ToList();
+
+        while (cursor < targetUtc)
+        {
+            var weekStart = cursor;
+            var weekEnd = GetNextSundayUtc(weekStart.AddMinutes(1));
+            if (weekEnd <= weekStart)
+            {
+                weekEnd = weekStart.AddDays(7);
+            }
+            if (weekEnd > targetUtc)
+            {
+                weekEnd = targetUtc;
+            }
+
+            if (ShouldRotateSmartTemplate(channel, weekStart))
+            {
+                channel.SmartTemplateSeed = Random.Shared.Next(1, int.MaxValue);
+                channel.SmartTemplateCreatedUtc = weekStart.ToString("O", CultureInfo.InvariantCulture);
+            }
+
+            var week = BuildRange(channel, weekStart, weekEnd, workingPrefix);
+            result.AddRange(week);
+            workingPrefix.AddRange(week);
+            cursor = weekEnd;
+        }
+
+        return result;
+    }
+
+    private static bool ShouldRotateSmartTemplate(ChannelConfiguration channel, DateTime weekStartUtc)
+    {
+        if (!IsSmart(channel))
+        {
+            return false;
+        }
+
+        if (!DateTime.TryParse(
+            channel.SmartTemplateCreatedUtc,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out var created))
+        {
+            return false;
+        }
+
+        var boundary = created.ToUniversalTime().AddMonths(channel.SmartRotationMonths);
+        return weekStartUtc >= boundary;
+    }
 
     private IReadOnlyList<VirtualTvScheduleEntry> BuildRange(
         ChannelConfiguration channel,
@@ -691,12 +773,47 @@ public sealed class VirtualTvScheduleGenerator
         channel.SelectedLibraryIds ??= [];
     }
 
-    private static void EnsureSelectedContent(ChannelConfiguration channel)
+    private string ComputeContentFingerprint(ChannelConfiguration channel)
     {
-        if (channel.SelectedItemIds.Count == 0)
+        var parts = new List<string>
         {
-            throw new InvalidOperationException("Select at least one series or movie before generating a schedule.");
+            channel.ChannelType,
+            channel.ContentMode,
+            channel.SchedulingMethod,
+            channel.BlockMinutes.ToString(CultureInfo.InvariantCulture),
+            channel.EpisodesPerTurn.ToString(CultureInfo.InvariantCulture),
+            channel.Is24Hours.ToString(CultureInfo.InvariantCulture),
+            channel.OnAirStart,
+            channel.OffAirStart
+        };
+
+        if (string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase))
+        {
+            var ownerId = string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase)
+                ? _userContext.ResolveOwnerUserId(channel)
+                : Guid.Empty;
+            var owner = ownerId == Guid.Empty ? null : _userManager.GetUserById(ownerId);
+
+            foreach (var item in _catalog.GetMovies(channel).OrderBy(item => item.Id))
+            {
+                var played = owner is null ? false : _userDataManager.GetUserData(owner, item)?.Played == true;
+                parts.Add($"M:{item.Id:N}:{item.RunTimeTicks.GetValueOrDefault()}:{played}");
+            }
         }
+        else
+        {
+            foreach (var series in _catalog.GetSeries(channel).OrderBy(item => item.Id))
+            {
+                parts.Add($"S:{series.Id:N}");
+                foreach (var episode in series.Episodes.OrderBy(item => item.Id))
+                {
+                    parts.Add($"E:{episode.Id:N}:{episode.RunTimeTicks.GetValueOrDefault()}:{episode.ParentIndexNumber}:{episode.IndexNumber}");
+                }
+            }
+        }
+
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("|", parts)));
+        return Convert.ToHexString(bytes);
     }
 
     private void Save(
@@ -707,6 +824,7 @@ public sealed class VirtualTvScheduleGenerator
         _store.Save(channel.Id, entries);
         channel.ScheduleGeneratedUtc = nowUtc.ToString("O", CultureInfo.InvariantCulture);
         channel.ScheduleEndUtc = entries.Count == 0 ? string.Empty : entries[^1].EndUtc;
+        channel.ContentFingerprint = ComputeContentFingerprint(channel);
         channel.NeedsReconcile = false;
     }
 
