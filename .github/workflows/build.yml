@@ -180,7 +180,7 @@ jobs:
               '_active.GetOrAdd(',
               'snapshot.Roots.Any(root => root.RootItemId == rootItemId)',
               'RestoreAllIfProtected',
-              'CancelProtection(sessionId, restore: true)',
+              'public void CancelProtection(string sessionId, bool restore)',
           ]
           missing = [token for token in required_protection if token not in protection]
           if missing:
