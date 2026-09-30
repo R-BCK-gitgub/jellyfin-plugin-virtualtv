@@ -474,6 +474,9 @@ public sealed class VirtualTvScheduleGenerator
         var on = ParseClock(channel.OnAirStart, new TimeSpan(7, 0, 0));
         var off = ParseClock(channel.OffAirStart, new TimeSpan(2, 0, 0));
 
+        if (on == off)
+            return null;
+
         if (!IsOnAir(local.TimeOfDay, on, off))
             return cursorUtc;
 
