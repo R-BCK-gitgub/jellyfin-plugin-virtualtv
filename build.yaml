@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.3.0"
+version: "1.10.4.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Restores the proven 1.10.1 episode/VOD player architecture on every client, including LG webOS. Traditional channels again hand off to the real Jellyfin episode with the full episode timeline, normal rewind/fast-forward and normal subtitle switching. LG webOS keeps that same VOD handoff but avoids the decoder failure caused by a remote mid-file PlayNow: the item opens at 00:00 and receives one 500 ms deferred seek to the schedule-authoritative live offset. Existing watched/resume protection, current-plus-next queue continuity and end-of-episode live resynchronisation remain intact. Channel descriptions continue to stay out of Jellyfin Overview because stock clients place Overview below the Guide.
+  Simplifies playback to one generation-safe PlayNow request for exactly one resolved item per tune, with a cancellable 500 ms initial handoff delay, no Current+Next queue, no delayed LG seek, no continuation watchdog and schedule-authoritative re-resolution at every physical EOF. Stale events from a previous channel can no longer close or overwrite the current tune. Smart Schedule now uses a stable weekly coverage-first series cycle so every eligible series appears before any repeats when the week has enough turns. Existing channels are fully editable and structural changes mark the schedule for regeneration. Adds Content Coverage with clickable Unassigned/Assigned/Multiple filters and CSV export. Installs a delimited Jellyfin Custom CSS block that enlarges Live TV Guide rows and the channel column while preserving existing custom CSS. Channel descriptions remain hidden from Jellyfin Overview.

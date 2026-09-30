@@ -127,7 +127,9 @@ public sealed class VirtualTvScheduleGenerator
         }
 
         var targetUtc = GetTargetHorizonUtc(channel, nowUtc);
-        var generated = BuildRange(channel, startUtc, targetUtc, prefix, resetRandomState: true);
+        var generated = isSmart
+            ? BuildSmartAppendWithRotation(channel, startUtc, targetUtc, prefix, resetRandomState: true)
+            : BuildRange(channel, startUtc, targetUtc, prefix, resetRandomState: true);
         var combined = CombineAndTrim(prefix, generated, nowUtc);
         Save(channel, combined, nowUtc);
         return combined;
@@ -238,7 +240,9 @@ public sealed class VirtualTvScheduleGenerator
         EnsureRepeatingOrder(channel, _catalog.GetSeries(channel).Select(item => item.Id).ToArray());
 
         var targetUtc = GetTargetHorizonUtc(channel, nowUtc);
-        var generated = BuildRange(channel, cutoffUtc, targetUtc, prefix);
+        var generated = IsSmart(channel)
+            ? BuildSmartAppendWithRotation(channel, cutoffUtc, targetUtc, prefix)
+            : BuildRange(channel, cutoffUtc, targetUtc, prefix);
         var combined = CombineAndTrim(prefix, generated, nowUtc);
         Save(channel, combined, nowUtc);
         return combined;
@@ -269,7 +273,8 @@ public sealed class VirtualTvScheduleGenerator
         ChannelConfiguration channel,
         DateTime startUtc,
         DateTime targetUtc,
-        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+        IReadOnlyList<VirtualTvScheduleEntry> prefix,
+        bool resetRandomState = false)
     {
         var result = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
@@ -294,7 +299,12 @@ public sealed class VirtualTvScheduleGenerator
                 channel.SmartTemplateCreatedUtc = weekStart.ToString("O", CultureInfo.InvariantCulture);
             }
 
-            var week = BuildRange(channel, weekStart, weekEnd, workingPrefix);
+            var week = BuildRange(
+                channel,
+                weekStart,
+                weekEnd,
+                workingPrefix,
+                resetRandomState: resetRandomState || result.Count == 0);
             result.AddRange(week);
             workingPrefix.AddRange(week);
             cursor = weekEnd;
@@ -378,7 +388,7 @@ public sealed class VirtualTvScheduleGenerator
         var entries = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
         var blockDuration = TimeSpan.FromMinutes(channel.BlockMinutes);
-        var picker = new SeriesPicker(channel, series, resetRandomState ? [] : prefix, this);
+        var picker = new SeriesPicker(channel, series, resetRandomState ? [] : prefix, this, startUtc);
         var currentSeries = default(VirtualTvContentCatalog.SeriesContent);
         var remainingTurns = 0;
 
@@ -441,7 +451,7 @@ public sealed class VirtualTvScheduleGenerator
     {
         var entries = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
-        var picker = new SeriesPicker(channel, series, resetRandomState ? [] : prefix, this);
+        var picker = new SeriesPicker(channel, series, resetRandomState ? [] : prefix, this, startUtc);
         var sequentialCursors = BuildSequentialCursors(series, prefix);
         var randomBags = series.ToDictionary(
             item => item.Id,
@@ -1126,19 +1136,21 @@ public sealed class VirtualTvScheduleGenerator
         private readonly VirtualTvScheduleGenerator _owner;
         private readonly ShuffleBag<VirtualTvContentCatalog.SeriesContent>? _randomBag;
         private readonly List<VirtualTvContentCatalog.SeriesContent> _fixedOrder;
+        private readonly List<VirtualTvContentCatalog.SeriesContent> _smartOrder;
         private int _cursor;
-        private Guid? _smartLastId;
 
         public SeriesPicker(
             ChannelConfiguration channel,
             IReadOnlyList<VirtualTvContentCatalog.SeriesContent> all,
             IReadOnlyList<VirtualTvScheduleEntry> prefix,
-            VirtualTvScheduleGenerator owner)
+            VirtualTvScheduleGenerator owner,
+            DateTime rangeStartUtc)
         {
             _channel = channel;
             _all = all;
             _owner = owner;
             _byId = all.ToDictionary(item => item.Id);
+            _smartOrder = [];
 
             if (string.Equals(channel.SchedulingMethod, VirtualTvModePolicy.RandomizedRotation, StringComparison.OrdinalIgnoreCase))
             {
@@ -1200,10 +1212,35 @@ public sealed class VirtualTvScheduleGenerator
                 }
             }
 
+            if (string.Equals(channel.SchedulingMethod, VirtualTvModePolicy.SmartSchedule, StringComparison.OrdinalIgnoreCase))
+            {
+                _smartOrder = all.ToList();
+                var random = new Random(channel.SmartTemplateSeed == 0 ? 1 : channel.SmartTemplateSeed);
+                for (var index = _smartOrder.Count - 1; index > 0; index--)
+                {
+                    var swap = random.Next(index + 1);
+                    (_smartOrder[index], _smartOrder[swap]) = (_smartOrder[swap], _smartOrder[index]);
+                }
+
+                // Smart schedules are generated in Sunday-to-Saturday chunks. If recovery starts
+                // in the middle of a week, continue the deterministic cycle from the number of
+                // already-materialized programme turns in that week instead of starting over.
+                var weekStart = GetSundayStartUtc(rangeStartUtc);
+                var earlierProgrammeCount = prefix.Count(entry =>
+                    !entry.IsOffAir
+                    && !entry.IsContentUnavailable
+                    && !entry.IsScheduleUnavailable
+                    && entry.GetStartUtc() >= weekStart
+                    && entry.GetStartUtc() < rangeStartUtc
+                    && owner.GetEntrySeriesId(entry) != Guid.Empty);
+
+                _cursor = earlierProgrammeCount / Math.Max(1, channel.EpisodesPerTurn);
+                return;
+            }
+
             var lastSeriesId = prefix.Select(owner.GetEntrySeriesId).LastOrDefault(id => id != Guid.Empty);
             if (lastSeriesId != Guid.Empty)
             {
-                _smartLastId = lastSeriesId;
                 var lastIndex = _fixedOrder.FindIndex(item => item.Id == lastSeriesId);
                 _cursor = lastIndex >= 0 ? lastIndex + 1 : 0;
             }
@@ -1228,50 +1265,20 @@ public sealed class VirtualTvScheduleGenerator
 
         private VirtualTvContentCatalog.SeriesContent PickSmart(DateTime slotStartUtc)
         {
-            if (_channel.SmartTemplateSeed == 0)
+            _ = slotStartUtc;
+
+            if (_smartOrder.Count == 0)
             {
-                _channel.SmartTemplateSeed = Random.Shared.Next(1, int.MaxValue);
+                throw new InvalidOperationException("Smart Schedule has no eligible series.");
             }
 
-            if (string.IsNullOrWhiteSpace(_channel.SmartTemplateCreatedUtc))
-            {
-                _channel.SmartTemplateCreatedUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-            }
-
-            var local = TimeZoneInfo.ConvertTimeFromUtc(slotStartUtc, TimeZoneInfo.Local);
-            var on = ParseClock(_channel.OnAirStart, new TimeSpan(7, 0, 0));
-            var minutesFromOn = _channel.Is24Hours
-                ? (int)local.TimeOfDay.TotalMinutes
-                : (int)((local.TimeOfDay - on + TimeSpan.FromDays(1)).Ticks % TimeSpan.FromDays(1).Ticks / TimeSpan.TicksPerMinute);
-
-            var nominalMinutes = VirtualTvModePolicy.IsDynamicUnwatched(_channel.ContentMode)
-                ? _channel.BlockMinutes
-                : 30;
-
-            var slotOrdinal = Math.Max(0, minutesFromOn / Math.Max(1, nominalMinutes));
-            var day = (int)local.DayOfWeek;
-            var seed = unchecked(_channel.SmartTemplateSeed + (day * 7919));
-            var order = _all.ToList();
-            var random = new Random(seed);
-
-            for (var index = order.Count - 1; index > 0; index--)
-            {
-                var swap = random.Next(index + 1);
-                (order[index], order[swap]) = (order[swap], order[index]);
-            }
-
-            var selectedIndex = slotOrdinal % order.Count;
-            var selected = order[selectedIndex];
-
-            if (_smartLastId.HasValue && order.Count > 1 && selected.Id == _smartLastId.Value)
-            {
-                selected = order[(selectedIndex + 1) % order.Count];
-            }
-
-            _smartLastId = selected.Id;
+            // Coverage-first weekly template. Every series is selected once before any series
+            // receives a second turn, so a week with enough programme turns always contains every
+            // selected series at least once. The seeded order remains stable until template rotation.
+            var selected = _smartOrder[_cursor % _smartOrder.Count];
+            _cursor++;
             return selected;
         }
-    }
 
     private sealed class ShuffleBag<T>
     {

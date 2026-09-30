@@ -6,7 +6,7 @@
 
 </head>
 <body>
-<div id="VirtualTVConfigPage" data-ui-version="1.10.3.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="VirtualTVConfigPage" data-ui-version="1.10.4.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
 <style>
 #VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
 #VirtualTVConfigPage .vtv-muted{opacity:.72}
@@ -35,6 +35,17 @@
 #VirtualTVConfigPage .vtv-actions{display:flex;align-items:center;justify-content:flex-end;gap:.45em;white-space:nowrap}
 #VirtualTVConfigPage .vtv-actions button{margin:0}
 #VirtualTVConfigPage .vtv-delete-button{opacity:.82}
+#VirtualTVConfigPage .vtv-coverage-launcher{display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap}
+#VirtualTVConfigPage .vtv-coverage-cards{display:grid;grid-template-columns:repeat(4,minmax(9em,1fr));gap:.7em;margin:1em 0}
+#VirtualTVConfigPage .vtv-coverage-card{border:1px solid rgba(255,255,255,.13);border-radius:.7em;padding:1em;background:#202020;cursor:pointer;text-align:left}
+#VirtualTVConfigPage .vtv-coverage-card.active{border-color:#00A4DC;box-shadow:inset 0 0 0 1px #00A4DC;background:#153d4b}
+#VirtualTVConfigPage .vtv-coverage-value{font-size:1.65em;font-weight:800;line-height:1.1}
+#VirtualTVConfigPage .vtv-coverage-label{margin-top:.25em;opacity:.72}
+#VirtualTVConfigPage .vtv-coverage-toolbar{display:grid;grid-template-columns:2fr 1fr 1fr;gap:.75em;margin:.8em 0}
+#VirtualTVConfigPage .vtv-coverage-table{width:100%;border-collapse:collapse}
+#VirtualTVConfigPage .vtv-coverage-table th,#VirtualTVConfigPage .vtv-coverage-table td{padding:.7em .6em;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}
+#VirtualTVConfigPage .vtv-coverage-status-unassigned{font-weight:800;color:#ffd166}
+#VirtualTVConfigPage .vtv-coverage-status-missing{font-weight:800;color:#ff7b7b}
 
 /* Library selector */
 #VirtualTVConfigPage .vtv-library-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15em,1fr));gap:.55em .9em;margin-top:.75em}
@@ -79,7 +90,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v1.10.3</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v1.10.4</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -87,11 +98,49 @@
 
 <div id="channelListSection">
   <div id="channelList"></div>
+
+  <div id="coverageLauncher" class="vtv-card vtv-coverage-launcher">
+    <div>
+      <h2 style="margin:.05em 0 .25em;">Content Coverage</h2>
+      <div id="coverageSummary" class="vtv-muted">Check which Jellyfin titles are assigned to Virtual TV channels.</div>
+    </div>
+    <button id="btnOpenCoverage" is="emby-button" type="button" class="raised emby-button">View Coverage Report</button>
+  </div>
+
+  <div id="coverageReport" class="vtv-card" style="display:none;">
+    <div class="vtv-header" style="margin-bottom:.8em;">
+      <div>
+        <h2 style="margin:.05em 0 .25em;">Content Coverage</h2>
+        <div class="vtv-muted">Library titles compared with the current Virtual TV channel configuration.</div>
+      </div>
+      <div class="vtv-actions">
+        <button id="btnRefreshCoverage" is="emby-button" type="button" class="raised emby-button">Refresh</button>
+        <button id="btnExportCoverage" is="emby-button" type="button" class="raised emby-button">Export CSV</button>
+        <button id="btnCloseCoverage" is="emby-button" type="button" class="raised emby-button">Close</button>
+      </div>
+    </div>
+
+    <div class="vtv-coverage-cards">
+      <button type="button" class="vtv-coverage-card coverageFilterCard active" data-filter="all"><div id="coverageTotal" class="vtv-coverage-value">0</div><div class="vtv-coverage-label">Total</div></button>
+      <button type="button" class="vtv-coverage-card coverageFilterCard" data-filter="assigned"><div id="coverageAssigned" class="vtv-coverage-value">0</div><div class="vtv-coverage-label">Assigned</div></button>
+      <button type="button" class="vtv-coverage-card coverageFilterCard" data-filter="unassigned"><div id="coverageUnassigned" class="vtv-coverage-value">0</div><div class="vtv-coverage-label">Unassigned</div></button>
+      <button type="button" class="vtv-coverage-card coverageFilterCard" data-filter="multiple"><div id="coverageMultiple" class="vtv-coverage-value">0</div><div class="vtv-coverage-label">Multiple channels</div></button>
+    </div>
+
+    <div class="vtv-coverage-toolbar">
+      <div class="inputContainer" style="margin:0;"><label class="inputLabel inputLabelUnfocused" for="coverageSearch">Search</label><input id="coverageSearch" type="text" is="emby-input" placeholder="Title or channel"></div>
+      <div class="selectContainer" style="margin:0;"><label class="selectLabel" for="coverageLibrary">Library</label><select id="coverageLibrary" is="emby-select" class="emby-select-withcolor emby-select"><option value="">All libraries</option></select></div>
+      <div class="selectContainer" style="margin:0;"><label class="selectLabel" for="coverageType">Type</label><select id="coverageType" is="emby-select" class="emby-select-withcolor emby-select"><option value="">All types</option><option value="Series">Series</option><option value="Movie">Movies</option></select></div>
+    </div>
+
+    <div id="coverageShowing" class="vtv-count"></div>
+    <div style="overflow-x:auto;"><table class="vtv-coverage-table"><thead><tr><th>Library</th><th>Title</th><th>Type</th><th>Virtual TV channels</th><th>Status</th></tr></thead><tbody id="coverageTableBody"></tbody></table></div>
+  </div>
 </div>
 
 <div id="channelEditor" class="vtv-card" style="display:none;">
   <h2 id="editorTitle">Create channel</h2>
-  <div id="immutableNotice" class="vtv-warning" style="display:none;">Channel type, playback mode and schedule strategy are structural. To change them, create a new channel.</div>
+  <div id="immutableNotice" class="vtv-warning" style="display:none;">Programming settings are fully editable. Changes that affect programming mark the channel for schedule regeneration; the channel identity and number are preserved.</div>
 
   <form id="channelForm">
     <div class="vtv-form-grid">
@@ -104,7 +153,7 @@
         <input id="channelNumber" type="number" is="emby-input" required min="1" step="1">
       </div>
       <!-- Stock Jellyfin renders Live TV Overview below the full Guide. Until Jellyfin exposes
-           a stable client-independent title-area extension point, v1.10.3 keeps any legacy
+           a stable client-independent title-area extension point, v1.10.4 keeps any legacy
            description value private in plugin configuration and does not offer a misleading
            public-description editor. -->
       <input id="channelDescription" type="hidden">
@@ -300,6 +349,8 @@
     seriesSelections:[],
     availableItems:[],
     seasonCache:{},
+    coverageItems:[],
+    coverageFilter:'all',
     editorHistoryActive:false
   };
 
@@ -1001,16 +1052,16 @@
       page.querySelector('#channelNumber').value=c.Number||1;
       page.querySelector('#channelDescription').value=c.Description||'';
       page.querySelector('#channelType').value=c.ChannelType||'Series';
-      page.querySelector('#channelType').disabled=true;
+      page.querySelector('#channelType').disabled=false;
       page.querySelector('#contentMode').value=c.ChannelType==='Series'?(c.ContentMode||'Sequential'):'Sequential';
-      page.querySelector('#contentMode').disabled=true;
+      page.querySelector('#contentMode').disabled=false;
       page.querySelector('#schedulingMethod').value=c.ChannelType==='Series'?(c.SchedulingMethod||'RepeatingOrder'):'RepeatingOrder';
-      page.querySelector('#schedulingMethod').disabled=true;
+      page.querySelector('#schedulingMethod').disabled=false;
       page.querySelector('#episodesPerTurn').value=String(c.EpisodesPerTurn||1);
       page.querySelector('#blockMinutes').value=String(c.BlockMinutes||30);
       page.querySelector('#smartRotationMonths').value=String(c.SmartRotationMonths||2);
       page.querySelector('#movieContentMode').value=c.ChannelType==='Movies'?(c.ContentMode||'Random'):'Random';
-      page.querySelector('#movieContentMode').disabled=true;
+      page.querySelector('#movieContentMode').disabled=false;
       page.querySelector('#movieBlockMinutes').value=String(c.BlockMinutes||90);
       page.querySelector('#visibilityMode').value=c.VisibleToAllUsers===false?'selected':'all';
       page.querySelector('#is24Hours').checked=c.Is24Hours===true;
@@ -1169,14 +1220,11 @@
       return false;
     }
     var existing=state.editingId?state.config.Channels.find(function(c){return c.Id===state.editingId;}):null;
-    var type=existing?existing.ChannelType:page.querySelector('#channelType').value;
+    var type=page.querySelector('#channelType').value;
 
     var contentMode;
     var schedulingMethod;
-    if(existing){
-      contentMode=existing.ContentMode;
-      schedulingMethod=existing.SchedulingMethod;
-    }else if(type==='Movies'){
+    if(type==='Movies'){
       contentMode=page.querySelector('#movieContentMode').value;
       schedulingMethod='';
     }else{
@@ -1205,7 +1253,10 @@
     var scheduleChanged=false;
     if(existing){
       scheduleChanged=
-        !arraysEqual(existing.SelectedLibraryIds,state.selectedLibraryIds)
+        String(existing.ChannelType||'Series')!==String(type)
+        || String(existing.ContentMode||'')!==String(contentMode)
+        || String(existing.SchedulingMethod||'')!==String(schedulingMethod)
+        || !arraysEqual(existing.SelectedLibraryIds,state.selectedLibraryIds)
         || JSON.stringify(existing.SelectedItemIds||[])!==JSON.stringify(state.selectedItemIds||[])
         || JSON.stringify(existing.SeriesSelections||[])!==JSON.stringify(seriesSelections)
         || Number(existing.BlockMinutes||30)!==Number(blockMinutes)
@@ -1229,6 +1280,18 @@
         SmartTemplateCreatedUtc:''
       };
       state.config.Channels.push(existing);
+    }
+
+    var structuralChanged=existing && (
+      String(existing.ChannelType||'Series')!==String(type)
+      || String(existing.ContentMode||'')!==String(contentMode)
+      || String(existing.SchedulingMethod||'')!==String(schedulingMethod)
+    );
+
+    if(structuralChanged){
+      existing.RepeatingSeriesOrder=[];
+      existing.SmartTemplateSeed=0;
+      existing.SmartTemplateCreatedUtc='';
     }
 
     existing.Name=name;
@@ -1259,9 +1322,150 @@
     saveConfiguration(function(){
       closeEditor();
       renderChannels();
+      if(scheduleChanged){
+        Dashboard.alert('Channel settings saved. Generate a new schedule to apply the programming changes.');
+      }
+      loadCoverage(false);
     });
 
     return false;
+  }
+
+  function coverageStatus(item){
+    if(item.Missing||item.Status==='Missing')return 'missing';
+    var count=Array.isArray(item.Channels)?item.Channels.length:0;
+    if(count===0)return 'unassigned';
+    if(count>1)return 'multiple';
+    return 'assigned';
+  }
+
+  function loadCoverage(showReport){
+    return ApiClient.ajax({
+      type:'GET',
+      url:ApiClient.getUrl('VirtualTV/Channels/ContentCoverage'),
+      dataType:'json'
+    }).then(function(result){
+      result=parseApiResult(result);
+      state.coverageItems=Array.isArray(result.Items)?result.Items:[];
+      populateCoverageLibraries();
+      renderCoverage();
+      if(showReport)page.querySelector('#coverageReport').style.display='';
+    }).catch(function(){
+      state.coverageItems=[];
+      renderCoverage();
+      if(showReport)Dashboard.alert('Unable to build the content coverage report.');
+    });
+  }
+
+  function populateCoverageLibraries(){
+    var select=page.querySelector('#coverageLibrary');
+    var current=select.value;
+    var names={};
+    state.coverageItems.forEach(function(item){
+      if(item.LibraryName)names[item.LibraryName]=true;
+    });
+    select.innerHTML='<option value="">All libraries</option>'+Object.keys(names).sort().map(function(name){
+      return '<option value="'+esc(name)+'">'+esc(name)+'</option>';
+    }).join('');
+    if(names[current])select.value=current;
+  }
+
+  function filteredCoverageItems(){
+    var q=page.querySelector('#coverageSearch').value.trim().toLowerCase();
+    var library=page.querySelector('#coverageLibrary').value;
+    var type=page.querySelector('#coverageType').value;
+
+    return state.coverageItems.filter(function(item){
+      var status=coverageStatus(item);
+      if(state.coverageFilter!=='all'&&status!==state.coverageFilter)return false;
+      if(library&&item.LibraryName!==library)return false;
+      if(type&&item.Type!==type)return false;
+      if(q){
+        var channels=(item.Channels||[]).map(function(c){return c.Name;}).join(' ');
+        var haystack=[item.Title,item.LibraryName,channels].join(' ').toLowerCase();
+        if(haystack.indexOf(q)===-1)return false;
+      }
+      return true;
+    });
+  }
+
+  function setCoverageFilter(filter){
+    state.coverageFilter=filter||'all';
+    Array.prototype.forEach.call(page.querySelectorAll('.coverageFilterCard'),function(card){
+      card.classList.toggle('active',card.getAttribute('data-filter')===state.coverageFilter);
+    });
+    renderCoverage();
+  }
+
+  function renderCoverage(){
+    var items=state.coverageItems||[];
+    var assigned=items.filter(function(x){return coverageStatus(x)==='assigned'||coverageStatus(x)==='multiple';}).length;
+    var unassigned=items.filter(function(x){return coverageStatus(x)==='unassigned';}).length;
+    var multiple=items.filter(function(x){return coverageStatus(x)==='multiple';}).length;
+
+    page.querySelector('#coverageTotal').textContent=items.length;
+    page.querySelector('#coverageAssigned').textContent=assigned;
+    page.querySelector('#coverageUnassigned').textContent=unassigned;
+    page.querySelector('#coverageMultiple').textContent=multiple;
+    page.querySelector('#coverageSummary').textContent=items.length
+      ? items.length+' titles · '+assigned+' assigned · '+unassigned+' unassigned · '+multiple+' in multiple channels'
+      : 'Check which Jellyfin titles are assigned to Virtual TV channels.';
+
+    var filtered=filteredCoverageItems();
+    page.querySelector('#coverageShowing').textContent='Showing '+filtered.length+' of '+items.length+' titles';
+
+    var body=page.querySelector('#coverageTableBody');
+    if(!filtered.length){
+      body.innerHTML='<tr><td colspan="5" class="vtv-muted">No titles match the current filters.</td></tr>';
+      return;
+    }
+
+    body.innerHTML=filtered.map(function(item){
+      var status=coverageStatus(item);
+      var channels=(item.Channels||[]).map(function(c){return 'Channel '+c.Number+' – '+c.Name;}).join(', ')||'—';
+      var statusLabel=status==='unassigned'?'Unassigned':status==='multiple'?'Multiple channels':status==='missing'?'Missing':'Assigned';
+      var statusClass=status==='unassigned'?' vtv-coverage-status-unassigned':status==='missing'?' vtv-coverage-status-missing':'';
+      var title=item.Title+(item.ProductionYear?' ('+item.ProductionYear+')':'');
+      return '<tr>'+
+        '<td>'+esc(item.LibraryName||'—')+'</td>'+
+        '<td><strong>'+esc(title)+'</strong></td>'+
+        '<td>'+esc(item.Type||'')+'</td>'+
+        '<td>'+esc(channels)+'</td>'+
+        '<td class="'+statusClass.trim()+'">'+esc(statusLabel)+'</td>'+
+      '</tr>';
+    }).join('');
+  }
+
+  function exportCoverageCsv(){
+    var rows=[['Library','Title','Type','Year','Channels','Channel Count','Status']];
+    filteredCoverageItems().forEach(function(item){
+      var channels=(item.Channels||[]).map(function(c){return 'Channel '+c.Number+' - '+c.Name;}).join(' | ');
+      rows.push([
+        item.LibraryName||'',
+        item.Title||'',
+        item.Type||'',
+        item.ProductionYear||'',
+        channels,
+        (item.Channels||[]).length,
+        coverageStatus(item)
+      ]);
+    });
+
+    function csvCell(value){
+      var text=String(value==null?'':value);
+      return '"'+text.replace(/"/g,'""')+'"';
+    }
+
+    var csv=rows.map(function(row){return row.map(csvCell).join(',');}).join('\r\n');
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var link=document.createElement('a');
+    link.href=url;
+    link.download='virtual-tv-content-coverage.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function(){URL.revokeObjectURL(url);},0);
   }
 
   function generateSchedule(id){
@@ -1345,6 +1549,7 @@
       renderChannels();
       closeEditor(true);
       Dashboard.hideLoadingMsg();
+      loadCoverage(false);
     }).catch(function(){
       Dashboard.hideLoadingMsg();
       Dashboard.alert('Unable to load the Virtual TV configuration.');
@@ -1352,6 +1557,16 @@
   }
 
   page.querySelector('#btnCreateChannel').addEventListener('click',function(){openEditor(null);});
+  page.querySelector('#btnOpenCoverage').addEventListener('click',function(){loadCoverage(true);});
+  page.querySelector('#btnCloseCoverage').addEventListener('click',function(){page.querySelector('#coverageReport').style.display='none';});
+  page.querySelector('#btnRefreshCoverage').addEventListener('click',function(){loadCoverage(true);});
+  page.querySelector('#btnExportCoverage').addEventListener('click',exportCoverageCsv);
+  page.querySelector('#coverageSearch').addEventListener('input',renderCoverage);
+  page.querySelector('#coverageLibrary').addEventListener('change',renderCoverage);
+  page.querySelector('#coverageType').addEventListener('change',renderCoverage);
+  Array.prototype.forEach.call(page.querySelectorAll('.coverageFilterCard'),function(card){
+    card.addEventListener('click',function(){setCoverageFilter(card.getAttribute('data-filter'));});
+  });
   page.querySelector('#btnCancelEdit').addEventListener('click',function(){closeEditor(false);});
   window.addEventListener('popstate',handleEditorBack);
   page.querySelector('#channelForm').addEventListener('submit',saveChannel);

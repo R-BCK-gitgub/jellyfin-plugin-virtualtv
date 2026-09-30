@@ -4,9 +4,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.VirtualTV.Configuration;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
+using MediaBrowser.Model.Branding;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.LiveTv;
 using Microsoft.Extensions.Logging;
@@ -19,20 +21,26 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class VirtualTvVisibilityManager
 {
+    private const string GuideCssStart = "/* Virtual TV Guide UI START */";
+    private const string GuideCssEnd = "/* Virtual TV Guide UI END */";
+
     private readonly ILiveTvManager _liveTvManager;
     private readonly IUserManager _userManager;
     private readonly VirtualTvUserContextService _userContext;
+    private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly ILogger<VirtualTvVisibilityManager> _logger;
 
     public VirtualTvVisibilityManager(
         ILiveTvManager liveTvManager,
         IUserManager userManager,
         VirtualTvUserContextService userContext,
+        IServerConfigurationManager serverConfigurationManager,
         ILogger<VirtualTvVisibilityManager> logger)
     {
         _liveTvManager = liveTvManager;
         _userManager = userManager;
         _userContext = userContext;
+        _serverConfigurationManager = serverConfigurationManager;
         _logger = logger;
     }
 
@@ -43,6 +51,8 @@ public sealed class VirtualTvVisibilityManager
         {
             return;
         }
+
+        EnsureGuidePresentation();
 
         var internalChannels = _liveTvManager.GetInternalChannels(
             new LiveTvChannelQuery(),
@@ -159,6 +169,80 @@ public sealed class VirtualTvVisibilityManager
             .Select(id => id.ToString("N"))
             .ToList();
         plugin.SaveConfiguration();
+    }
+
+    private void EnsureGuidePresentation()
+    {
+        try
+        {
+            var branding = _serverConfigurationManager.GetConfiguration<BrandingOptions>("branding");
+            var existing = branding.CustomCss ?? string.Empty;
+
+            var start = existing.IndexOf(GuideCssStart, StringComparison.Ordinal);
+            var end = existing.IndexOf(GuideCssEnd, StringComparison.Ordinal);
+            if (start >= 0 && end >= start)
+            {
+                end += GuideCssEnd.Length;
+                existing = (existing[..start] + existing[end..]).TrimEnd();
+            }
+
+            var block = """
+/* Virtual TV Guide UI START */
+.guide-channelHeaderCell,
+.channelPrograms {
+    min-height: 6.1em !important;
+    height: 6.1em !important;
+}
+.guide-channelHeaderCell-tv,
+.channelPrograms-tv {
+    min-height: 5.2em !important;
+    height: 5.2em !important;
+}
+.guideChannelImage {
+    top: 9% !important;
+    bottom: 9% !important;
+    width: 48% !important;
+}
+.guideChannelNumber {
+    max-width: 36% !important;
+    padding-left: .7em !important;
+    font-weight: 600 !important;
+}
+.guideChannelName {
+    max-width: 62% !important;
+    font-weight: 600 !important;
+}
+@media all and (min-width: 50em) {
+    .channelsContainer,
+    .guide-channelTimeslotHeader {
+        width: 18vw !important;
+    }
+}
+@media all and (min-width: 80em) {
+    .channelsContainer,
+    .guide-channelTimeslotHeader {
+        width: 18vw !important;
+    }
+}
+/* Virtual TV Guide UI END */
+""";
+
+            var desired = string.IsNullOrWhiteSpace(existing)
+                ? block
+                : existing + Environment.NewLine + Environment.NewLine + block;
+
+            if (!string.Equals(branding.CustomCss ?? string.Empty, desired, StringComparison.Ordinal))
+            {
+                branding.CustomCss = desired;
+                _serverConfigurationManager.SaveConfiguration("branding", branding);
+                _logger.LogInformation("Virtual TV installed the enlarged Live TV Guide presentation CSS.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Presentation is best-effort and must never block channel/visibility maintenance.
+            _logger.LogWarning(ex, "Virtual TV could not install the optional Live TV Guide presentation CSS.");
+        }
     }
 
     public bool IsVisibleToUser(ChannelConfiguration channel, Guid userId)

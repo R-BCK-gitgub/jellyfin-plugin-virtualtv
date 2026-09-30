@@ -219,10 +219,9 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         source.RequiresOpening = !openForPlayback;
         source.RequiresClosing = false;
         source.Name = item.Name;
-        source.SupportsDirectPlay = false;
-        source.SupportsDirectStream = false;
-        source.SupportsTranscoding = true;
-
+        // 1.10.4 keeps this Live TV source as a lightweight bootstrap only. Preserve Jellyfin's
+        // native media-source capabilities; the coordinator will replace it with exactly one VOD
+        // PlayNow request after the client has attached its Live TV player.
         if (openForPlayback)
         {
             _logger.LogInformation(
@@ -230,7 +229,6 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
                 source.Id, channel.Name, item.Name);
         }
 
-        source.RunTimeTicks = null;
         return source;
     }
 

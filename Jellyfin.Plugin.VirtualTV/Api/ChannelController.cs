@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.VirtualTV.Services;
 using MediaBrowser.Common.Api;
@@ -151,6 +152,100 @@ public sealed class ChannelController : ControllerBase
         return Ok(users);
     }
 
+    [HttpGet("ContentCoverage")]
+    public IActionResult GetContentCoverage()
+    {
+        var plugin = global::Jellyfin.Plugin.VirtualTV.Plugin.Instance;
+        if (plugin is null)
+        {
+            return Ok(new { GeneratedUtc = DateTime.UtcNow, Items = Array.Empty<object>() });
+        }
+
+        var channels = plugin.Configuration.Channels
+            .OrderBy(channel => channel.Number)
+            .ToArray();
+
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Series, BaseItemKind.Movie],
+            IsVirtualItem = false
+        })
+        .Where(item => item.GetBaseItemKind() is BaseItemKind.Series or BaseItemKind.Movie)
+        .GroupBy(item => item.Id)
+        .Select(group => group.First())
+        .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+        .Select(item =>
+        {
+            var assignments = channels
+                .Where(channel => channel.SelectedItemIds.Any(raw =>
+                    Guid.TryParse(raw, out var selectedId) && selectedId == item.Id))
+                .Select(channel => new CoverageChannel(
+                    channel.Id,
+                    channel.Number,
+                    channel.Name))
+                .ToArray();
+
+            var library = item.GetTopParent();
+            return new CoverageItem(
+                item.Id.ToString("N"),
+                item.Name ?? string.Empty,
+                item.GetBaseItemKind() == BaseItemKind.Movie ? "Movie" : "Series",
+                item.ProductionYear,
+                library?.Id.ToString("N") ?? string.Empty,
+                library?.Name ?? "Unknown library",
+                assignments,
+                assignments.Length == 0 ? "Unassigned" : assignments.Length > 1 ? "Multiple" : "Assigned",
+                false);
+        })
+        .ToList();
+
+        var existingIds = items
+            .Select(item => item.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var channel in channels)
+        {
+            foreach (var rawId in channel.SelectedItemIds)
+            {
+                if (string.IsNullOrWhiteSpace(rawId) || existingIds.Contains(rawId.Replace("-", string.Empty, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                if (!Guid.TryParse(rawId, out var missingId) || _libraryManager.GetItemById(missingId) is not null)
+                {
+                    continue;
+                }
+
+                var normalized = missingId.ToString("N");
+                if (items.Any(item => string.Equals(item.Id, normalized, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                items.Add(new CoverageItem(
+                    normalized,
+                    "Missing library item",
+                    channel.ChannelType,
+                    null,
+                    string.Empty,
+                    "Unavailable",
+                    [new CoverageChannel(channel.Id, channel.Number, channel.Name)],
+                    "Missing",
+                    true));
+            }
+        }
+
+        return Ok(new
+        {
+            GeneratedUtc = DateTime.UtcNow,
+            Items = items
+                .OrderBy(item => item.LibraryName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+        });
+    }
+
     [HttpGet("Series/{seriesId}/Seasons")]
     public IActionResult GetSeriesSeasons(string seriesId)
     {
@@ -223,6 +318,19 @@ public sealed class ChannelController : ControllerBase
 
         return Ok(new { Removed = legacyChannels.Count });
     }
+
+    private sealed record CoverageChannel(string Id, int Number, string Name);
+
+    private sealed record CoverageItem(
+        string Id,
+        string Title,
+        string Type,
+        int? ProductionYear,
+        string LibraryId,
+        string LibraryName,
+        IReadOnlyList<CoverageChannel> Channels,
+        string Status,
+        bool Missing);
 
     [HttpDelete("{channelId}/Schedule")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
