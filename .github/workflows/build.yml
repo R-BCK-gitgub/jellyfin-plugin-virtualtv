@@ -76,7 +76,7 @@ jobs:
       - name: Build plugin
         run: dotnet build Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj --configuration Release --no-restore
 
-      - name: Validate Virtual TV 1.10.2 UI and feature surface
+      - name: Validate Virtual TV 1.10.3 UI and feature surface
         shell: bash
         run: |
           python3 - <<'PY'
@@ -95,7 +95,7 @@ jobs:
               raise SystemExit("Head-level CSS detected.")
 
           required = [
-              'data-ui-version="1.10.2.0"',
+              'data-ui-version="1.10.3.0"',
               'class="vtv-channel-table"',
               'class="vtv-content-grid"',
               'class="vtv-content-card',
@@ -118,7 +118,7 @@ jobs:
           ]
           missing = [token for token in required if token not in page]
           if missing:
-              raise SystemExit(f"Missing 1.10.2 UI tokens: {missing}")
+              raise SystemExit(f"Missing 1.10.3 UI tokens: {missing}")
 
           forbidden = [
               'vtv-channel-card',
@@ -129,7 +129,7 @@ jobs:
           if present:
               raise SystemExit(f"Obsolete/destructive UI behavior present: {present}")
 
-          print("Virtual TV 1.10.2 UI validation passed.")
+          print("Virtual TV 1.10.3 UI validation passed.")
           PY
 
       - name: Validate stable playback foundation
@@ -145,7 +145,7 @@ jobs:
           policy = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
 
           concrete = [
-              'StartPositionTicks = targetTicks',
+              'StartPositionTicks = useDeferredLgSeek ? 0 : targetTicks',
               'PlayCommand = PlayCommand.PlayNow',
               'CommandTransitCompensation = TimeSpan.FromSeconds(1)',
               'completed before scheduled end; return to live',
@@ -197,8 +197,6 @@ jobs:
                   raise SystemExit(f"Traditional user-data protection missing: {token}")
 
           forbidden = [
-              'SendPlaystateCommand',
-              'PlaystateCommand.Seek',
               'ResolveQueue(',
               'PlayDynamicManagedItemAsync',
               'GetNextManagedQueueItem',
@@ -210,7 +208,7 @@ jobs:
           print("Stable 1.9.1 playback foundation validation passed.")
           PY
 
-      - name: Validate 1.10.2 schedule and content invariants
+      - name: Validate 1.10.3 schedule and content invariants
         shell: bash
         run: |
           python3 - <<'PY'
@@ -321,21 +319,21 @@ jobs:
           ]
           missing = [token for token in registrations if token not in registrator]
           if missing:
-              raise SystemExit(f"1.10.2 service registration missing: {missing}")
+              raise SystemExit(f"1.10.3 service registration missing: {missing}")
 
           if Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvSmartScheduleRefreshTask.cs").exists():
               raise SystemExit("Obsolete Smart-only refresh task must not return; Smart rotation belongs to Extend.")
 
-          print("Virtual TV 1.10.2 content, lifecycle, task and visibility validations passed.")
+          print("Virtual TV 1.10.3 content, lifecycle, task and visibility validations passed.")
           PY
 
-      - name: Validate 1.10.2 LG webOS compatibility path
+      - name: Validate 1.10.3 LG webOS VOD handoff
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          manager = Path("Jellyfin.Plugin.VirtualTV/Services/LgWebOsLivePlaybackManager.cs").read_text(encoding="utf-8")
+          coordinator = Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
           livetv = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
           start_consumer = Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStartConsumer.cs").read_text(encoding="utf-8")
           stop_consumer = Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text(encoding="utf-8")
@@ -343,40 +341,40 @@ jobs:
           visibility = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvVisibilityManager.cs").read_text(encoding="utf-8")
           page = Path("Jellyfin.Plugin.VirtualTV/Configuration/configPage.html").read_text(encoding="utf-8")
 
-          required = {
-              "LG manager": (manager, [
-                  "TryHandlePlaybackStartAsync",
-                  "TryHandlePlaybackStopAsync",
-                  "IsLgWebOsSession",
-                  "VirtualTvModePolicy.IsDynamicUnwatched(contentMode)",
-                  "StartPositionTicks = 0",
-                  "PlayCommand = PlayCommand.PlayNow",
-                  "NaturalEndTolerance",
-              ]),
-              "rebased Live TV source": (livetv, [
-                  "CreateRebasedInput",
-                  "source.EncoderPath = rebasedInput.DescriptorPath",
-                  "source.EncoderProtocol = MediaProtocol.File",
-                  'Path.Combine(_applicationPaths.CachePath, "virtualtv", "live-rebase")',
-                  '"ffconcat version 1.0\\n"',
-                  '"inpoint " + offset.TotalSeconds.ToString',
-                  "source.RunTimeTicks = null",
-              ]),
-              "start routing": (start_consumer, ["TryHandlePlaybackStartAsync"]),
-              "stop routing": (stop_consumer, ["TryHandlePlaybackStopAsync"]),
-              "service registration": (registrator, ["AddSingleton<LgWebOsLivePlaybackManager>()"]),
-              "description fallback": (visibility + "\n" + page, [
-                  "var desiredOverview = string.Empty;",
-                  'id="channelDescription" type="hidden"',
-              ]),
-          }
+          required = [
+              'LgDeferredSeekDelay = TimeSpan.FromMilliseconds(500)',
+              'IsLgWebOsSession(eventArgs.Session)',
+              'public bool IsLgWebOs { get; }',
+              'PendingDeferredSeekTicks',
+              'ScheduleLgDeferredSeek',
+              'SeekLgAfterVodStartAsync',
+              'StartPositionTicks = useDeferredLgSeek ? 0 : targetTicks',
+              'SendPlaystateCommand',
+              'Command = PlaystateCommand.Seek',
+              'SeekPositionTicks = targetTicks',
+          ]
+          missing = [token for token in required if token not in coordinator]
+          if missing:
+              raise SystemExit(f"LG deferred VOD seek invariant missing: {missing}")
 
-          for area, (source, tokens) in required.items():
-              missing = [token for token in tokens if token not in source]
-              if missing:
-                  raise SystemExit(f"{area} validation missing: {missing}")
+          old_transport = livetv + "\n" + start_consumer + "\n" + stop_consumer + "\n" + registrator
+          forbidden = [
+              'CreateRebasedInput',
+              'source.EncoderPath = rebasedInput.DescriptorPath',
+              'LgWebOsLivePlaybackManager',
+              'TryHandlePlaybackStartAsync',
+              'TryHandlePlaybackStopAsync',
+          ]
+          present = [token for token in forbidden if token in old_transport]
+          if present:
+              raise SystemExit(f"1.10.2 native/rebased LG transport returned: {present}")
 
-          print("Virtual TV 1.10.2 LG webOS and description fallback validation passed.")
+          description_surface = visibility + "\n" + page
+          for token in ['var desiredOverview = string.Empty;', 'id="channelDescription" type="hidden"']:
+              if token not in description_surface:
+                  raise SystemExit(f"Channel description fallback regressed: {token}")
+
+          print("Virtual TV 1.10.3 LG webOS VOD handoff validation passed.")
           PY
 
       - name: Validate Virtual TV configuration JavaScript
@@ -396,7 +394,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.2.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.3.0"' "$DLL"
           grep -a -q 'class="vtv-channel-table"' "$DLL"
           grep -a -q 'class="vtv-content-card' "$DLL"
           grep -a -q 'id="seriesOptionsSection"' "$DLL"
@@ -407,7 +405,7 @@ jobs:
           grep -a -q 'value="RandomUnwatched"' "$DLL"
           grep -a -q 'value="SmartSchedule"' "$DLL"
           grep -a -q 'background:#15566c' "$DLL"
-          echo "Embedded 1.10.2 UI validation passed."
+          echo "Embedded 1.10.3 UI validation passed."
 
       - name: Prepare install package
         shell: bash

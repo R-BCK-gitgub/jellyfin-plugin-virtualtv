@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.2.0"
+version: "1.10.3.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,10 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  LG webOS compatibility release. Traditional channels on LG remain in the native
-  Virtual TV Live TV transport and use a rebased source timeline so the current
-  wall-clock point is exposed to the player as 00:00 instead of a mid-file VOD
-  start. Natural programme completion retunes the same channel onto a fresh
-  rebased timeline. Channel descriptions remain stored in plugin settings but are
-  no longer published as Jellyfin channel Overview because stock clients place
-  that text below the full Guide instead of beneath the title.
+  Restores the proven 1.10.1 episode/VOD player architecture on every client, including LG webOS. Traditional channels again hand off to the real Jellyfin episode with the full episode timeline, normal rewind/fast-forward and normal subtitle switching. LG webOS keeps that same VOD handoff but avoids the decoder failure caused by a remote mid-file PlayNow: the item opens at 00:00 and receives one 500 ms deferred seek to the schedule-authoritative live offset. Existing watched/resume protection, current-plus-next queue continuity and end-of-episode live resynchronisation remain intact. Channel descriptions continue to stay out of Jellyfin Overview because stock clients place Overview below the Guide.

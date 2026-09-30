@@ -32,6 +32,7 @@ public sealed class LiveTvPlaybackCoordinator
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PendingCommandWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ContinuationFallbackDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan LgDeferredSeekDelay = TimeSpan.FromMilliseconds(500);
     private const int ManagedStaticQueueLength = 2;
 
     private readonly ISessionManager _sessionManager;
@@ -249,7 +250,8 @@ public sealed class LiveTvPlaybackCoordinator
             playbackUserId,
             channel.Name,
             channelConfiguration.ChannelType,
-            contentMode);
+            contentMode,
+            IsLgWebOsSession(eventArgs.Session));
 
         _logger.LogInformation(
             "Virtual TV tune context: session {SessionId}, channel {ChannelName}, mode {Mode}, session user {SessionUserId}, resolved playback user {PlaybackUserId}, event users {EventUserCount}.",
@@ -361,12 +363,26 @@ public sealed class LiveTvPlaybackCoordinator
 
         if (isPendingTarget && context.PendingTargetItemId == startedItemId)
         {
+            long pendingStartTicks;
+            long deferredSeekTicks;
+            lock (context.Gate)
+            {
+                pendingStartTicks = context.PendingStartPositionTicks;
+                deferredSeekTicks = context.PendingDeferredSeekTicks;
+            }
+
             AcceptSourceStart(
                 context,
                 liveEntry,
                 startedItemId,
                 eventArgs.PlaySessionId,
-                startedFromResume: context.PendingStartPositionTicks > 0);
+                startedFromResume: pendingStartTicks > 0);
+
+            if (deferredSeekTicks > 0)
+            {
+                ScheduleLgDeferredSeek(context.SessionId, startedItemId, deferredSeekTicks);
+            }
+
             return;
         }
 
@@ -404,12 +420,26 @@ public sealed class LiveTvPlaybackCoordinator
 
         if (isPendingTarget && context.PendingTargetItemId == startedItemId)
         {
+            long pendingStartTicks;
+            long deferredSeekTicks;
+            lock (context.Gate)
+            {
+                pendingStartTicks = context.PendingStartPositionTicks;
+                deferredSeekTicks = context.PendingDeferredSeekTicks;
+            }
+
             AcceptSourceStart(
                 context,
                 liveEntry,
                 startedItemId,
                 eventArgs.PlaySessionId,
-                context.PendingStartPositionTicks > 0);
+                pendingStartTicks > 0);
+
+            if (deferredSeekTicks > 0)
+            {
+                ScheduleLgDeferredSeek(context.SessionId, startedItemId, deferredSeekTicks);
+            }
+
             return;
         }
 
@@ -829,18 +859,22 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         var singleMovie = new[] { resolution.ItemId };
+        var useDeferredLgSeek = context.IsLgWebOs
+            && resolution.StartPositionTicks > TransitionPositionTolerance.Ticks;
+
         PreparePendingCommand(
             context,
             entry,
             resolution.ItemId,
             singleMovie,
             string.Empty,
-            resolution.StartPositionTicks);
+            resolution.StartPositionTicks,
+            useDeferredLgSeek ? resolution.StartPositionTicks : 0);
 
         var command = new PlayRequest
         {
             ItemIds = singleMovie,
-            StartPositionTicks = resolution.StartPositionTicks,
+            StartPositionTicks = useDeferredLgSeek ? 0 : resolution.StartPositionTicks,
             StartIndex = 0,
             PlayCommand = PlayCommand.PlayNow
         };
@@ -909,24 +943,33 @@ public sealed class LiveTvPlaybackCoordinator
 
         var targetTicks = CalculateConcreteTargetTicks(entry, sourceItem.RunTimeTicks, nowUtc);
 
+        // Preserve the normal Jellyfin episode/VOD player. LG webOS has one narrowly-scoped
+        // compatibility path: remote PlayNow at a non-zero offset can freeze video while audio
+        // and subtitles continue, so LG opens the same episode at 00:00 and receives one seek
+        // after the VOD player is ready. The full episode timeline, normal seeking, subtitle
+        // switching, queue continuity and watched-state protection remain unchanged.
+        var useDeferredLgSeek = context.IsLgWebOs
+            && targetTicks > TransitionPositionTolerance.Ticks;
+
         PreparePendingCommand(
             context,
             entry,
             sourceItemId,
             queueItemIds,
             string.Empty,
-            targetTicks);
+            targetTicks,
+            useDeferredLgSeek ? targetTicks : 0);
 
         var command = new PlayRequest
         {
             ItemIds = queueItemIds,
-            StartPositionTicks = targetTicks,
+            StartPositionTicks = useDeferredLgSeek ? 0 : targetTicks,
             StartIndex = 0,
             PlayCommand = PlayCommand.PlayNow
         };
 
         _logger.LogInformation(
-            "Virtual TV concrete play command: session {SessionId}, channel {ChannelName}, programme {ProgramName}, mode {Mode}, reason {Reason}, wall clock {NowUtc:o}, source {SourceItemId}, StartPosition {TargetSeconds:F1}s, queue {QueueCount} item(s).",
+            "Virtual TV concrete play command: session {SessionId}, channel {ChannelName}, programme {ProgramName}, mode {Mode}, reason {Reason}, wall clock {NowUtc:o}, source {SourceItemId}, target {TargetSeconds:F1}s, deferred LG seek {DeferredLgSeek}, queue {QueueCount} item(s).",
             context.SessionId,
             context.ChannelName,
             entry.Name,
@@ -935,6 +978,7 @@ public sealed class LiveTvPlaybackCoordinator
             nowUtc,
             sourceItemId,
             TimeSpan.FromTicks(targetTicks).TotalSeconds,
+            useDeferredLgSeek,
             queueItemIds.Length);
 
         await SendPlayCommandAsync(context, command).ConfigureAwait(false);
@@ -946,7 +990,8 @@ public sealed class LiveTvPlaybackCoordinator
         Guid targetItemId,
         Guid[] queueItemIds,
         string queueSeriesId,
-        long startPositionTicks)
+        long startPositionTicks,
+        long deferredSeekTicks = 0)
     {
         lock (context.Gate)
         {
@@ -954,12 +999,62 @@ public sealed class LiveTvPlaybackCoordinator
             context.PendingTargetItemId = targetItemId;
             context.PendingCommandUtc = DateTime.UtcNow;
             context.PendingStartPositionTicks = startPositionTicks;
+            context.PendingDeferredSeekTicks = deferredSeekTicks;
             context.ManagedQueueOrder = queueItemIds;
             context.ManagedQueueSourceIds = queueItemIds.ToHashSet();
             context.QueueSeriesId = queueSeriesId;
             context.CurrentEntryId = entry.Id;
             context.AwaitingContinuation = false;
             context.ContinuationGeneration++;
+        }
+    }
+
+    private void ScheduleLgDeferredSeek(string sessionId, Guid sourceItemId, long targetTicks)
+        => _ = SeekLgAfterVodStartAsync(sessionId, sourceItemId, targetTicks);
+
+    private async Task SeekLgAfterVodStartAsync(string sessionId, Guid sourceItemId, long targetTicks)
+    {
+        try
+        {
+            await Task.Delay(LgDeferredSeekDelay).ConfigureAwait(false);
+
+            if (!_sessions.TryGetValue(sessionId, out var context))
+            {
+                return;
+            }
+
+            lock (context.Gate)
+            {
+                if (!context.IsLgWebOs || context.CurrentSourceItemId != sourceItemId)
+                {
+                    return;
+                }
+            }
+
+            await _sessionManager.SendPlaystateCommand(
+                sessionId,
+                sessionId,
+                new PlaystateRequest
+                {
+                    Command = PlaystateCommand.Seek,
+                    SeekPositionTicks = targetTicks
+                },
+                CancellationToken.None).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Virtual TV LG webOS deferred VOD seek: session {SessionId}, channel {ChannelName}, item {ItemId}, target {TargetSeconds:F1}s.",
+                sessionId,
+                context.ChannelName,
+                sourceItemId,
+                TimeSpan.FromTicks(targetTicks).TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Virtual TV LG webOS deferred VOD seek failed for session {SessionId}, item {ItemId}.",
+                sessionId,
+                sourceItemId);
         }
     }
 
@@ -1027,6 +1122,7 @@ public sealed class LiveTvPlaybackCoordinator
             context.PendingTargetItemId = null;
             context.PendingCommandUtc = DateTime.MinValue;
             context.PendingStartPositionTicks = 0;
+            context.PendingDeferredSeekTicks = 0;
             context.ReplacingPlaySessionId = string.Empty;
             context.AwaitingContinuation = false;
             context.ContinuationGeneration++;
@@ -1153,6 +1249,23 @@ public sealed class LiveTvPlaybackCoordinator
     private void ScheduleContinuationFallback(string sessionId, long generation)
         => _ = EnsureContinuationAsync(sessionId, generation);
 
+    private static bool IsLgWebOsSession(SessionInfo? session)
+    {
+        if (session is null)
+        {
+            return false;
+        }
+
+        static bool Contains(string? value, string term)
+            => !string.IsNullOrWhiteSpace(value)
+                && value.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+        return Contains(session.DeviceName, "LG Smart TV")
+            || Contains(session.DeviceName, "webOS")
+            || Contains(session.DeviceType, "webOS")
+            || Contains(session.Client, "webOS");
+    }
+
     private static Guid ResolvePlaybackUserId(PlaybackStartEventArgs eventArgs)
     {
         if (eventArgs.Session is not null && eventArgs.Session.UserId != Guid.Empty)
@@ -1271,7 +1384,8 @@ public sealed class LiveTvPlaybackCoordinator
             Guid userId,
             string channelName,
             string channelType,
-            string contentMode)
+            string contentMode,
+            bool isLgWebOs)
         {
             SessionId = sessionId;
             ChannelId = channelId;
@@ -1279,6 +1393,7 @@ public sealed class LiveTvPlaybackCoordinator
             ChannelName = channelName;
             ChannelType = channelType;
             ContentMode = contentMode;
+            IsLgWebOs = isLgWebOs;
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
             IsDynamicMovie = IsDynamicUnwatched
                 && string.Equals(channelType, "Movies", StringComparison.OrdinalIgnoreCase);
@@ -1307,6 +1422,8 @@ public sealed class LiveTvPlaybackCoordinator
 
         public bool TracksJellyfinState { get; }
 
+        public bool IsLgWebOs { get; }
+
         public string CurrentEntryId { get; set; } = string.Empty;
 
         public Guid? CurrentSourceItemId { get; set; }
@@ -1322,6 +1439,8 @@ public sealed class LiveTvPlaybackCoordinator
         public DateTime PendingCommandUtc { get; set; }
 
         public long PendingStartPositionTicks { get; set; }
+
+        public long PendingDeferredSeekTicks { get; set; }
 
         public Guid[] ManagedQueueOrder { get; set; } = [];
 

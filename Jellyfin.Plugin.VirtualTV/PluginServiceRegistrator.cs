@@ -24,7 +24,6 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<VirtualTvRuntimeFallbackResolver>();
         serviceCollection.AddSingleton<VirtualTvVisibilityManager>();
         serviceCollection.AddSingleton<PlaybackStateProtectionManager>();
-        serviceCollection.AddSingleton<LgWebOsLivePlaybackManager>();
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
         serviceCollection.AddSingleton<IScheduledTask, VirtualTvExtendSchedulesTask>();
         serviceCollection.AddSingleton<IScheduledTask, VirtualTvReconcileSchedulesTask>();
