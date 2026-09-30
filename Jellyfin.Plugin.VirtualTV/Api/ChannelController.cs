@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.VirtualTV.Services;
 using MediaBrowser.Common.Api;
