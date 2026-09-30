@@ -588,10 +588,21 @@ public sealed class LiveTvPlaybackCoordinator
         var nextEntry = FindNextPlayableEntry(schedule, currentEntryId);
         var liveOffset = nowUtc - liveEntry.GetStartUtc();
 
+        bool clientAlreadyHasLiveEntry;
+        lock (context.Gate)
+        {
+            clientAlreadyHasLiveEntry = Guid.TryParse(liveEntry.SourceItemId, out var liveItemId)
+                && context.ManagedQueueSourceIds.Contains(liveItemId);
+        }
+
+        // If the next live item was already sent as the second item in the compact
+        // Current + Next queue, let the client perform its natural queue transition.
+        // If it was not queued, start it immediately instead of waiting for a watchdog.
         if (nextEntry is not null
             && string.Equals(nextEntry.Id, liveEntry.Id, StringComparison.Ordinal)
             && liveOffset >= TimeSpan.Zero
-            && liveOffset <= NaturalTransitionGrace)
+            && liveOffset <= NaturalTransitionGrace
+            && clientAlreadyHasLiveEntry)
         {
             ScheduleContinuationFallback(context.SessionId, continuationGeneration);
             return;
@@ -601,7 +612,9 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             liveEntry,
             nowUtc,
-            "completed away from live boundary; resynchronise to live").ConfigureAwait(false);
+            clientAlreadyHasLiveEntry
+                ? "completed away from live boundary; resynchronise to live"
+                : "managed queue exhausted; start current live programme").ConfigureAwait(false);
     }
 
     private async Task PlayTraditionalFallbackAsync(
