@@ -185,9 +185,16 @@ jobs:
               raise SystemExit("Watched-state policy changed.")
           if 'RestoreAllIfProtected' not in protection or 'RestoreAllIfProtected(eventArgs.Session.Id)' not in stop_consumer:
               raise SystemExit("Traditional watched/resume protection regressed.")
-          for token in ['CompleteProtection', 'FinalRestoreGrace', 'PlaySessionIds', 'IsClosing']:
+          for token in [
+              'CompleteProtection',
+              'FinalRestoreGrace',
+              'PlaySessionIds',
+              'IsClosing',
+              'data.AudioStreamIndex = state.AudioStreamIndex',
+              'data.SubtitleStreamIndex = state.SubtitleStreamIndex',
+          ]:
               if token not in protection:
-                  raise SystemExit(f"Late-event watched/resume protection missing: {token}")
+                  raise SystemExit(f"Traditional user-data protection missing: {token}")
 
           forbidden = [
               'SendPlaystateCommand',
