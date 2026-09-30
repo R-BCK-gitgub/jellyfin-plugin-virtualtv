@@ -64,9 +64,11 @@ public sealed class VirtualTvVisibilityManager
                 item => item,
                 StringComparer.OrdinalIgnoreCase);
 
-        // ChannelInfo does not expose Overview. Synchronise the plugin-owned description
-        // onto Jellyfin's internal LiveTvChannel after each Guide refresh so stock clients
-        // can render it on the normal channel details page.
+        // Stock Jellyfin places LiveTvChannel.Overview below the long Guide listing and the
+        // server-side plugin API has no stable cross-client hook to relocate that field beneath
+        // the title. v1.10.2 follows the product fallback: keep Description in plugin config,
+        // but do not publish it as the channel Overview unless a clean client-independent
+        // presentation mechanism is available in a future Jellyfin release.
         foreach (var channel in plugin.Configuration.Channels)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -76,13 +78,17 @@ public sealed class VirtualTvVisibilityManager
                 continue;
             }
 
-            var desiredOverview = channel.Description?.Trim() ?? string.Empty;
+            var desiredOverview = string.Empty;
             if (!string.Equals(internalChannel.Overview ?? string.Empty, desiredOverview, StringComparison.Ordinal))
             {
                 internalChannel.Overview = desiredOverview;
                 await internalChannel.UpdateToRepositoryAsync(
                     ItemUpdateType.MetadataEdit,
                     cancellationToken).ConfigureAwait(false);
+
+                _logger.LogDebug(
+                    "Virtual TV cleared public Overview for channel {ChannelName}; configured description remains stored only in plugin settings.",
+                    channel.Name);
             }
         }
 
@@ -132,8 +138,6 @@ public sealed class VirtualTvVisibilityManager
                 }
             }
 
-            // Remove stale blocks belonging to deleted Virtual TV channels while retaining
-            // all non-Virtual-TV blocked channels.
             foreach (var stale in staleManagedIds)
             {
                 if (blocked.Remove(stale))
