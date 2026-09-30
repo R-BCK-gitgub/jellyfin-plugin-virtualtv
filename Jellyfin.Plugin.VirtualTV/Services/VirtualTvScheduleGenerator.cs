@@ -1170,6 +1170,7 @@ public sealed class VirtualTvScheduleGenerator
             var lastSeriesId = prefix.Select(owner.GetEntrySeriesId).LastOrDefault(id => id != Guid.Empty);
             if (lastSeriesId != Guid.Empty)
             {
+                _smartLastId = lastSeriesId;
                 var lastIndex = _fixedOrder.FindIndex(item => item.Id == lastSeriesId);
                 _cursor = lastIndex >= 0 ? lastIndex + 1 : 0;
             }
