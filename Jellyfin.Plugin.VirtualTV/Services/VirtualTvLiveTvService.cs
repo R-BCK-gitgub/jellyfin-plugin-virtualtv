@@ -21,17 +21,20 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly VirtualTvScheduleStore _scheduleStore;
+    private readonly VirtualTvContentCatalog _catalog;
     private readonly ILogger<VirtualTvLiveTvService> _logger;
 
     public VirtualTvLiveTvService(
         ILibraryManager libraryManager,
         IMediaSourceManager mediaSourceManager,
         VirtualTvScheduleStore scheduleStore,
+        VirtualTvContentCatalog catalog,
         ILogger<VirtualTvLiveTvService> logger)
     {
         _libraryManager = libraryManager;
         _mediaSourceManager = mediaSourceManager;
         _scheduleStore = scheduleStore;
+        _catalog = catalog;
         _logger = logger;
     }
 
@@ -71,10 +74,32 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         if (channel is null)
             return Task.FromResult<IEnumerable<ProgramInfo>>(Array.Empty<ProgramInfo>());
 
-        var programs = _scheduleStore.Load(channel.Id)
+        var schedule = _scheduleStore.Load(channel.Id);
+        var programs = schedule
             .Where(entry => entry.GetEndUtc() > startDateUtc && entry.GetStartUtc() < endDateUtc)
             .Select(entry => ToProgram(channelId, entry))
             .ToArray();
+
+        if (programs.Length == 0 && schedule.Count == 0)
+        {
+            var hasContent = string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
+                ? _catalog.GetMovies(channel).Count > 0
+                : _catalog.GetSeries(channel).Count > 0;
+
+            var status = new VirtualTvScheduleEntry
+            {
+                Name = hasContent ? "Schedule Not Available" : "Content Not Available",
+                Overview = hasContent
+                    ? "Schedule needs to be generated."
+                    : "This Virtual TV channel currently has no eligible content.",
+                IsScheduleUnavailable = hasContent,
+                IsContentUnavailable = !hasContent,
+                StartUtc = startDateUtc.ToString("O", CultureInfo.InvariantCulture),
+                EndUtc = endDateUtc.ToString("O", CultureInfo.InvariantCulture)
+            };
+
+            programs = [ToProgram(channelId, status)];
+        }
 
         return Task.FromResult<IEnumerable<ProgramInfo>>(programs);
     }
@@ -123,9 +148,20 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
 
         var now = DateTime.UtcNow;
-        var entry = _scheduleStore.Load(channel.Id)
-            .FirstOrDefault(item => item.GetStartUtc() <= now && item.GetEndUtc() > now)
-            ?? throw new InvalidOperationException("Schedule needs to be generated.");
+        var schedule = _scheduleStore.Load(channel.Id);
+        var entry = schedule
+            .FirstOrDefault(item => item.GetStartUtc() <= now && item.GetEndUtc() > now);
+
+        if (entry is null)
+        {
+            var hasContent = string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
+                ? _catalog.GetMovies(channel).Count > 0
+                : _catalog.GetSeries(channel).Count > 0;
+
+            throw new InvalidOperationException(hasContent
+                ? "Schedule needs to be generated."
+                : "Content Not Available.");
+        }
 
         if (entry.IsOffAir)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(entry.Overview)
