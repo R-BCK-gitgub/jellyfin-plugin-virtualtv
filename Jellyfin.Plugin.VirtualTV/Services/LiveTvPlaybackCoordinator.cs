@@ -38,6 +38,7 @@ public sealed class LiveTvPlaybackCoordinator
     private readonly VirtualTvScheduleStore _scheduleStore;
     private readonly VirtualTvEpisodeResolver _episodeResolver;
     private readonly VirtualTvMovieResolver _movieResolver;
+    private readonly VirtualTvRuntimeFallbackResolver _runtimeFallback;
     private readonly VirtualTvVisibilityManager _visibility;
     private readonly PlaybackStateProtectionManager _stateProtection;
     private readonly ILogger<LiveTvPlaybackCoordinator> _logger;
@@ -49,6 +50,7 @@ public sealed class LiveTvPlaybackCoordinator
         VirtualTvScheduleStore scheduleStore,
         VirtualTvEpisodeResolver episodeResolver,
         VirtualTvMovieResolver movieResolver,
+        VirtualTvRuntimeFallbackResolver runtimeFallback,
         VirtualTvVisibilityManager visibility,
         PlaybackStateProtectionManager stateProtection,
         ILogger<LiveTvPlaybackCoordinator> logger)
@@ -58,6 +60,7 @@ public sealed class LiveTvPlaybackCoordinator
         _scheduleStore = scheduleStore;
         _episodeResolver = episodeResolver;
         _movieResolver = movieResolver;
+        _runtimeFallback = runtimeFallback;
         _visibility = visibility;
         _stateProtection = stateProtection;
         _logger = logger;
@@ -98,6 +101,23 @@ public sealed class LiveTvPlaybackCoordinator
         if (eventArgs.Item is LiveTvChannel)
         {
             return;
+        }
+
+        if (eventArgs.Failed)
+        {
+            bool belongsToManagedSession;
+            lock (context.Gate)
+            {
+                belongsToManagedSession =
+                    context.CurrentSourceItemId == eventArgs.Item.Id
+                    || context.PendingTargetItemId == eventArgs.Item.Id;
+            }
+
+            if (belongsToManagedSession)
+            {
+                await HandlePlaybackFailureAsync(context, eventArgs.Item.Id).ConfigureAwait(false);
+                return;
+            }
         }
 
         bool isCurrent;
@@ -374,7 +394,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         var startedItemId = eventArgs.Item!.Id;
 
-        if (isPendingTarget && startedItemId == liveSourceItemId)
+        if (isPendingTarget && context.PendingTargetItemId == startedItemId)
         {
             AcceptSourceStart(
                 context,
@@ -511,6 +531,25 @@ public sealed class LiveTvPlaybackCoordinator
             currentEntryId = context.CurrentEntryId;
         }
 
+        bool runtimeFallbackActive;
+        Guid? currentFallbackItem;
+        lock (context.Gate)
+        {
+            runtimeFallbackActive = context.RuntimeFallbackActive;
+            currentFallbackItem = context.CurrentSourceItemId;
+        }
+
+        if (runtimeFallbackActive
+            && string.Equals(liveEntry.Id, currentEntryId, StringComparison.Ordinal))
+        {
+            await PlayTraditionalFallbackAsync(
+                context,
+                liveEntry,
+                currentFallbackItem,
+                "runtime fallback ended while the unavailable schedule block is still live").ConfigureAwait(false);
+            return;
+        }
+
         // Fast-forward to physical EOF before the scheduled programme end: return to the
         // same concrete episode at the current wall-clock live position.
         if (string.Equals(liveEntry.Id, currentEntryId, StringComparison.Ordinal))
@@ -540,6 +579,110 @@ public sealed class LiveTvPlaybackCoordinator
             liveEntry,
             nowUtc,
             "completed away from live boundary; resynchronise to live").ConfigureAwait(false);
+    }
+
+    private async Task HandlePlaybackFailureAsync(
+        SessionContext context,
+        Guid failedItemId)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var liveEntry = FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc);
+        if (liveEntry is null)
+        {
+            EndSession(context.SessionId, "playback failed while channel has no live programme");
+            return;
+        }
+
+        if (context.IsDynamicUnwatched)
+        {
+            if (!context.IsDynamicMovie
+                && string.Equals(context.ContentMode, VirtualTvModePolicy.NextUnwatched, StringComparison.OrdinalIgnoreCase))
+            {
+                // Coverage-first means a failed earliest episode must not be silently skipped.
+                _logger.LogWarning(
+                    "Virtual TV Next Unwatched item {ItemId} failed on {ChannelName}; preserving chronological priority and ending this attempt.",
+                    failedItemId,
+                    context.ChannelName);
+                EndSession(context.SessionId, "Next Unwatched item failed; chronological priority preserved");
+                return;
+            }
+
+            lock (context.Gate)
+            {
+                // Random Unwatched excludes the failed item only from the immediate retry.
+                context.LastCompletedItemId = failedItemId;
+            }
+
+            await PlayScheduledEntryAsync(
+                context,
+                liveEntry,
+                nowUtc,
+                "runtime failure; selecting one temporary watched-dependent alternative").ConfigureAwait(false);
+            return;
+        }
+
+        await PlayTraditionalFallbackAsync(
+            context,
+            liveEntry,
+            failedItemId,
+            "materialized content failed at runtime").ConfigureAwait(false);
+    }
+
+    private async Task PlayTraditionalFallbackAsync(
+        SessionContext context,
+        VirtualTvScheduleEntry entry,
+        Guid? failedItemId,
+        string reason)
+    {
+        var channel = GetChannelConfiguration(context.ChannelId);
+        if (channel is null)
+        {
+            EndSession(context.SessionId, "runtime fallback lost channel configuration");
+            return;
+        }
+
+        var fallback = _runtimeFallback.ResolveTraditionalFallback(channel, entry, failedItemId);
+        if (fallback is null)
+        {
+            EndSession(context.SessionId, "no eligible runtime fallback content");
+            return;
+        }
+
+        var singleItem = new[] { fallback.Id };
+
+        if (context.UserId != Guid.Empty)
+        {
+            _stateProtection.BeginProtection(context.SessionId, singleItem, context.UserId);
+        }
+
+        lock (context.Gate)
+        {
+            context.RuntimeFallbackActive = true;
+        }
+
+        PreparePendingCommand(
+            context,
+            entry,
+            fallback.Id,
+            singleItem,
+            string.Empty,
+            startPositionTicks: 0);
+
+        var command = new PlayRequest
+        {
+            ItemIds = singleItem,
+            StartPositionTicks = 0,
+            StartIndex = 0,
+            PlayCommand = PlayCommand.PlayNow
+        };
+
+        _logger.LogWarning(
+            "Virtual TV local runtime fallback on {ChannelName}: {Reason}; playing {FallbackItemId} without changing persisted Guide.",
+            context.ChannelName,
+            reason,
+            fallback.Id);
+
+        await SendPlayCommandAsync(context, command).ConfigureAwait(false);
     }
 
     private Task PlayScheduledEntryAsync(
@@ -726,12 +869,17 @@ public sealed class LiveTvPlaybackCoordinator
         var sourceItem = _libraryManager.GetItemById(sourceItemId);
         if (sourceItem is null)
         {
-            _logger.LogError(
-                "Virtual TV cannot play programme {ProgramName}: Jellyfin source item {SourceItemId} no longer exists.",
-                entry.Name,
-                sourceItemId);
-            EndSession(context.SessionId, "concrete source item no longer exists");
+            await PlayTraditionalFallbackAsync(
+                context,
+                entry,
+                sourceItemId,
+                "scheduled source item no longer exists").ConfigureAwait(false);
             return;
+        }
+
+        lock (context.Gate)
+        {
+            context.RuntimeFallbackActive = false;
         }
 
         var queueItemIds = BuildConcreteManagedQueue(context.ChannelId, entry);
@@ -1144,6 +1292,8 @@ public sealed class LiveTvPlaybackCoordinator
         public string ReplacingPlaySessionId { get; set; } = string.Empty;
 
         public bool AwaitingContinuation { get; set; }
+
+        public bool RuntimeFallbackActive { get; set; }
 
         public long ContinuationGeneration { get; set; }
     }
