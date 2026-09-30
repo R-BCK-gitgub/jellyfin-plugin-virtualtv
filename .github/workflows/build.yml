@@ -97,7 +97,7 @@ jobs:
               raise SystemExit("Head-level CSS detected. Jellyfin plugin pages do not reliably retain head styles.")
 
           required = [
-              'data-ui-version="1.9.0.0"',
+              'data-ui-version="1.9.1.0"',
               'class="vtv-channel-table"',
               'class="vtv-content-grid"',
               'class="vtv-content-card',
@@ -130,7 +130,7 @@ jobs:
           print("Virtual TV page structure validation passed.")
           PY
 
-      - name: Validate Virtual TV 1.9 playback invariants
+      - name: Validate Virtual TV 1.9.1 playback invariants
         shell: bash
         run: |
           python3 - <<'PY'
@@ -172,8 +172,46 @@ jobs:
 
           if 'if (!context.TracksJellyfinState && context.UserId != Guid.Empty)' not in coordinator:
               raise SystemExit("Concrete/static playback must protect Jellyfin state.")
-          if 'ResolveQueue(' not in coordinator or 'PlayDynamicEntryAsync(' not in coordinator:
-              raise SystemExit("Dynamic unwatched playback resolver is not wired into the coordinator.")
+
+          # 1.9.1 watched-dependent architecture: resolve exactly one Episode, then hand that
+          # Episode to normal Jellyfin VOD playback at 00:00. The schedule only chooses the
+          # active series block; it never supplies a wall-clock media offset.
+          dynamic_tokens = [
+              'ResolveEpisode(',
+              'var singleEpisode = new[] { resolution.ItemId };',
+              'ItemIds = singleEpisode',
+              'StartPositionTicks = 0',
+              'PlayCommand = PlayCommand.PlayNow',
+              'queue size 1',
+              'episode ended; active block is still the same series',
+              'episode ended; schedule has moved to another series block',
+          ]
+          missing = [token for token in dynamic_tokens if token not in coordinator]
+          if missing:
+              raise SystemExit(f"1.9.1 dynamic VOD handoff invariant missing: {missing}")
+
+          forbidden_dynamic = [
+              'ResolveQueue(',
+              'QueueLength',
+              'PlayDynamicManagedItemAsync',
+              'GetNextManagedQueueItem',
+              'StartPositionTicks = resolution.StartPositionTicks',
+          ]
+          present = [token for token in forbidden_dynamic if token in coordinator or token in resolver]
+          if present:
+              raise SystemExit(f"Legacy dynamic queue/resume architecture returned: {present}")
+
+          # Watched-dependent selection must use the actual playback user. Never silently
+          # resolve all episodes as unwatched when the session user is unavailable.
+          user_tokens = [
+              'ResolvePlaybackUserId(eventArgs)',
+              'eventArgs.Session.UserId != Guid.Empty',
+              'eventArgs.Users.FirstOrDefault(user => user.Id != Guid.Empty)',
+              'context.UserId == Guid.Empty',
+          ]
+          missing = [token for token in user_tokens if token not in coordinator]
+          if missing:
+              raise SystemExit(f"Playback user resolution invariant missing: {missing}")
 
           # State protection must preserve the first/original snapshot across the full session.
           required_protection = [
@@ -205,20 +243,40 @@ jobs:
           if missing:
               raise SystemExit(f"Approved block-size validation missing: {missing}")
 
-          # Next Unwatched: partial first, then chronological unwatched. Random Unwatched:
-          # random unplayed with Random fallback when nothing remains.
-          resolver_tokens = [
-              'BuildNextUnwatched',
-              'PlaybackPositionTicks > 0',
-              'candidate.Item.PremiereDate.HasValue',
-              'BuildRandomUnwatched',
+          # Next Unwatched is chronological coverage-first: Played=false contains both
+          # never-started and partially-watched items, and season/episode order dominates.
+          next_tokens = [
               'Where(candidate => !candidate.Played)',
-              'BuildRandomFallback',
-              'AvoidImmediateRepeat',
+              'OrderBy(candidate => candidate.Item.ParentIndexNumber ?? int.MaxValue)',
+              'ThenBy(candidate => candidate.Item.IndexNumber ?? int.MaxValue)',
+              'selectionReason = "NextUnwatched"',
           ]
-          missing = [token for token in resolver_tokens if token not in resolver]
+          missing = [token for token in next_tokens if token not in resolver]
           if missing:
-              raise SystemExit(f"Episode resolver rule missing: {missing}")
+              raise SystemExit(f"Next Unwatched chronological rule missing: {missing}")
+
+          # Random Unwatched must select only from the active user's Played=false pool while
+          # such items exist. Existing resume position may be inspected for diagnostics but
+          # 1.9.1 playback deliberately starts the resolved Episode at 00:00.
+          random_tokens = [
+              'string.Equals(contentMode, VirtualTvModePolicy.RandomUnwatched',
+              '.Where(candidate => !candidate.Played)',
+              'selected = PickRandom(unwatched, lastItemId)',
+              'selectionReason = "RandomUnwatched"',
+              'PreviousPlaybackPositionTicks',
+          ]
+          missing = [token for token in random_tokens if token not in resolver]
+          if missing:
+              raise SystemExit(f"Random Unwatched rule missing: {missing}")
+
+          forbidden_resolver = [
+              'partial.Concat(fresh)',
+              'Where(candidate => candidate.PlaybackPositionTicks > 0)',
+              'candidate.Item.PremiereDate.HasValue && !candidate.Played',
+          ]
+          present = [token for token in forbidden_resolver if token in resolver]
+          if present:
+              raise SystemExit(f"Regressed watched-dependent ordering detected: {present}")
 
           # Dynamic Guide entries expose the series/block rather than a fake future episode.
           if 'entry.IsDynamicBlock ? null : FormatEpisodeTitle(entry)' not in service:
@@ -261,14 +319,14 @@ jobs:
           if present:
               raise SystemExit(f"Legacy post-start seek logic returned: {present}")
 
-          print("Virtual TV 1.9 playback, state, block and Smart Schedule validations passed.")
+          print("Virtual TV 1.9.1 playback, dynamic VOD, state, block and Smart Schedule validations passed.")
           PY
 
       - name: Validate embedded Virtual TV UI
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.9.0.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.9.1.0"' "$DLL"
           grep -a -q 'vtv-channel-table' "$DLL"
           grep -a -q 'vtv-content-card' "$DLL"
           grep -a -q 'id="contentMode"' "$DLL"
@@ -276,6 +334,11 @@ jobs:
           grep -a -q 'id="blockMinutes"' "$DLL"
           grep -a -q 'value="SmartSchedule"' "$DLL"
           grep -a -q 'background:#15566c' "$DLL"
+          grep -a -q 'class="vtv-channel-table"' "$DLL"
+          grep -a -q 'id="seriesPlaybackSection"' "$DLL"
+          grep -a -q 'id="contentMode"' "$DLL"
+          grep -a -q 'id="schedulingMethod"' "$DLL"
+          grep -a -q 'id="blockMinutes"' "$DLL"
           echo "Embedded UI validation passed."
 
       - name: Prepare install package
