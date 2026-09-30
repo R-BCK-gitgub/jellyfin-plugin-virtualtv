@@ -1279,6 +1279,7 @@ public sealed class VirtualTvScheduleGenerator
             _cursor++;
             return selected;
         }
+    }
 
     private sealed class ShuffleBag<T>
     {
