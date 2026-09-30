@@ -97,7 +97,9 @@ public sealed class PlaybackStateProtectionManager
                         data.PlaybackPositionTicks,
                         data.Played,
                         data.PlayCount,
-                        data.LastPlayedDate));
+                        data.LastPlayedDate,
+                        data.AudioStreamIndex,
+                        data.SubtitleStreamIndex));
                 }
 
                 if (states.Count > 0)
@@ -278,6 +280,8 @@ public sealed class PlaybackStateProtectionManager
             data.Played = state.Played;
             data.PlayCount = state.PlayCount;
             data.LastPlayedDate = state.LastPlayedDate;
+            data.AudioStreamIndex = state.AudioStreamIndex;
+            data.SubtitleStreamIndex = state.SubtitleStreamIndex;
 
             _userDataManager.SaveUserData(
                 user,
@@ -319,5 +323,7 @@ public sealed class PlaybackStateProtectionManager
         long PlaybackPositionTicks,
         bool Played,
         int PlayCount,
-        DateTime? LastPlayedDate);
+        DateTime? LastPlayedDate,
+        int? AudioStreamIndex,
+        int? SubtitleStreamIndex);
 }
