@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.8.1.0"
+version: "1.8.2.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Playback architecture patch: replaces delayed post-start Live TV seek retries with a source-item PlayNow handoff using wall-clock StartPositionTicks, while preserving the source episode's Jellyfin watched/resume state. The 1.8 UI is unchanged.
+  Playback continuity patch: keeps the validated 1.8.1 live-position handoff, supplies a Virtual TV schedule queue instead of Jellyfin's same-series episode queue, and re-synchronizes to the channel clock when playback completes early, late, or without automatic continuation. The approved 1.8 UI is unchanged.
