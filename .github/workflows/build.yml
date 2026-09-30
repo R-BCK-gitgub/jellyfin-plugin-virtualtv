@@ -76,7 +76,7 @@ jobs:
       - name: Build plugin
         run: dotnet build Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj --configuration Release --no-restore
 
-      - name: Validate Virtual TV page structure
+      - name: Validate Virtual TV 1.10 UI and feature surface
         shell: bash
         run: |
           python3 - <<'PY'
@@ -90,47 +90,45 @@ jobs:
           style_end = page.index('</style>', style_start)
 
           if not (page_start < style_start < style_end < content_start):
-              raise SystemExit("Virtual TV CSS must live inside the plugin page div before page content.")
-
-          head_end = page.index('</head>')
-          if '<style>' in page[:head_end]:
-              raise SystemExit("Head-level CSS detected. Jellyfin plugin pages do not reliably retain head styles.")
+              raise SystemExit("Virtual TV CSS must stay scoped inside the plugin page.")
+          if '<style>' in page[:page.index('</head>')]:
+              raise SystemExit("Head-level CSS detected.")
 
           required = [
-              'data-ui-version="1.9.1.0"',
+              'data-ui-version="1.10.0.0"',
               'class="vtv-channel-table"',
               'class="vtv-content-grid"',
               'class="vtv-content-card',
-              'vtv-content-year',
-              'vtv-content-library',
-              'id="contentMode"',
+              'background:#15566c',
+              'id="seriesOptionsSection"',
+              'id="manualOrderSection"',
+              'id="moviePlaybackSection"',
+              'id="visibilityMode"',
+              'id="userSelection"',
               'value="NextUnwatched"',
               'value="RandomUnwatched"',
-              'id="blockMinutes"',
-              '<option value="20">20 minutes</option>',
-              '<option value="120">120 minutes</option>',
-              'id="schedulingMethod"',
               'value="SmartSchedule"',
-              'id="smartRotationMonths"',
-              'background:#15566c',
+              '<option value="120">120 minutes</option>',
+              'Generate New Schedule',
+              'Channel type, playback mode and schedule strategy are structural',
           ]
           missing = [token for token in required if token not in page]
           if missing:
-              raise SystemExit(f"Missing expected UI tokens: {missing}")
+              raise SystemExit(f"Missing 1.10 UI tokens: {missing}")
 
           forbidden = [
               'vtv-channel-card',
-              'vtv-content-detail-label">Year',
-              'vtv-content-detail-label">Library',
+              'RandomShuffleCycle',
+              "saveConfiguration(function(){\n      closeEditor();\n      renderChannels();\n    },",
           ]
           present = [token for token in forbidden if token in page]
           if present:
-              raise SystemExit(f"Obsolete UI tokens still present: {present}")
+              raise SystemExit(f"Obsolete/destructive UI behavior present: {present}")
 
-          print("Virtual TV page structure validation passed.")
+          print("Virtual TV 1.10 UI validation passed.")
           PY
 
-      - name: Validate Virtual TV 1.9.1 playback invariants
+      - name: Validate stable playback foundation
         shell: bash
         run: |
           python3 - <<'PY'
@@ -138,208 +136,171 @@ jobs:
 
           coordinator = Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
           resolver = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
-          generator = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvScheduleGenerator.cs").read_text(encoding="utf-8")
-          policy = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
           protection = Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text(encoding="utf-8")
           stop_consumer = Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text(encoding="utf-8")
-          service = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
-          registrator = Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8")
-          smart_task = Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvSmartScheduleRefreshTask.cs").read_text(encoding="utf-8")
+          policy = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
 
-          # Preserve the proven 1.8.1 / 1.8.2 concrete playback foundation.
-          required_concrete = [
+          concrete = [
               'StartPositionTicks = targetTicks',
               'PlayCommand = PlayCommand.PlayNow',
               'CommandTransitCompensation = TimeSpan.FromSeconds(1)',
               'completed before scheduled end; return to live',
               'completed away from live boundary; resynchronise to live',
-              'ContinuationFallbackDelay = TimeSpan.FromMilliseconds(1500)',
+              'if (!context.TracksJellyfinState && context.UserId != Guid.Empty)',
           ]
-          missing = [token for token in required_concrete if token not in coordinator]
+          missing = [token for token in concrete if token not in coordinator]
           if missing:
-              raise SystemExit(f"Concrete playback foundation regressed: {missing}")
+              raise SystemExit(f"Stable concrete playback regressed: {missing}")
 
-          # Only Next Unwatched / Random Unwatched are allowed to write Jellyfin progress.
-          required_policy = [
-              'public const string NextUnwatched = "NextUnwatched"',
-              'public const string RandomUnwatched = "RandomUnwatched"',
-              'public static bool TracksJellyfinState',
-              '=> IsDynamicUnwatched(mode)',
-          ]
-          missing = [token for token in required_policy if token not in policy]
-          if missing:
-              raise SystemExit(f"Jellyfin state policy missing: {missing}")
-
-          if 'if (!context.TracksJellyfinState && context.UserId != Guid.Empty)' not in coordinator:
-              raise SystemExit("Concrete/static playback must protect Jellyfin state.")
-
-          # 1.9.1 watched-dependent architecture: resolve exactly one Episode, then hand that
-          # Episode to normal Jellyfin VOD playback at 00:00. The schedule only chooses the
-          # active series block; it never supplies a wall-clock media offset.
-          dynamic_tokens = [
+          dynamic_series = [
+              'PlayDynamicSeriesEntryAsync',
               'ResolveEpisode(',
               'var singleEpisode = new[] { resolution.ItemId };',
               'ItemIds = singleEpisode',
               'StartPositionTicks = 0',
-              'PlayCommand = PlayCommand.PlayNow',
-              'queue size 1',
               'episode ended; active block is still the same series',
               'episode ended; schedule has moved to another series block',
           ]
-          missing = [token for token in dynamic_tokens if token not in coordinator]
+          missing = [token for token in dynamic_series if token not in coordinator]
           if missing:
-              raise SystemExit(f"1.9.1 dynamic VOD handoff invariant missing: {missing}")
+              raise SystemExit(f"Approved 1.9.1 dynamic-series playback regressed: {missing}")
 
-          forbidden_dynamic = [
-              'ResolveQueue(',
-              'private const int QueueLength',
-              'PlayDynamicManagedItemAsync',
-              'GetNextManagedQueueItem',
-              'StartPositionTicks = resolution.StartPositionTicks',
-          ]
-          present = [token for token in forbidden_dynamic if token in coordinator or token in resolver]
-          if present:
-              raise SystemExit(f"Legacy dynamic queue/resume architecture returned: {present}")
+          if 'Where(candidate => !candidate.Played)' not in resolver:
+              raise SystemExit("Unwatched selection no longer filters Played=false.")
+          if 'var next = candidates.FirstOrDefault(candidate => !candidate.Played)' not in resolver:
+              raise SystemExit("Next Unwatched is no longer coverage-first in catalogue order.")
+          if 'selected = PickRandom(unwatched, lastItemId)' not in resolver:
+              raise SystemExit("Random Unwatched pool selection missing.")
 
-          # Watched-dependent selection must use the actual playback user. Never silently
-          # resolve all episodes as unwatched when the session user is unavailable.
-          user_tokens = [
-              'ResolvePlaybackUserId(eventArgs)',
-              'eventArgs.Session.UserId != Guid.Empty',
-              'eventArgs.Users.FirstOrDefault(user => user.Id != Guid.Empty)',
-              'context.UserId == Guid.Empty',
-          ]
-          missing = [token for token in user_tokens if token not in coordinator]
-          if missing:
-              raise SystemExit(f"Playback user resolution invariant missing: {missing}")
+          if '=> IsDynamicUnwatched(mode)' not in policy:
+              raise SystemExit("Watched-state policy changed.")
+          if 'RestoreAllIfProtected' not in protection or 'RestoreAllIfProtected(eventArgs.Session.Id)' not in stop_consumer:
+              raise SystemExit("Traditional watched/resume protection regressed.")
 
-          # State protection must preserve the first/original snapshot across the full session.
-          required_protection = [
-              '_active.GetOrAdd(',
-              'snapshot.Roots.Any(root => root.RootItemId == rootItemId)',
-              'RestoreAllIfProtected',
-              'public void CancelProtection(string sessionId, bool restore)',
-          ]
-          missing = [token for token in required_protection if token not in protection]
-          if missing:
-              raise SystemExit(f"Static watched/resume protection missing: {missing}")
-
-          if 'RestoreAllIfProtected(eventArgs.Session.Id)' not in stop_consumer:
-              raise SystemExit("PlaybackStop must restore protected static state after Jellyfin updates it.")
-
-          # Dynamic modes must use fixed channel-wide blocks from the approved set.
-          required_blocks = [
-              'BuildDynamicSeriesBlockSchedule',
-              'TimeSpan.FromMinutes(channel.BlockMinutes)',
-              'SourceSeriesId = series.Id.ToString("N")',
-              'IsDynamicBlock = true',
-          ]
-          missing = [token for token in required_blocks if token not in generator]
-          if missing:
-              raise SystemExit(f"Fixed dynamic block generation missing: {missing}")
-
-          required_sizes = ['20 or 30 or 40 or 45 or 60 or 75 or 90 or 120']
-          missing = [token for token in required_sizes if token not in policy]
-          if missing:
-              raise SystemExit(f"Approved block-size validation missing: {missing}")
-
-          # Next Unwatched is chronological coverage-first: Played=false contains both
-          # never-started and partially-watched items, and season/episode order dominates.
-          next_tokens = [
-              'Where(candidate => !candidate.Played)',
-              'OrderBy(candidate => candidate.Item.ParentIndexNumber ?? int.MaxValue)',
-              'ThenBy(candidate => candidate.Item.IndexNumber ?? int.MaxValue)',
-              'selectionReason = "NextUnwatched"',
-          ]
-          missing = [token for token in next_tokens if token not in resolver]
-          if missing:
-              raise SystemExit(f"Next Unwatched chronological rule missing: {missing}")
-
-          # Random Unwatched must select only from the active user's Played=false pool while
-          # such items exist. Existing resume position may be inspected for diagnostics but
-          # 1.9.1 playback deliberately starts the resolved Episode at 00:00.
-          random_tokens = [
-              'string.Equals(contentMode, VirtualTvModePolicy.RandomUnwatched',
-              '.Where(candidate => !candidate.Played)',
-              'selected = PickRandom(unwatched, lastItemId)',
-              'selectionReason = "RandomUnwatched"',
-              'PreviousPlaybackPositionTicks',
-          ]
-          missing = [token for token in random_tokens if token not in resolver]
-          if missing:
-              raise SystemExit(f"Random Unwatched rule missing: {missing}")
-
-          forbidden_resolver = [
-              'partial.Concat(fresh)',
-              'Where(candidate => candidate.PlaybackPositionTicks > 0)',
-              'candidate.Item.PremiereDate.HasValue && !candidate.Played',
-          ]
-          present = [token for token in forbidden_resolver if token in resolver]
-          if present:
-              raise SystemExit(f"Regressed watched-dependent ordering detected: {present}")
-
-          # Dynamic Guide entries expose the series/block rather than a fake future episode.
-          if 'entry.IsDynamicBlock ? null : FormatEpisodeTitle(entry)' not in service:
-              raise SystemExit("Dynamic EPG must suppress unresolved episode titles.")
-
-          # Smart Schedule must have the seven-day template and an automatic rotation task.
-          smart_tokens = [
-              'BuildSmartDayPatterns',
-              'for (var day = 0; day < 7; day++)',
-              'startUtc.AddMonths(channel.SmartRotationMonths)',
-          ]
-          missing = [token for token in smart_tokens if token not in generator]
-          if missing:
-              raise SystemExit(f"Smart Schedule generation invariant missing: {missing}")
-
-          task_tokens = [
-              'VirtualTvSmartScheduleRefreshTask : IScheduledTask',
-              'IntervalTicks = TimeSpan.FromHours(6).Ticks',
-              'RefreshLeadTime = TimeSpan.FromHours(12)',
-              '_generator.Generate(channel, startUtc, preserveBeforeStart:',
-          ]
-          missing = [token for token in task_tokens if token not in smart_task]
-          if missing:
-              raise SystemExit(f"Smart Schedule refresh task invariant missing: {missing}")
-
-          if 'AddSingleton<VirtualTvEpisodeResolver>()' not in registrator:
-              raise SystemExit("Episode resolver is not registered.")
-          if 'AddSingleton<IScheduledTask, VirtualTvSmartScheduleRefreshTask>()' not in registrator:
-              raise SystemExit("Smart Schedule task is not registered.")
-
-          # Never reintroduce the old delayed Live TV seek architecture.
           forbidden = [
               'SendPlaystateCommand',
               'PlaystateCommand.Seek',
-              'FirstSeekDelay',
-              'ConfirmationSeekDelay',
-              'SendWallClockSeekAsync',
+              'ResolveQueue(',
+              'PlayDynamicManagedItemAsync',
+              'GetNextManagedQueueItem',
           ]
-          present = [token for token in forbidden if token in coordinator]
+          present = [token for token in forbidden if token in coordinator or token in resolver]
           if present:
-              raise SystemExit(f"Legacy post-start seek logic returned: {present}")
+              raise SystemExit(f"Legacy playback architecture returned: {present}")
 
-          print("Virtual TV 1.9.1 playback, dynamic VOD, state, block and Smart Schedule validations passed.")
+          print("Stable 1.9.1 playback foundation validation passed.")
+          PY
+
+      - name: Validate 1.10 schedule and content invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          generator = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvScheduleGenerator.cs").read_text(encoding="utf-8")
+          catalog = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvContentCatalog.cs").read_text(encoding="utf-8")
+          movie = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
+          visibility = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvVisibilityManager.cs").read_text(encoding="utf-8")
+          registrator = Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8")
+          extend = Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvExtendSchedulesTask.cs").read_text(encoding="utf-8")
+          reconcile = Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvReconcileSchedulesTask.cs").read_text(encoding="utf-8")
+          recovery = Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvRecoveryTask.cs").read_text(encoding="utf-8")
+
+          content_tokens = [
+              'AllSeasons',
+              'SelectedSeasonNumbers',
+              'IncludeSpecials',
+              'HasReliableChronologicalPosition',
+              'AirsBeforeSeasonNumber',
+              'AirsAfterSeasonNumber',
+          ]
+          missing = [token for token in content_tokens if token not in catalog]
+          if missing:
+              raise SystemExit(f"Season/Specials invariant missing: {missing}")
+
+          schedule_tokens = [
+              'GenerateNewSchedule',
+              'public IReadOnlyList<VirtualTvScheduleEntry> Extend',
+              'public IReadOnlyList<VirtualTvScheduleEntry> Reconcile',
+              'public IReadOnlyList<VirtualTvScheduleEntry> Recover',
+              'HistoryRetention = TimeSpan.FromDays(7)',
+              'FutureHorizon = TimeSpan.FromDays(30)',
+              'GetNextSundayUtc',
+              'GetSundayStartUtc',
+              'RepeatingSeriesOrder',
+              'ShuffleBag',
+              'BuildDynamicMovieSchedule',
+              'CreateUnavailableEntry',
+          ]
+          missing = [token for token in schedule_tokens if token not in generator]
+          if missing:
+              raise SystemExit(f"Schedule lifecycle invariant missing: {missing}")
+
+          movie_tokens = [
+              'MaterializedUnwatched',
+              'RuntimeUnwatchedReplacement',
+              'RandomFallback',
+              'PlaybackPositionTicks',
+          ]
+          missing = [token for token in movie_tokens if token not in movie]
+          if missing:
+              raise SystemExit(f"Movie Random Unwatched invariant missing: {missing}")
+
+          visibility_tokens = [
+              'BlockedChannels',
+              'UpdatePolicyAsync',
+              'IsVisibleToUser',
+              'VisibleToAllUsers',
+              'VisibleUserIds',
+          ]
+          missing = [token for token in visibility_tokens if token not in visibility]
+          if missing:
+              raise SystemExit(f"Visibility invariant missing: {missing}")
+
+          task_tokens = [
+              ('Extend', extend, ['Virtual TV — Extend Channel Schedules', 'TaskTriggerInfoType.WeeklyTrigger', 'DayOfWeek.Monday', 'TimeSpan.FromHours(3).Ticks']),
+              ('Reconcile', reconcile, ['Virtual TV — Reconcile Channel Schedules', 'TaskTriggerInfoType.DailyTrigger', 'TimeSpan.FromHours(5).Ticks']),
+              ('Recovery', recovery, ['Virtual TV — Startup Recovery', 'TaskTriggerInfoType.StartupTrigger']),
+          ]
+          for name, source, tokens in task_tokens:
+              missing = [token for token in tokens if token not in source]
+              if missing:
+                  raise SystemExit(f"{name} task invariant missing: {missing}")
+
+          registrations = [
+              'AddSingleton<VirtualTvContentCatalog>()',
+              'AddSingleton<VirtualTvMovieResolver>()',
+              'AddSingleton<VirtualTvVisibilityManager>()',
+              'AddSingleton<IScheduledTask, VirtualTvExtendSchedulesTask>()',
+              'AddSingleton<IScheduledTask, VirtualTvReconcileSchedulesTask>()',
+              'AddSingleton<IScheduledTask, VirtualTvRecoveryTask>()',
+          ]
+          missing = [token for token in registrations if token not in registrator]
+          if missing:
+              raise SystemExit(f"1.10 service registration missing: {missing}")
+
+          if Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvSmartScheduleRefreshTask.cs").exists():
+              raise SystemExit("Obsolete Smart-only refresh task must not return; Smart rotation belongs to Extend.")
+
+          print("Virtual TV 1.10 content, lifecycle, task and visibility validations passed.")
           PY
 
       - name: Validate embedded Virtual TV UI
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.9.1.0"' "$DLL"
-          grep -a -q 'vtv-channel-table' "$DLL"
-          grep -a -q 'vtv-content-card' "$DLL"
-          grep -a -q 'id="contentMode"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.0.0"' "$DLL"
+          grep -a -q 'class="vtv-channel-table"' "$DLL"
+          grep -a -q 'class="vtv-content-card' "$DLL"
+          grep -a -q 'id="seriesOptionsSection"' "$DLL"
+          grep -a -q 'id="manualOrderSection"' "$DLL"
+          grep -a -q 'id="moviePlaybackSection"' "$DLL"
+          grep -a -q 'id="visibilityMode"' "$DLL"
           grep -a -q 'value="NextUnwatched"' "$DLL"
-          grep -a -q 'id="blockMinutes"' "$DLL"
+          grep -a -q 'value="RandomUnwatched"' "$DLL"
           grep -a -q 'value="SmartSchedule"' "$DLL"
           grep -a -q 'background:#15566c' "$DLL"
-          grep -a -q 'class="vtv-channel-table"' "$DLL"
-          grep -a -q 'id="seriesPlaybackSection"' "$DLL"
-          grep -a -q 'id="contentMode"' "$DLL"
-          grep -a -q 'id="schedulingMethod"' "$DLL"
-          grep -a -q 'id="blockMinutes"' "$DLL"
-          echo "Embedded UI validation passed."
+          echo "Embedded 1.10 UI validation passed."
 
       - name: Prepare install package
         shell: bash
