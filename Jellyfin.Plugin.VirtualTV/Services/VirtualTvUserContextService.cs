@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.Library;
