@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.1.0"
+version: "1.10.2.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,10 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Quality and stability release for the 1.10 feature set. Hardens traditional watched/resume isolation, suppresses duplicate channel-start handoffs, simplifies concrete playback to a current-plus-next queue with safer transition timing, adds editable channel descriptions and channel-detail presentation formatting, fixes Settings editor Back/Cancel navigation, and simplifies EPG episode labels to series plus episode title.
+  LG webOS compatibility release. Traditional channels on LG remain in the native
+  Virtual TV Live TV transport and use a rebased source timeline so the current
+  wall-clock point is exposed to the player as 00:00 instead of a mid-file VOD
+  start. Natural programme completion retunes the same channel onto a fresh
+  rebased timeline. Channel descriptions remain stored in plugin settings but are
+  no longer published as Jellyfin channel Overview because stock clients place
+  that text below the full Guide instead of beneath the title.
