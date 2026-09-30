@@ -317,6 +317,12 @@ public sealed class VirtualTvScheduleGenerator
             return false;
         }
 
+        var localWeekStart = TimeZoneInfo.ConvertTimeFromUtc(weekStartUtc, TimeZoneInfo.Local);
+        if (localWeekStart.DayOfWeek != DayOfWeek.Sunday || localWeekStart.TimeOfDay != TimeSpan.Zero)
+        {
+            return false;
+        }
+
         var boundary = created.ToUniversalTime().AddMonths(channel.SmartRotationMonths);
         return weekStartUtc >= boundary;
     }
