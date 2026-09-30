@@ -338,7 +338,7 @@
         '<td><span class="vtv-channel-number-badge">'+esc(c.Number)+'</span></td>'+
         '<td><div class="vtv-channel-name">'+esc(c.Name)+'</div></td>'+
         '<td>'+esc(c.ChannelType)+'</td>'+
-        '<td><div>'+esc(modeParts[0]||'')+'</div><div class="vtv-cell-secondary">'+esc(modeParts[1]||'')+'</div></td>'+
+        '<td><div>'+esc(modeParts[0]||'')+'</div><div class="vtv-cell-secondary">'+esc(modeParts.slice(1).join(' · '))+'</div></td>'+
         '<td>'+esc(libraries)+'</td>'+
         '<td>'+esc((c.SelectedItemIds||[]).length)+'</td>'+
         '<td>'+esc(hoursLabel(c))+'</td>'+
@@ -802,7 +802,7 @@
     if(existing){
       scheduleChanged=
         !arraysEqual(existing.SelectedLibraryIds,state.selectedLibraryIds)
-        || !arraysEqual(existing.SelectedItemIds,state.selectedItemIds)
+        || JSON.stringify(existing.SelectedItemIds||[])!==JSON.stringify(state.selectedItemIds||[])
         || String(existing.ContentMode||'Sequential')!==String(contentMode)
         || String(existing.SchedulingMethod||'RepeatingOrder')!==String(schedulingMethod)
         || Number(existing.BlockMinutes||30)!==Number(blockMinutes)
