@@ -87,4 +87,11 @@ public sealed class ChannelConfiguration
     public bool NeedsReconcile { get; set; } = true;
     public string ScheduleGeneratedUtc { get; set; } = string.Empty;
     public string ScheduleEndUtc { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Hash of currently eligible library content (and, for Movie Random Unwatched, watched
+    /// state) used by the daily Reconcile task to detect changes without reshuffling stable
+    /// schedules unnecessarily.
+    /// </summary>
+    public string ContentFingerprint { get; set; } = string.Empty;
 }
