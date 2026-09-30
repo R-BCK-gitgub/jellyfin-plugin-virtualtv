@@ -189,17 +189,17 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             Id = "virtualtv-program-" + entry.Id,
             ChannelId = channelId,
             Name = entry.IsMovie ? entry.Name : entry.SeriesName,
-            EpisodeTitle = entry.IsMovie ? null : FormatEpisodeTitle(entry),
+            EpisodeTitle = entry.IsMovie || entry.IsDynamicBlock ? null : FormatEpisodeTitle(entry),
             Overview = entry.Overview,
             StartDate = start,
             EndDate = end,
             IsLive = false,
             IsMovie = entry.IsMovie,
             IsSeries = !entry.IsMovie,
-            SeasonNumber = entry.SeasonNumber,
-            EpisodeNumber = entry.EpisodeNumber,
+            SeasonNumber = entry.IsDynamicBlock ? null : entry.SeasonNumber,
+            EpisodeNumber = entry.IsDynamicBlock ? null : entry.EpisodeNumber,
             ProductionYear = entry.ProductionYear,
-            OriginalAirDate = premiereDate
+            OriginalAirDate = entry.IsDynamicBlock ? null : premiereDate
         };
     }
 

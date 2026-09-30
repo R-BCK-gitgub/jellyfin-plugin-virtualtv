@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.8.2.0"
+version: "1.9.0.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Playback continuity patch: keeps the validated 1.8.1 live-position handoff, supplies a Virtual TV schedule queue instead of Jellyfin's same-series episode queue, and re-synchronizes to the channel clock when playback completes early, late, or without automatic continuation. The approved 1.8 UI is unchanged.
+  Dynamic series playback milestone: adds Sequential, Next Unwatched, Random Unwatched and Random modes; fixed 20/30/40/45/60/75/90/120-minute unwatched blocks; Repeating Order, Randomized Rotation, Manual Order and Smart Schedule strategies; one/two consecutive turns; automatic Smart Schedule rotation refresh; and strict Jellyfin state policy so only the two Unwatched modes write watched/resume progress.
