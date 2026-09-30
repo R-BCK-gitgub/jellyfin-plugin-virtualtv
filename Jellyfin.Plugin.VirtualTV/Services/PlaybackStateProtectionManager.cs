@@ -12,8 +12,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
-/// Preserves the underlying library item's watched/resume state while Virtual TV temporarily
-/// uses normal Jellyfin item playback to obtain reliable start-at-offset behavior on clients.
+/// Preserves Jellyfin watched/resume state for every library item temporarily placed in a
+/// Virtual TV managed queue. Snapshots are captured before the queue is sent to the client,
+/// so even an automatic transition cannot increment Play Count or create Continue Watching
+/// state that survives the Virtual TV session.
 /// </summary>
 public sealed class PlaybackStateProtectionManager
 {
@@ -38,64 +40,76 @@ public sealed class PlaybackStateProtectionManager
     }
 
     /// <summary>
-    /// Captures watched/resume-related values before a Virtual TV handoff starts.
-    /// If the same session was already protected, its previous snapshot is restored first.
-    /// Alternate versions are included because Jellyfin can propagate completion between versions.
+    /// Replaces the protection set for a Virtual TV session. Any previous snapshot is restored
+    /// before the new managed queue is captured, so repeated re-sync commands remain lossless.
     /// </summary>
-    public bool BeginProtection(string sessionId, Guid itemId, Guid userId)
+    public bool BeginProtection(string sessionId, IEnumerable<Guid> rootItemIds, Guid userId)
     {
         CancelProtection(sessionId, restore: true);
 
         var user = _userManager.GetUserById(userId);
-        var item = _libraryManager.GetItemById(itemId);
-        if (user is null || item is null)
+        if (user is null)
         {
             return false;
         }
 
-        IReadOnlyList<BaseItem> protectedItems = item is Video video
-            ? video.GetAllVersions().Cast<BaseItem>().ToArray()
-            : [item];
+        var roots = new List<RootItemSnapshot>();
 
-        var states = new List<ItemUserStateSnapshot>(protectedItems.Count);
-        foreach (var protectedItem in protectedItems)
+        foreach (var rootItemId in rootItemIds.Distinct())
         {
-            var data = _userDataManager.GetUserData(user, protectedItem);
-            if (data is null)
+            var rootItem = _libraryManager.GetItemById(rootItemId);
+            if (rootItem is null)
             {
                 continue;
             }
 
-            states.Add(new ItemUserStateSnapshot(
-                protectedItem.Id,
-                data.PlaybackPositionTicks,
-                data.Played,
-                data.PlayCount,
-                data.LastPlayedDate));
+            IReadOnlyList<BaseItem> protectedItems = rootItem is Video video
+                ? video.GetAllVersions().Cast<BaseItem>().ToArray()
+                : [rootItem];
+
+            var states = new List<ItemUserStateSnapshot>(protectedItems.Count);
+            foreach (var protectedItem in protectedItems)
+            {
+                var data = _userDataManager.GetUserData(user, protectedItem);
+                if (data is null)
+                {
+                    continue;
+                }
+
+                states.Add(new ItemUserStateSnapshot(
+                    protectedItem.Id,
+                    data.PlaybackPositionTicks,
+                    data.Played,
+                    data.PlayCount,
+                    data.LastPlayedDate));
+            }
+
+            if (states.Count > 0)
+            {
+                roots.Add(new RootItemSnapshot(rootItemId, states));
+            }
         }
 
-        if (states.Count == 0)
+        if (roots.Count == 0)
         {
             return false;
         }
 
         _active[sessionId] = new PlaybackStateSnapshot(
-            itemId,
             userId,
-            states,
+            roots,
             DateTime.UtcNow);
 
         _logger.LogDebug(
-            "Virtual TV protected Jellyfin user state for session {SessionId}, item {ItemId}, {StateCount} version(s).",
+            "Virtual TV protected Jellyfin user state for session {SessionId}: {RootCount} managed queue item(s).",
             sessionId,
-            itemId,
-            states.Count);
+            roots.Count);
 
         return true;
     }
 
     /// <summary>
-    /// Restores state when a protected item's playback event is observed.
+    /// Restores the snapshot associated with the item that just reported playback activity.
     /// </summary>
     public void RestoreIfProtected(PlaybackProgressEventArgs eventArgs, bool clearAfterRestore)
     {
@@ -112,21 +126,31 @@ public sealed class PlaybackStateProtectionManager
             return;
         }
 
-        if (eventArgs.Item.Id != snapshot.RootItemId)
+        var root = snapshot.Roots.FirstOrDefault(candidate =>
+            candidate.RootItemId == eventArgs.Item.Id
+            || candidate.States.Any(state => state.ItemId == eventArgs.Item.Id));
+
+        if (root is null)
         {
             return;
         }
 
-        Restore(snapshot);
+        RestoreRoot(snapshot.UserId, root);
 
         if (clearAfterRestore)
         {
-            _active.TryRemove(eventArgs.Session.Id, out _);
+            // Do not remove the whole session snapshot here. A natural Virtual TV transition
+            // may immediately start another protected queue item. Session cleanup is owned by
+            // LiveTvPlaybackCoordinator when the user actually leaves the channel.
+            _logger.LogDebug(
+                "Virtual TV restored completed item {ItemId} while retaining queue protection for session {SessionId}.",
+                root.RootItemId,
+                eventArgs.Session.Id);
         }
     }
 
     /// <summary>
-    /// Cancels a session protection context, optionally restoring the snapshot first.
+    /// Restores all managed queue items and removes the protection context.
     /// </summary>
     public void CancelProtection(string sessionId, bool restore)
     {
@@ -135,21 +159,26 @@ public sealed class PlaybackStateProtectionManager
             return;
         }
 
-        if (restore)
+        if (!restore)
         {
-            Restore(snapshot);
+            return;
+        }
+
+        foreach (var root in snapshot.Roots)
+        {
+            RestoreRoot(snapshot.UserId, root);
         }
     }
 
-    private void Restore(PlaybackStateSnapshot snapshot)
+    private void RestoreRoot(Guid userId, RootItemSnapshot root)
     {
-        var user = _userManager.GetUserById(snapshot.UserId);
+        var user = _userManager.GetUserById(userId);
         if (user is null)
         {
             return;
         }
 
-        foreach (var state in snapshot.States)
+        foreach (var state in root.States)
         {
             var item = _libraryManager.GetItemById(state.ItemId);
             if (item is null)
@@ -178,10 +207,13 @@ public sealed class PlaybackStateProtectionManager
     }
 
     private sealed record PlaybackStateSnapshot(
-        Guid RootItemId,
         Guid UserId,
-        IReadOnlyList<ItemUserStateSnapshot> States,
+        IReadOnlyList<RootItemSnapshot> Roots,
         DateTime CreatedUtc);
+
+    private sealed record RootItemSnapshot(
+        Guid RootItemId,
+        IReadOnlyList<ItemUserStateSnapshot> States);
 
     private sealed record ItemUserStateSnapshot(
         Guid ItemId,
