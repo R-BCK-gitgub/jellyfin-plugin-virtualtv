@@ -28,10 +28,11 @@ public sealed class LiveTvPlaybackCoordinator
 {
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan TransitionPositionTolerance = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan NaturalTransitionGrace = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PendingCommandWindow = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan ContinuationFallbackDelay = TimeSpan.FromMilliseconds(1500);
-    private const int ManagedStaticQueueLength = 6;
+    private static readonly TimeSpan ContinuationFallbackDelay = TimeSpan.FromSeconds(5);
+    private const int ManagedStaticQueueLength = 2;
 
     private readonly ISessionManager _sessionManager;
     private readonly ILibraryManager _libraryManager;
@@ -195,6 +196,30 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         var sessionId = eventArgs.Session!.Id;
+
+        // Some clients can report the same LiveTvChannel start more than once while the
+        // initial VOD handoff is still settling. Treat those duplicate channel-start events
+        // as idempotent instead of tearing down the context and sending another PlayNow.
+        if (_sessions.TryGetValue(sessionId, out var existingContext)
+            && string.Equals(existingContext.ChannelId, configurationChannelId, StringComparison.OrdinalIgnoreCase))
+        {
+            bool activeOrRecent;
+            lock (existingContext.Gate)
+            {
+                activeOrRecent = existingContext.PendingTargetItemId.HasValue
+                    || DateTime.UtcNow - existingContext.CreatedUtc <= PendingCommandWindow;
+            }
+
+            if (activeOrRecent)
+            {
+                _logger.LogDebug(
+                    "Virtual TV ignored duplicate channel-start event for session {SessionId}, channel {ChannelName}.",
+                    sessionId,
+                    channel.Name);
+                return;
+            }
+        }
+
         if (_sessions.TryRemove(sessionId, out _))
         {
             _stateProtection.CancelProtection(sessionId, restore: true);
@@ -392,8 +417,15 @@ public sealed class LiveTvPlaybackCoordinator
         {
             var expectedTicks = CalculateConcreteTargetTicks(liveEntry, eventArgs.Item.RunTimeTicks, nowUtc);
             var actualTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
+            var liveOffset = nowUtc - liveEntry.GetStartUtc();
+            var naturalBoundaryStart = liveOffset >= TimeSpan.Zero
+                && liveOffset <= NaturalTransitionGrace;
 
-            if (Math.Abs(expectedTicks - actualTicks) > TransitionPositionTolerance.Ticks)
+            // A correct queue transition may report 00:00 a few seconds after the wall-clock
+            // boundary, especially on TV clients. Accept that natural start rather than issuing
+            // another PlayNow that can restart or destabilise the player.
+            if (!naturalBoundaryStart
+                && Math.Abs(expectedTicks - actualTicks) > TransitionPositionTolerance.Ticks)
             {
                 await PlayConcreteEntryAsync(
                     context,
@@ -555,10 +587,21 @@ public sealed class LiveTvPlaybackCoordinator
         var nextEntry = FindNextPlayableEntry(schedule, currentEntryId);
         var liveOffset = nowUtc - liveEntry.GetStartUtc();
 
+        bool clientAlreadyHasLiveEntry;
+        lock (context.Gate)
+        {
+            clientAlreadyHasLiveEntry = Guid.TryParse(liveEntry.SourceItemId, out var liveItemId)
+                && context.ManagedQueueSourceIds.Contains(liveItemId);
+        }
+
+        // If the next live item was already sent as the second item in the compact
+        // Current + Next queue, let the client perform its natural queue transition.
+        // If it was not queued, start it immediately instead of waiting for a watchdog.
         if (nextEntry is not null
             && string.Equals(nextEntry.Id, liveEntry.Id, StringComparison.Ordinal)
             && liveOffset >= TimeSpan.Zero
-            && liveOffset <= TransitionPositionTolerance)
+            && liveOffset <= NaturalTransitionGrace
+            && clientAlreadyHasLiveEntry)
         {
             ScheduleContinuationFallback(context.SessionId, continuationGeneration);
             return;
@@ -568,7 +611,9 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             liveEntry,
             nowUtc,
-            "completed away from live boundary; resynchronise to live").ConfigureAwait(false);
+            clientAlreadyHasLiveEntry
+                ? "completed away from live boundary; resynchronise to live"
+                : "managed queue exhausted; start current live programme").ConfigureAwait(false);
     }
 
     private async Task PlayTraditionalFallbackAsync(
@@ -1208,7 +1253,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         if (!context.TracksJellyfinState)
         {
-            _stateProtection.CancelProtection(sessionId, restore: true);
+            _stateProtection.CompleteProtection(sessionId);
         }
 
         _logger.LogInformation(
@@ -1241,6 +1286,8 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         public object Gate { get; } = new();
+
+        public DateTime CreatedUtc { get; } = DateTime.UtcNow;
 
         public string SessionId { get; }
 

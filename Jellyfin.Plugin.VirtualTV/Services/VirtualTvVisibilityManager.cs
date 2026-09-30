@@ -61,15 +61,37 @@ public sealed class VirtualTvVisibilityManager
                     VirtualTvLiveTvService.TryGetConfigurationChannelId(item.ExternalId, out var id);
                     return id;
                 },
-                item => item.Id,
+                item => item,
                 StringComparer.OrdinalIgnoreCase);
+
+        // ChannelInfo does not expose Overview. Synchronise the plugin-owned description
+        // onto Jellyfin's internal LiveTvChannel after each Guide refresh so stock clients
+        // can render it on the normal channel details page.
+        foreach (var channel in plugin.Configuration.Channels)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!map.TryGetValue(channel.Id, out var internalChannel))
+            {
+                continue;
+            }
+
+            var desiredOverview = channel.Description?.Trim() ?? string.Empty;
+            if (!string.Equals(internalChannel.Overview ?? string.Empty, desiredOverview, StringComparison.Ordinal))
+            {
+                internalChannel.Overview = desiredOverview;
+                await internalChannel.UpdateToRepositoryAsync(
+                    ItemUpdateType.MetadataEdit,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         plugin.Configuration.KnownInternalChannelIds ??= [];
         var previousManagedIds = plugin.Configuration.KnownInternalChannelIds
             .Select(raw => Guid.TryParse(raw, out var id) ? id : Guid.Empty)
             .Where(id => id != Guid.Empty)
             .ToHashSet();
-        var currentManagedIds = map.Values.ToHashSet();
+        var currentManagedIds = map.Values.Select(item => item.Id).ToHashSet();
         var staleManagedIds = previousManagedIds
             .Where(id => !currentManagedIds.Contains(id))
             .ToArray();
@@ -90,11 +112,12 @@ public sealed class VirtualTvVisibilityManager
 
             foreach (var channel in plugin.Configuration.Channels)
             {
-                if (!map.TryGetValue(channel.Id, out var internalId))
+                if (!map.TryGetValue(channel.Id, out var internalChannel))
                 {
                     continue;
                 }
 
+                var internalId = internalChannel.Id;
                 var shouldSee = IsVisibleToUser(channel, user.Id);
                 if (shouldSee)
                 {

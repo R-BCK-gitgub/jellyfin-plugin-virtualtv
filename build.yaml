@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.0.0"
+version: "1.10.1.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Pre-release feature-complete milestone built on the stable 1.9.1 playback baseline. Adds season/Specials eligibility, per-user traditional channel visibility, personal watched-dependent ownership, Movie Random Unwatched, persistent shuffle-cycle scheduling, Manual Order, expanded Smart Schedule lifecycle, Generate New Schedule preservation rules, weekly Extend, daily Reconcile, startup recovery, seven-day history, explicit Off Air/content/schedule states, and supporting quality gates.
+  Quality and stability release for the 1.10 feature set. Hardens traditional watched/resume isolation, suppresses duplicate channel-start handoffs, simplifies concrete playback to a current-plus-next queue with safer transition timing, adds editable channel descriptions and channel-detail presentation formatting, fixes Settings editor Back/Cancel navigation, and simplifies EPG episode labels to series plus episode title.

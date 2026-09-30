@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -18,6 +19,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 public sealed class PlaybackStateProtectionManager
 {
     private static readonly TimeSpan MaximumProtectionAge = TimeSpan.FromHours(4);
+    private static readonly TimeSpan FinalRestoreGrace = TimeSpan.FromSeconds(5);
 
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
@@ -51,7 +53,9 @@ public sealed class PlaybackStateProtectionManager
         }
 
         if (_active.TryGetValue(sessionId, out var existing)
-            && (existing.UserId != userId || DateTime.UtcNow - existing.CreatedUtc > MaximumProtectionAge))
+            && (existing.UserId != userId
+                || existing.IsClosing
+                || DateTime.UtcNow - existing.CreatedUtc > MaximumProtectionAge))
         {
             CancelProtection(sessionId, restore: true);
         }
@@ -93,7 +97,9 @@ public sealed class PlaybackStateProtectionManager
                         data.PlaybackPositionTicks,
                         data.Played,
                         data.PlayCount,
-                        data.LastPlayedDate));
+                        data.LastPlayedDate,
+                        data.AudioStreamIndex,
+                        data.SubtitleStreamIndex));
                 }
 
                 if (states.Count > 0)
@@ -131,6 +137,16 @@ public sealed class PlaybackStateProtectionManager
 
         lock (snapshot.Gate)
         {
+            if (!string.IsNullOrWhiteSpace(eventArgs.PlaySessionId))
+            {
+                if (snapshot.IsClosing && !snapshot.PlaySessionIds.Contains(eventArgs.PlaySessionId))
+                {
+                    return;
+                }
+
+                snapshot.PlaySessionIds.Add(eventArgs.PlaySessionId);
+            }
+
             var root = snapshot.Roots.FirstOrDefault(candidate =>
                 candidate.RootItemId == eventArgs.Item.Id
                 || candidate.States.Any(state => state.ItemId == eventArgs.Item.Id));
@@ -153,7 +169,7 @@ public sealed class PlaybackStateProtectionManager
     /// Re-applies every protected state without ending the protection session.
     /// Used after a stop event because Jellyfin updates watched state before plugins receive it.
     /// </summary>
-    public void RestoreAllIfProtected(string sessionId)
+    public void RestoreAllIfProtected(string sessionId, string? playSessionId)
     {
         if (!_active.TryGetValue(sessionId, out var snapshot))
         {
@@ -162,7 +178,60 @@ public sealed class PlaybackStateProtectionManager
 
         lock (snapshot.Gate)
         {
+            if (!string.IsNullOrWhiteSpace(playSessionId))
+            {
+                if (snapshot.IsClosing && !snapshot.PlaySessionIds.Contains(playSessionId))
+                {
+                    return;
+                }
+
+                snapshot.PlaySessionIds.Add(playSessionId);
+            }
+
             RestoreSnapshot(snapshot);
+        }
+    }
+
+    /// <summary>
+    /// Restores the original state immediately, then keeps the snapshot briefly so late
+    /// progress/stop reports from the same Jellyfin play session cannot leak into
+    /// Continue Watching after the Virtual TV session ends.
+    /// </summary>
+    public void CompleteProtection(string sessionId)
+    {
+        if (!_active.TryGetValue(sessionId, out var snapshot))
+        {
+            return;
+        }
+
+        lock (snapshot.Gate)
+        {
+            snapshot.IsClosing = true;
+            RestoreSnapshot(snapshot);
+        }
+
+        _ = FinalizeProtectionAsync(sessionId, snapshot);
+    }
+
+    private async Task FinalizeProtectionAsync(string sessionId, PlaybackStateSnapshot snapshot)
+    {
+        await Task.Delay(FinalRestoreGrace).ConfigureAwait(false);
+
+        if (!_active.TryGetValue(sessionId, out var current)
+            || !ReferenceEquals(current, snapshot))
+        {
+            return;
+        }
+
+        lock (snapshot.Gate)
+        {
+            RestoreSnapshot(snapshot);
+        }
+
+        if (_active.TryGetValue(sessionId, out current)
+            && ReferenceEquals(current, snapshot))
+        {
+            _active.TryRemove(sessionId, out _);
         }
     }
 
@@ -221,6 +290,8 @@ public sealed class PlaybackStateProtectionManager
             data.Played = state.Played;
             data.PlayCount = state.PlayCount;
             data.LastPlayedDate = state.LastPlayedDate;
+            data.AudioStreamIndex = state.AudioStreamIndex;
+            data.SubtitleStreamIndex = state.SubtitleStreamIndex;
 
             _userDataManager.SaveUserData(
                 user,
@@ -246,6 +317,10 @@ public sealed class PlaybackStateProtectionManager
 
         public List<RootItemSnapshot> Roots { get; }
 
+        public HashSet<string> PlaySessionIds { get; } = new(StringComparer.Ordinal);
+
+        public bool IsClosing { get; set; }
+
         public DateTime CreatedUtc { get; }
     }
 
@@ -258,5 +333,7 @@ public sealed class PlaybackStateProtectionManager
         long PlaybackPositionTicks,
         bool Played,
         int PlayCount,
-        DateTime? LastPlayedDate);
+        DateTime? LastPlayedDate,
+        int? AudioStreamIndex,
+        int? SubtitleStreamIndex);
 }
