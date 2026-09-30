@@ -317,12 +317,27 @@ public sealed class LiveTvPlaybackCoordinator
 
         if (isManagedQueueItem && correctSeriesBlock)
         {
+            var resumeTicks = _episodeResolver.GetResumePosition(context.UserId, startedItemId);
+            var actualTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
+
+            if (resumeTicks > TransitionPositionTolerance.Ticks
+                && Math.Abs(resumeTicks - actualTicks) > TransitionPositionTolerance.Ticks)
+            {
+                await PlayDynamicManagedItemAsync(
+                    context,
+                    liveEntry,
+                    startedItemId,
+                    resumeTicks,
+                    "queued partial episode requires Jellyfin resume position").ConfigureAwait(false);
+                return;
+            }
+
             AcceptSourceStart(
                 context,
                 liveEntry,
                 startedItemId,
                 eventArgs.PlaySessionId,
-                startedFromResume: false);
+                startedFromResume: resumeTicks > 0);
             return;
         }
 
@@ -565,6 +580,53 @@ public sealed class LiveTvPlaybackCoordinator
             resolution.ItemId,
             TimeSpan.FromTicks(resolution.StartPositionTicks).TotalSeconds,
             queueItemIds.Length);
+
+        await SendPlayCommandAsync(context, command).ConfigureAwait(false);
+    }
+
+    private async Task PlayDynamicManagedItemAsync(
+        SessionContext context,
+        VirtualTvScheduleEntry entry,
+        Guid itemId,
+        long startPositionTicks,
+        string reason)
+    {
+        Guid[] queueItemIds;
+        lock (context.Gate)
+        {
+            var index = Array.IndexOf(context.ManagedQueueOrder, itemId);
+            queueItemIds = index >= 0
+                ? context.ManagedQueueOrder.Skip(index).ToArray()
+                : [itemId];
+        }
+
+        if (queueItemIds.Length == 0)
+        {
+            queueItemIds = [itemId];
+        }
+
+        PreparePendingCommand(
+            context,
+            entry,
+            itemId,
+            queueItemIds,
+            entry.SourceSeriesId,
+            startPositionTicks);
+
+        var command = new PlayRequest
+        {
+            ItemIds = queueItemIds,
+            StartPositionTicks = startPositionTicks,
+            StartIndex = 0,
+            PlayCommand = PlayCommand.PlayNow
+        };
+
+        _logger.LogInformation(
+            "Virtual TV corrected queued partial episode {ItemId} to resume at {ResumeSeconds:F1}s for channel {ChannelName}: {Reason}.",
+            itemId,
+            TimeSpan.FromTicks(startPositionTicks).TotalSeconds,
+            context.ChannelName,
+            reason);
 
         await SendPlayCommandAsync(context, command).ConfigureAwait(false);
     }
