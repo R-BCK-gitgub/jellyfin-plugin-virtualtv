@@ -69,8 +69,13 @@ public sealed class VirtualTvScheduleGenerator
 
         if (preserveBeforeStart)
         {
+            // Keep enough history for Guide continuity without allowing a Smart Schedule file
+            // to grow forever across repeated month-based rotations.
+            var keepHistoryFromUtc = nowUtc.AddDays(-1);
             var prefix = _store.Load(channel.Id)
-                .Where(entry => entry.GetStartUtc() < startUtc)
+                .Where(entry =>
+                    entry.GetEndUtc() > keepHistoryFromUtc
+                    && entry.GetStartUtc() < startUtc)
                 .ToList();
 
             // If an older entry crosses the regeneration boundary, clip it so the new template
@@ -572,7 +577,7 @@ public sealed class VirtualTvScheduleGenerator
             _channel = channel;
             _manualOrder = series.ToList();
             _alphabeticalOrder = series.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
-            _smartSequence = BuildStaticSmartSequence(series, channel.EpisodesPerTurn);
+            _smartSequence = BuildStaticSmartSequence(series);
         }
 
         public SeriesPool Next()
@@ -614,8 +619,7 @@ public sealed class VirtualTvScheduleGenerator
         }
 
         private static List<SeriesPool> BuildStaticSmartSequence(
-            IReadOnlyList<SeriesPool> source,
-            int episodesPerTurn)
+            IReadOnlyList<SeriesPool> source)
         {
             var result = new List<SeriesPool>();
             for (var day = 0; day < 7; day++)
