@@ -64,11 +64,6 @@ public sealed class VirtualTvVisibilityManager
                 item => item.Id,
                 StringComparer.OrdinalIgnoreCase);
 
-        if (map.Count == 0)
-        {
-            return;
-        }
-
         plugin.Configuration.KnownInternalChannelIds ??= [];
         var previousManagedIds = plugin.Configuration.KnownInternalChannelIds
             .Select(raw => Guid.TryParse(raw, out var id) ? id : Guid.Empty)
