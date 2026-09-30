@@ -1137,11 +1137,6 @@
       Dashboard.alert('Select at least one compatible Jellyfin library.');
       return false;
     }
-    if(!state.selectedItemIds.length){
-      Dashboard.alert('Select at least one title for the channel.');
-      return false;
-    }
-
     var existing=state.editingId?state.config.Channels.find(function(c){return c.Id===state.editingId;}):null;
     var type=existing?existing.ChannelType:page.querySelector('#channelType').value;
 
@@ -1245,11 +1240,6 @@
       Dashboard.alert('Edit the channel and select one or more source libraries first.');
       return;
     }
-    if(!channel.SelectedItemIds||!channel.SelectedItemIds.length){
-      Dashboard.alert('Edit the channel and select at least one title first.');
-      return;
-    }
-
     Dashboard.showLoadingMsg();
     var generationResult={};
 
