@@ -54,7 +54,8 @@ public sealed class VirtualTvMovieResolver
                 Math.Max(0, data?.PlaybackPositionTicks ?? 0));
         }).ToList();
 
-        if (scheduledItemId.HasValue)
+        if (scheduledItemId.HasValue
+            && (!lastItemId.HasValue || scheduledItemId.Value != lastItemId.Value))
         {
             var scheduled = candidates.FirstOrDefault(item => item.Item.Id == scheduledItemId.Value);
             if (scheduled is not null && !scheduled.Played)
