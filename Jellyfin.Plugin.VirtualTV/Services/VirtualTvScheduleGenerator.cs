@@ -1094,6 +1094,7 @@ public sealed class VirtualTvScheduleGenerator
         private readonly ShuffleBag<VirtualTvContentCatalog.SeriesContent>? _randomBag;
         private readonly List<VirtualTvContentCatalog.SeriesContent> _fixedOrder;
         private int _cursor;
+        private Guid? _smartLastId;
 
         public SeriesPicker(
             ChannelConfiguration channel,
