@@ -346,7 +346,7 @@ public sealed class VirtualTvScheduleGenerator
             var movies = _catalog.GetMovies(channel);
             if (movies.Count == 0)
             {
-                return [CreateUnavailableEntry(startUtc, endUtc)];
+                return BuildUnavailableSchedule(channel, startUtc, endUtc);
             }
 
             return string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase)
@@ -357,7 +357,7 @@ public sealed class VirtualTvScheduleGenerator
         var series = _catalog.GetSeries(channel);
         if (series.Count == 0)
         {
-            return [CreateUnavailableEntry(startUtc, endUtc)];
+            return BuildUnavailableSchedule(channel, startUtc, endUtc);
         }
 
         EnsureRepeatingOrder(channel, series.Select(item => item.Id).ToArray());
@@ -760,6 +760,37 @@ public sealed class VirtualTvScheduleGenerator
             StartUtc = startUtc.ToString("O", CultureInfo.InvariantCulture),
             EndUtc = endUtc.ToString("O", CultureInfo.InvariantCulture)
         };
+    }
+
+    private static IReadOnlyList<VirtualTvScheduleEntry> BuildUnavailableSchedule(
+        ChannelConfiguration channel,
+        DateTime startUtc,
+        DateTime endUtc)
+    {
+        var entries = new List<VirtualTvScheduleEntry>();
+        var cursor = startUtc;
+
+        while (cursor < endUtc)
+        {
+            if (TryAppendOffAir(channel, entries, ref cursor, endUtc))
+            {
+                continue;
+            }
+
+            var unavailableEnd = endUtc;
+            var offAirBoundary = GetNextOffAirBoundaryUtc(channel, cursor);
+            if (offAirBoundary.HasValue
+                && offAirBoundary.Value > cursor
+                && offAirBoundary.Value < unavailableEnd)
+            {
+                unavailableEnd = offAirBoundary.Value;
+            }
+
+            entries.Add(CreateUnavailableEntry(cursor, unavailableEnd));
+            cursor = unavailableEnd;
+        }
+
+        return entries;
     }
 
     private static VirtualTvScheduleEntry CreateUnavailableEntry(DateTime startUtc, DateTime endUtc)
