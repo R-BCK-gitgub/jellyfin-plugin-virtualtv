@@ -50,19 +50,18 @@ public sealed class PlaybackStateProtectionManager
             return false;
         }
 
+        if (_active.TryGetValue(sessionId, out var existing)
+            && (existing.UserId != userId || DateTime.UtcNow - existing.CreatedUtc > MaximumProtectionAge))
+        {
+            CancelProtection(sessionId, restore: true);
+        }
+
         var snapshot = _active.GetOrAdd(
             sessionId,
             _ => new PlaybackStateSnapshot(userId, new List<RootItemSnapshot>(), DateTime.UtcNow));
 
         lock (snapshot.Gate)
         {
-            if (snapshot.UserId != userId || DateTime.UtcNow - snapshot.CreatedUtc > MaximumProtectionAge)
-            {
-                RestoreSnapshot(snapshot);
-                snapshot = new PlaybackStateSnapshot(userId, new List<RootItemSnapshot>(), DateTime.UtcNow);
-                _active[sessionId] = snapshot;
-            }
-
             foreach (var rootItemId in rootItemIds.Distinct())
             {
                 if (snapshot.Roots.Any(root => root.RootItemId == rootItemId))
