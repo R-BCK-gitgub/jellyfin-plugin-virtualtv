@@ -79,7 +79,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v1.10.1</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v1.10.2</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -103,11 +103,11 @@
         <label class="inputLabel inputLabelUnfocused" for="channelNumber">Channel number</label>
         <input id="channelNumber" type="number" is="emby-input" required min="1" step="1">
       </div>
-      <div class="inputContainer vtv-span-2">
-        <label class="inputLabel inputLabelUnfocused" for="channelDescription">Channel description</label>
-        <textarea id="channelDescription" class="emby-input" rows="3" maxlength="500" placeholder="Optional description shown on the Jellyfin channel details page"></textarea>
-        <div class="fieldDescription">Presentation text only. You can edit it later without regenerating the schedule.</div>
-      </div>
+      <!-- Stock Jellyfin renders Live TV Overview below the full Guide. Until Jellyfin exposes
+           a stable client-independent title-area extension point, v1.10.2 keeps any legacy
+           description value private in plugin configuration and does not offer a misleading
+           public-description editor. -->
+      <input id="channelDescription" type="hidden">
       <div class="selectContainer">
         <label class="selectLabel" for="channelType">Channel type</label>
         <select id="channelType" is="emby-select" class="emby-select-withcolor emby-select">
