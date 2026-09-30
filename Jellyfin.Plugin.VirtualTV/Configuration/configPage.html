@@ -6,7 +6,7 @@
 
 </head>
 <body>
-<div id="VirtualTVConfigPage" data-ui-version="1.10.0.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="VirtualTVConfigPage" data-ui-version="1.10.1.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
 <style>
 #VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
 #VirtualTVConfigPage .vtv-muted{opacity:.72}
@@ -79,7 +79,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v1.10.0</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v1.10.1</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -102,6 +102,11 @@
       <div class="inputContainer">
         <label class="inputLabel inputLabelUnfocused" for="channelNumber">Channel number</label>
         <input id="channelNumber" type="number" is="emby-input" required min="1" step="1">
+      </div>
+      <div class="inputContainer vtv-span-2">
+        <label class="inputLabel inputLabelUnfocused" for="channelDescription">Channel description</label>
+        <textarea id="channelDescription" class="emby-input" rows="3" maxlength="500" placeholder="Optional description shown on the Jellyfin channel details page"></textarea>
+        <div class="fieldDescription">Presentation text only. You can edit it later without regenerating the schedule.</div>
       </div>
       <div class="selectContainer">
         <label class="selectLabel" for="channelType">Channel type</label>
@@ -294,7 +299,8 @@
     selectedVisibleUserIds:[],
     seriesSelections:[],
     availableItems:[],
-    seasonCache:{}
+    seasonCache:{},
+    editorHistoryActive:false
   };
 
   function esc(v){
@@ -328,6 +334,7 @@
       c.OnAirStart=c.OnAirStart||'07:00';
       c.OffAirStart=c.OffAirStart||'02:00';
       c.OwnerUserId=c.OwnerUserId||'';
+      c.Description=c.Description||'';
       c.ContentMode=c.ChannelType==='Movies'
         ? (c.ContentMode==='RandomUnwatched'?'RandomUnwatched':'Random')
         : (['Sequential','NextUnwatched','RandomUnwatched','Random'].indexOf(c.ContentMode)!==-1?c.ContentMode:'Sequential');
@@ -945,6 +952,7 @@
     page.querySelector('#immutableNotice').style.display='none';
     page.querySelector('#channelName').value='';
     page.querySelector('#channelNumber').value=nextNumber();
+    page.querySelector('#channelDescription').value='';
     page.querySelector('#channelType').value='Series';
     page.querySelector('#channelType').disabled=false;
     page.querySelector('#contentFilter').value='';
@@ -991,6 +999,7 @@
       page.querySelector('#immutableNotice').style.display='';
       page.querySelector('#channelName').value=c.Name||'';
       page.querySelector('#channelNumber').value=c.Number||1;
+      page.querySelector('#channelDescription').value=c.Description||'';
       page.querySelector('#channelType').value=c.ChannelType||'Series';
       page.querySelector('#channelType').disabled=true;
       page.querySelector('#contentMode').value=c.ChannelType==='Series'?(c.ContentMode||'Sequential'):'Sequential';
@@ -1024,14 +1033,35 @@
     page.querySelector('#channelEditor').style.display='';
     page.querySelector('#channelListSection').style.display='none';
     page.querySelector('#btnCreateChannel').style.display='none';
+
+    if(!state.editorHistoryActive){
+      try{
+        window.history.pushState({virtualTvEditor:true},document.title,window.location.href);
+        state.editorHistoryActive=true;
+      }catch(e){
+        state.editorHistoryActive=false;
+      }
+    }
+
     page.querySelector('#channelName').focus();
   }
 
-  function closeEditor(){
+  function closeEditor(fromHistory){
     page.querySelector('#channelEditor').style.display='none';
     page.querySelector('#channelListSection').style.display='';
     page.querySelector('#btnCreateChannel').style.display='';
     state.editingId=null;
+
+    if(!fromHistory&&state.editorHistoryActive){
+      state.editorHistoryActive=false;
+      window.history.back();
+    }
+  }
+
+  function handleEditorBack(){
+    if(!state.editorHistoryActive)return;
+    state.editorHistoryActive=false;
+    closeEditor(true);
   }
 
   function updateHours(){
@@ -1124,6 +1154,7 @@
 
     var name=page.querySelector('#channelName').value.trim();
     var number=parseInt(page.querySelector('#channelNumber').value,10);
+    var description=page.querySelector('#channelDescription').value.trim();
 
     if(!name){
       Dashboard.alert('Please enter a channel name.');
@@ -1202,6 +1233,7 @@
 
     existing.Name=name;
     existing.Number=number;
+    existing.Description=description;
     existing.ChannelType=type;
     existing.ContentMode=contentMode;
     existing.SchedulingMethod=schedulingMethod;
@@ -1311,7 +1343,7 @@
       var users=parseApiResult(results[2]);
       state.users=Array.isArray(users)?users:[];
       renderChannels();
-      closeEditor();
+      closeEditor(true);
       Dashboard.hideLoadingMsg();
     }).catch(function(){
       Dashboard.hideLoadingMsg();
@@ -1320,7 +1352,8 @@
   }
 
   page.querySelector('#btnCreateChannel').addEventListener('click',function(){openEditor(null);});
-  page.querySelector('#btnCancelEdit').addEventListener('click',closeEditor);
+  page.querySelector('#btnCancelEdit').addEventListener('click',function(){closeEditor(false);});
+  window.addEventListener('popstate',handleEditorBack);
   page.querySelector('#channelForm').addEventListener('submit',saveChannel);
 
   page.querySelector('#channelType').addEventListener('change',function(){
