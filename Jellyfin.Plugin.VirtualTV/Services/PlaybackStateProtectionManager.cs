@@ -169,7 +169,7 @@ public sealed class PlaybackStateProtectionManager
     /// Re-applies every protected state without ending the protection session.
     /// Used after a stop event because Jellyfin updates watched state before plugins receive it.
     /// </summary>
-    public void RestoreAllIfProtected(string sessionId)
+    public void RestoreAllIfProtected(string sessionId, string? playSessionId)
     {
         if (!_active.TryGetValue(sessionId, out var snapshot))
         {
@@ -178,6 +178,16 @@ public sealed class PlaybackStateProtectionManager
 
         lock (snapshot.Gate)
         {
+            if (!string.IsNullOrWhiteSpace(playSessionId))
+            {
+                if (snapshot.IsClosing && !snapshot.PlaySessionIds.Contains(playSessionId))
+                {
+                    return;
+                }
+
+                snapshot.PlaySessionIds.Add(playSessionId);
+            }
+
             RestoreSnapshot(snapshot);
         }
     }
