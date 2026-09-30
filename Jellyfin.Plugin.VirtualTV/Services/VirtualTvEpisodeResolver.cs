@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 
@@ -14,24 +14,24 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class VirtualTvEpisodeResolver
 {
-    private readonly ILibraryManager _libraryManager;
+    private readonly VirtualTvContentCatalog _catalog;
     private readonly IUserManager _userManager;
     private readonly IUserDataManager _userDataManager;
 
     public VirtualTvEpisodeResolver(
-        ILibraryManager libraryManager,
+        VirtualTvContentCatalog catalog,
         IUserManager userManager,
         IUserDataManager userDataManager)
     {
-        _libraryManager = libraryManager;
+        _catalog = catalog;
         _userManager = userManager;
         _userDataManager = userDataManager;
     }
 
     public EpisodeResolution ResolveEpisode(
         Guid userId,
+        ChannelConfiguration channel,
         Guid seriesId,
-        string contentMode,
         Guid? lastItemId)
     {
         if (userId == Guid.Empty)
@@ -44,13 +44,12 @@ public sealed class VirtualTvEpisodeResolver
             ?? throw new InvalidOperationException(
                 "Virtual TV could not resolve the active Jellyfin user for watched-dependent playback.");
 
-        var episodes = GetEpisodes(seriesId);
-        if (episodes.Count == 0)
-        {
-            throw new InvalidOperationException("The scheduled series has no playable episodes.");
-        }
+        var series = _catalog.GetSeries(channel)
+            .FirstOrDefault(item => item.Id == seriesId)
+            ?? throw new InvalidOperationException(
+                "The scheduled series has no eligible playable episodes.");
 
-        var candidates = episodes
+        var candidates = series.Episodes
             .Select(item =>
             {
                 var data = _userDataManager.GetUserData(user, item);
@@ -64,7 +63,7 @@ public sealed class VirtualTvEpisodeResolver
         Candidate selected;
         string selectionReason;
 
-        if (string.Equals(contentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase))
         {
             var unwatched = candidates
                 .Where(candidate => !candidate.Played)
@@ -83,16 +82,9 @@ public sealed class VirtualTvEpisodeResolver
         }
         else
         {
-            // Next Unwatched is coverage-first chronological. A later partially watched
-            // episode never jumps ahead of an earlier never-started episode. Played=false
-            // already includes both never-started and partially watched episodes.
-            var next = candidates
-                .Where(candidate => !candidate.Played)
-                .OrderBy(candidate => candidate.Item.ParentIndexNumber ?? int.MaxValue)
-                .ThenBy(candidate => candidate.Item.IndexNumber ?? int.MaxValue)
-                .ThenBy(candidate => candidate.Item.PremiereDate ?? DateTime.MaxValue)
-                .ThenBy(candidate => candidate.Item.Name, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault();
+            // Coverage-first chronological. The catalogue already applied season/Specials
+            // eligibility and chronological ordering.
+            var next = candidates.FirstOrDefault(candidate => !candidate.Played);
 
             if (next is not null)
             {
@@ -106,27 +98,13 @@ public sealed class VirtualTvEpisodeResolver
             }
         }
 
+        // 1.9.1 was explicitly approved with watched-dependent series opening at 00:00.
+        // PreviousPlaybackPositionTicks is retained for logging/diagnostics only.
         return new EpisodeResolution(
             selected.Item.Id,
             selected.PlaybackPositionTicks,
             selectionReason);
     }
-
-    private List<BaseItem> GetEpisodes(Guid seriesId)
-        => _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            IncludeItemTypes = [BaseItemKind.Episode],
-            AncestorIds = [seriesId],
-            IsVirtualItem = false
-        })
-        // Season 0 / Specials stay excluded until the dedicated season/specials feature is
-        // implemented. Normal episodes remain deterministically ordered by season/episode.
-        .Where(item => item.ParentIndexNumber.GetValueOrDefault() != 0)
-        .OrderBy(item => item.ParentIndexNumber ?? int.MaxValue)
-        .ThenBy(item => item.IndexNumber ?? int.MaxValue)
-        .ThenBy(item => item.PremiereDate ?? DateTime.MaxValue)
-        .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-        .ToList();
 
     private static Candidate PickRandom(
         IReadOnlyList<Candidate> candidates,
