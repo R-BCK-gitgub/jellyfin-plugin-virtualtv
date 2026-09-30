@@ -105,7 +105,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         lock (context.Gate)
         {
-            context.LastActivityUtc = DateTime.UtcNow;
             isCurrent = context.CurrentSourceItemId == itemId;
             isReplacementStop = !string.IsNullOrWhiteSpace(context.ReplacingPlaySessionId)
                 && string.Equals(context.ReplacingPlaySessionId, eventArgs.PlaySessionId, StringComparison.Ordinal);
@@ -213,6 +212,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         var sessionId = eventArgs.Session!.Id;
         var context = new SessionContext(
+            sessionId,
             configurationChannelId,
             eventArgs.Session.UserId,
             channel.Name);
@@ -228,8 +228,7 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             activeEntry,
             nowUtc,
-            "initial channel tune",
-            sessionId).ConfigureAwait(false);
+            "initial channel tune").ConfigureAwait(false);
     }
 
     private async Task HandleSourcePlaybackStartAsync(PlaybackStartEventArgs eventArgs)
@@ -258,7 +257,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         lock (context.Gate)
         {
-            context.LastActivityUtc = nowUtc;
 
             isCurrent = context.CurrentSourceItemId == startedItemId;
             isPendingTarget = context.PendingTargetItemId == startedItemId
@@ -341,12 +339,10 @@ public sealed class LiveTvPlaybackCoordinator
             context.CurrentSourceItemId = sourceItemId;
             context.CurrentPlaySessionId = playSessionId ?? string.Empty;
             context.PendingTargetItemId = null;
-            context.PendingTargetEntryId = string.Empty;
             context.PendingCommandUtc = DateTime.MinValue;
             context.ReplacingPlaySessionId = string.Empty;
             context.AwaitingContinuation = false;
             context.ContinuationGeneration++;
-            context.LastActivityUtc = DateTime.UtcNow;
         }
 
         _logger.LogDebug(
@@ -360,14 +356,9 @@ public sealed class LiveTvPlaybackCoordinator
         SessionContext context,
         VirtualTvScheduleEntry entry,
         DateTime nowUtc,
-        string reason,
-        string? explicitSessionId = null)
+        string reason)
     {
-        var sessionId = explicitSessionId ?? FindSessionId(context);
-        if (string.IsNullOrWhiteSpace(sessionId))
-        {
-            return;
-        }
+        var sessionId = context.SessionId;
 
         if (!Guid.TryParse(entry.SourceItemId, out var sourceItemId))
         {
@@ -413,12 +404,10 @@ public sealed class LiveTvPlaybackCoordinator
         {
             context.ReplacingPlaySessionId = context.CurrentPlaySessionId;
             context.PendingTargetItemId = sourceItemId;
-            context.PendingTargetEntryId = entry.Id;
             context.PendingCommandUtc = nowUtc;
             context.ManagedQueueSourceIds = queueItemIds.ToHashSet();
             context.AwaitingContinuation = false;
             context.ContinuationGeneration++;
-            context.LastActivityUtc = nowUtc;
         }
 
         var command = new PlayRequest
@@ -611,9 +600,6 @@ public sealed class LiveTvPlaybackCoordinator
         return Math.Min(rawTicks, latestSafeTick);
     }
 
-    private string? FindSessionId(SessionContext context)
-        => _sessions.FirstOrDefault(pair => ReferenceEquals(pair.Value, context)).Key;
-
     private void EndSession(string sessionId, string reason)
     {
         if (!_sessions.TryRemove(sessionId, out var context))
@@ -632,15 +618,17 @@ public sealed class LiveTvPlaybackCoordinator
 
     private sealed class SessionContext
     {
-        public SessionContext(string channelId, Guid userId, string channelName)
+        public SessionContext(string sessionId, string channelId, Guid userId, string channelName)
         {
+            SessionId = sessionId;
             ChannelId = channelId;
             UserId = userId;
             ChannelName = channelName;
-            LastActivityUtc = DateTime.UtcNow;
         }
 
         public object Gate { get; } = new();
+
+        public string SessionId { get; }
 
         public string ChannelId { get; }
 
@@ -656,8 +644,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         public Guid? PendingTargetItemId { get; set; }
 
-        public string PendingTargetEntryId { get; set; } = string.Empty;
-
         public DateTime PendingCommandUtc { get; set; }
 
         public HashSet<Guid> ManagedQueueSourceIds { get; set; } = [];
@@ -668,7 +654,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         public long ContinuationGeneration { get; set; }
 
-        public DateTime LastActivityUtc { get; set; }
     }
 
     private sealed record QueueEntry(VirtualTvScheduleEntry Entry, Guid SourceItemId);
