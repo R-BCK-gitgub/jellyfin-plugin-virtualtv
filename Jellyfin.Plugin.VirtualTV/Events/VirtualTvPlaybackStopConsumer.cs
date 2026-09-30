@@ -26,7 +26,7 @@ public sealed class VirtualTvPlaybackStopConsumer : IEventConsumer<PlaybackStopE
     {
         if (eventArgs.Session is not null)
         {
-            _stateProtection.RestoreAllIfProtected(eventArgs.Session.Id);
+            _stateProtection.RestoreAllIfProtected(eventArgs.Session.Id, eventArgs.PlaySessionId);
         }
 
         await _coordinator.HandlePlaybackStopAsync(eventArgs).ConfigureAwait(false);
