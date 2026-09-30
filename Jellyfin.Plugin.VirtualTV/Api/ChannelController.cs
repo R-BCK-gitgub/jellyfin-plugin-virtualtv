@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.VirtualTV.Services;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Dto;
@@ -28,6 +30,9 @@ public sealed class ChannelController : ControllerBase
     private readonly IGuideManager _guideManager;
     private readonly ILiveTvManager _liveTvManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly IUserManager _userManager;
+    private readonly VirtualTvContentCatalog _catalog;
+    private readonly VirtualTvVisibilityManager _visibility;
     private readonly ILogger<ChannelController> _logger;
 
     public ChannelController(
@@ -36,6 +41,9 @@ public sealed class ChannelController : ControllerBase
         IGuideManager guideManager,
         ILiveTvManager liveTvManager,
         ILibraryManager libraryManager,
+        IUserManager userManager,
+        VirtualTvContentCatalog catalog,
+        VirtualTvVisibilityManager visibility,
         ILogger<ChannelController> logger)
     {
         _generator = generator;
@@ -43,6 +51,9 @@ public sealed class ChannelController : ControllerBase
         _guideManager = guideManager;
         _liveTvManager = liveTvManager;
         _libraryManager = libraryManager;
+        _userManager = userManager;
+        _catalog = catalog;
+        _visibility = visibility;
         _logger = logger;
     }
 
@@ -105,6 +116,7 @@ public sealed class ChannelController : ControllerBase
         try
         {
             await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            await _visibility.ApplyAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -123,17 +135,45 @@ public sealed class ChannelController : ControllerBase
         });
     }
 
+    [HttpGet("Users")]
+    public IActionResult GetUsers()
+    {
+        var users = _userManager.GetUsers()
+            .OrderBy(user => user.Username, StringComparer.OrdinalIgnoreCase)
+            .Select(user => new
+            {
+                Id = user.Id.ToString("N"),
+                Name = user.Username,
+                IsAdministrator = user.HasPermission(PermissionKind.IsAdministrator)
+            })
+            .ToArray();
+
+        return Ok(users);
+    }
+
+    [HttpGet("Series/{seriesId}/Seasons")]
+    public IActionResult GetSeriesSeasons(string seriesId)
+    {
+        if (!Guid.TryParse(seriesId, out var id))
+        {
+            return BadRequest(new { Message = "Invalid series id." });
+        }
+
+        return Ok(_catalog.GetAvailableSeasonNumbers(id));
+    }
+
     [HttpPost("RefreshGuide")]
     public async Task<IActionResult> RefreshGuide(CancellationToken cancellationToken)
     {
         try
         {
             await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            await _visibility.ApplyAsync(cancellationToken).ConfigureAwait(false);
             return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Virtual TV requested a Guide refresh, but Jellyfin could not complete it.");
+            _logger.LogWarning(ex, "Virtual TV requested a Guide/visibility refresh, but Jellyfin could not complete it.");
             return StatusCode(StatusCodes.Status500InternalServerError, new
             {
                 Stage = "guide",
@@ -202,12 +242,13 @@ public sealed class ChannelController : ControllerBase
         try
         {
             await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            await _visibility.ApplyAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // The schedule reset itself succeeded. Do not report the configuration save as failed
-            // merely because Jellyfin could not refresh the Guide at that exact moment.
-            _logger.LogWarning(ex, "Virtual TV schedule was reset for channel {ChannelId}, but Guide refresh failed.", channelId);
+            // merely because Jellyfin could not refresh the Guide/visibility at that exact moment.
+            _logger.LogWarning(ex, "Virtual TV schedule was reset for channel {ChannelId}, but Guide/visibility refresh failed.", channelId);
         }
 
         return NoContent();

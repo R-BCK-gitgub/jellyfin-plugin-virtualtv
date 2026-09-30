@@ -41,6 +41,30 @@ public sealed class ChannelConfiguration
     /// </summary>
     public int SmartRotationMonths { get; set; } = 2;
 
+    /// <summary>
+    /// User that created/owns the channel. Watched-dependent channels are personal to this
+    /// administrator in the 1.10 pre-release.
+    /// </summary>
+    public string OwnerUserId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Stable shuffled series order used by Repeating Order. The list is regenerated only when
+    /// explicitly required by Generate New Schedule or when Reconcile detects a changed set.
+    /// </summary>
+    public List<string> RepeatingSeriesOrder { get; set; } = new();
+
+    /// <summary>
+    /// Stable seed and creation anchor for the current Smart weekly template.
+    /// </summary>
+    public int SmartTemplateSeed { get; set; }
+    public string SmartTemplateCreatedUtc { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Per-series season and Specials eligibility. Missing entries use backward-compatible
+    /// defaults: All Seasons and Specials excluded.
+    /// </summary>
+    public List<SeriesSelectionConfiguration> SeriesSelections { get; set; } = new();
+
     public bool VisibleToAllUsers { get; set; } = true;
     public List<string> VisibleUserIds { get; set; } = new();
 
@@ -63,4 +87,11 @@ public sealed class ChannelConfiguration
     public bool NeedsReconcile { get; set; } = true;
     public string ScheduleGeneratedUtc { get; set; } = string.Empty;
     public string ScheduleEndUtc { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Hash of currently eligible library content (and, for Movie Random Unwatched, watched
+    /// state) used by the daily Reconcile task to detect changes without reshuffling stable
+    /// schedules unnecessarily.
+    /// </summary>
+    public string ContentFingerprint { get; set; } = string.Empty;
 }

@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Watched-dependent playback correction: Next Unwatched now selects the earliest chronologically unwatched episode for the active Jellyfin user; Random Unwatched selects only from that user's unwatched pool. Both modes hand off exactly one resolved Episode to normal Jellyfin VOD playback at 00:00, so episode title, elapsed/remaining duration, seek and subtitle behavior match the proven Sequential player. Episode completion always re-queries the active schedule block before resolving the next episode. Sequential playback is unchanged.",
+  "changelog": "Pre-release feature-complete milestone built on the stable 1.9.1 playback baseline. Adds season/Specials eligibility, per-user traditional channel visibility, personal watched-dependent ownership, Movie Random Unwatched, persistent shuffle-cycle scheduling, Manual Order, expanded Smart Schedule lifecycle, Generate New Schedule preservation rules, weekly Extend, daily Reconcile, startup recovery, seven-day history, explicit Off Air/content/schedule states, and supporting quality gates.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.9.1.0",
+  "version": "1.10.0.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

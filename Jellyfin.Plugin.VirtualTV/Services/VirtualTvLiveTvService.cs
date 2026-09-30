@@ -21,17 +21,23 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly VirtualTvScheduleStore _scheduleStore;
+    private readonly VirtualTvContentCatalog _catalog;
+    private readonly VirtualTvRuntimeFallbackResolver _runtimeFallback;
     private readonly ILogger<VirtualTvLiveTvService> _logger;
 
     public VirtualTvLiveTvService(
         ILibraryManager libraryManager,
         IMediaSourceManager mediaSourceManager,
         VirtualTvScheduleStore scheduleStore,
+        VirtualTvContentCatalog catalog,
+        VirtualTvRuntimeFallbackResolver runtimeFallback,
         ILogger<VirtualTvLiveTvService> logger)
     {
         _libraryManager = libraryManager;
         _mediaSourceManager = mediaSourceManager;
         _scheduleStore = scheduleStore;
+        _catalog = catalog;
+        _runtimeFallback = runtimeFallback;
         _logger = logger;
     }
 
@@ -71,10 +77,32 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         if (channel is null)
             return Task.FromResult<IEnumerable<ProgramInfo>>(Array.Empty<ProgramInfo>());
 
-        var programs = _scheduleStore.Load(channel.Id)
+        var schedule = _scheduleStore.Load(channel.Id);
+        var programs = schedule
             .Where(entry => entry.GetEndUtc() > startDateUtc && entry.GetStartUtc() < endDateUtc)
             .Select(entry => ToProgram(channelId, entry))
             .ToArray();
+
+        if (programs.Length == 0 && schedule.Count == 0)
+        {
+            var hasContent = string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
+                ? _catalog.GetMovies(channel).Count > 0
+                : _catalog.GetSeries(channel).Count > 0;
+
+            var status = new VirtualTvScheduleEntry
+            {
+                Name = hasContent ? "Schedule Not Available" : "Content Not Available",
+                Overview = hasContent
+                    ? "Schedule needs to be generated."
+                    : "This Virtual TV channel currently has no eligible content.",
+                IsScheduleUnavailable = hasContent,
+                IsContentUnavailable = !hasContent,
+                StartUtc = startDateUtc.ToString("O", CultureInfo.InvariantCulture),
+                EndUtc = endDateUtc.ToString("O", CultureInfo.InvariantCulture)
+            };
+
+            programs = [ToProgram(channelId, status)];
+        }
 
         return Task.FromResult<IEnumerable<ProgramInfo>>(programs);
     }
@@ -123,19 +151,65 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
 
         var now = DateTime.UtcNow;
-        var entry = _scheduleStore.Load(channel.Id)
-            .FirstOrDefault(item => !item.IsOffAir && item.GetStartUtc() <= now && item.GetEndUtc() > now)
-            ?? throw new InvalidOperationException("No playable Virtual TV programme is scheduled for the current time.");
+        var schedule = _scheduleStore.Load(channel.Id);
+        var entry = schedule
+            .FirstOrDefault(item => item.GetStartUtc() <= now && item.GetEndUtc() > now);
 
-        if (!Guid.TryParse(entry.SourceItemId, out var itemId))
-            throw new InvalidOperationException("The scheduled source item id is invalid.");
+        if (entry is null)
+        {
+            var hasContent = string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
+                ? _catalog.GetMovies(channel).Count > 0
+                : _catalog.GetSeries(channel).Count > 0;
 
-        var item = _libraryManager.GetItemById(itemId)
-            ?? throw new InvalidOperationException("The scheduled Jellyfin item is no longer available.");
+            throw new InvalidOperationException(hasContent
+                ? "Schedule needs to be generated."
+                : "Content Not Available.");
+        }
 
-        var sources = _mediaSourceManager.GetStaticMediaSources(item, false);
-        if (sources.Count == 0)
-            throw new InvalidOperationException("The scheduled Jellyfin item has no playable media source.");
+        if (entry.IsOffAir)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(entry.Overview)
+                ? "This Virtual TV channel is Off Air."
+                : entry.Overview);
+
+        if (entry.IsContentUnavailable)
+            throw new InvalidOperationException("Content Not Available.");
+
+        if (entry.IsScheduleUnavailable)
+            throw new InvalidOperationException("Schedule needs to be generated.");
+
+        Guid? scheduledItemId = Guid.TryParse(entry.SourceItemId, out var parsedItemId)
+            ? parsedItemId
+            : null;
+
+        var item = scheduledItemId.HasValue
+            ? _libraryManager.GetItemById(scheduledItemId.Value)
+            : null;
+
+        var sources = item is null
+            ? new List<MediaSourceInfo>()
+            : _mediaSourceManager.GetStaticMediaSources(item, false);
+
+        if (item is null || sources.Count == 0)
+        {
+            var fallback = _runtimeFallback.ResolveBootstrapFallback(channel, entry, scheduledItemId);
+            if (fallback is null)
+            {
+                throw new InvalidOperationException("The scheduled content is not available and no runtime fallback is eligible.");
+            }
+
+            item = fallback;
+            sources = _mediaSourceManager.GetStaticMediaSources(item, false);
+            if (sources.Count == 0)
+            {
+                throw new InvalidOperationException("The fallback content has no playable media source.");
+            }
+
+            _logger.LogWarning(
+                "Virtual TV used local bootstrap fallback {FallbackItemId} for unavailable scheduled item {ScheduledItemId} on channel {ChannelName}; persisted Guide remains unchanged.",
+                item.Id,
+                scheduledItemId,
+                channel.Name);
+        }
 
         var source = !string.IsNullOrWhiteSpace(streamId)
             ? sources.FirstOrDefault(candidate => string.Equals(candidate.Id, streamId, StringComparison.OrdinalIgnoreCase))
@@ -165,14 +239,20 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         var start = entry.GetStartUtc();
         var end = entry.GetEndUtc();
 
-        if (entry.IsOffAir)
+        if (entry.IsOffAir || entry.IsContentUnavailable || entry.IsScheduleUnavailable)
         {
+            var name = entry.IsOffAir
+                ? "Off Air"
+                : entry.IsContentUnavailable
+                    ? "Content Not Available"
+                    : "Schedule Not Available";
+
             return new ProgramInfo
             {
-                Id = "virtualtv-offair-" + entry.Id,
+                Id = "virtualtv-status-" + entry.Id,
                 ChannelId = channelId,
-                Name = "Off Air",
-                Overview = "This Virtual TV channel is currently off air.",
+                Name = name,
+                Overview = string.IsNullOrWhiteSpace(entry.Overview) ? name : entry.Overview,
                 StartDate = start,
                 EndDate = end,
                 IsLive = false
