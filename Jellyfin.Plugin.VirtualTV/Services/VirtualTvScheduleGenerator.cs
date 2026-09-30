@@ -127,7 +127,7 @@ public sealed class VirtualTvScheduleGenerator
         }
 
         var targetUtc = GetTargetHorizonUtc(channel, nowUtc);
-        var generated = BuildRange(channel, startUtc, targetUtc, prefix);
+        var generated = BuildRange(channel, startUtc, targetUtc, prefix, resetRandomState: true);
         var combined = CombineAndTrim(prefix, generated, nowUtc);
         Save(channel, combined, nowUtc);
         return combined;
@@ -308,7 +308,8 @@ public sealed class VirtualTvScheduleGenerator
         ChannelConfiguration channel,
         DateTime startUtc,
         DateTime endUtc,
-        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+        IReadOnlyList<VirtualTvScheduleEntry> prefix,
+        bool resetRandomState = false)
     {
         if (endUtc <= startUtc)
         {
@@ -324,8 +325,8 @@ public sealed class VirtualTvScheduleGenerator
             }
 
             return string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase)
-                ? BuildDynamicMovieSchedule(channel, movies, startUtc, endUtc, prefix)
-                : BuildMovieShuffleSchedule(channel, movies, startUtc, endUtc, prefix);
+                ? BuildDynamicMovieSchedule(channel, movies, startUtc, endUtc, prefix, resetRandomState)
+                : BuildMovieShuffleSchedule(channel, movies, startUtc, endUtc, prefix, resetRandomState);
         }
 
         var series = _catalog.GetSeries(channel);
@@ -337,8 +338,8 @@ public sealed class VirtualTvScheduleGenerator
         EnsureRepeatingOrder(channel, series.Select(item => item.Id).ToArray());
 
         return VirtualTvModePolicy.IsDynamicUnwatched(channel.ContentMode)
-            ? BuildDynamicSeriesSchedule(channel, series, startUtc, endUtc, prefix)
-            : BuildConcreteSeriesSchedule(channel, series, startUtc, endUtc, prefix);
+            ? BuildDynamicSeriesSchedule(channel, series, startUtc, endUtc, prefix, resetRandomState)
+            : BuildConcreteSeriesSchedule(channel, series, startUtc, endUtc, prefix, resetRandomState);
     }
 
     private IReadOnlyList<VirtualTvScheduleEntry> BuildDynamicSeriesSchedule(
@@ -346,12 +347,13 @@ public sealed class VirtualTvScheduleGenerator
         IReadOnlyList<VirtualTvContentCatalog.SeriesContent> series,
         DateTime startUtc,
         DateTime endUtc,
-        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+        IReadOnlyList<VirtualTvScheduleEntry> prefix,
+        bool resetRandomState)
     {
         var entries = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
         var blockDuration = TimeSpan.FromMinutes(channel.BlockMinutes);
-        var picker = new SeriesPicker(channel, series, prefix, this);
+        var picker = new SeriesPicker(channel, series, resetRandomState ? [] : prefix, this);
         var currentSeries = default(VirtualTvContentCatalog.SeriesContent);
         var remainingTurns = 0;
 
@@ -409,15 +411,16 @@ public sealed class VirtualTvScheduleGenerator
         IReadOnlyList<VirtualTvContentCatalog.SeriesContent> series,
         DateTime startUtc,
         DateTime endUtc,
-        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+        IReadOnlyList<VirtualTvScheduleEntry> prefix,
+        bool resetRandomState)
     {
         var entries = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
-        var picker = new SeriesPicker(channel, series, prefix, this);
+        var picker = new SeriesPicker(channel, series, resetRandomState ? [] : prefix, this);
         var sequentialCursors = BuildSequentialCursors(series, prefix);
         var randomBags = series.ToDictionary(
             item => item.Id,
-            item => BuildEpisodeBag(item, prefix));
+            item => BuildEpisodeBag(item, resetRandomState ? [] : prefix));
 
         while (cursor < endUtc)
         {
@@ -470,11 +473,12 @@ public sealed class VirtualTvScheduleGenerator
         IReadOnlyList<BaseItem> movies,
         DateTime startUtc,
         DateTime endUtc,
-        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+        IReadOnlyList<VirtualTvScheduleEntry> prefix,
+        bool resetRandomState)
     {
         var entries = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
-        var bag = BuildMovieBag(movies, prefix);
+        var bag = BuildMovieBag(movies, resetRandomState ? [] : prefix);
 
         while (cursor < endUtc)
         {
@@ -505,7 +509,8 @@ public sealed class VirtualTvScheduleGenerator
         IReadOnlyList<BaseItem> movies,
         DateTime startUtc,
         DateTime endUtc,
-        IReadOnlyList<VirtualTvScheduleEntry> prefix)
+        IReadOnlyList<VirtualTvScheduleEntry> prefix,
+        bool resetRandomState)
     {
         var ownerId = _userContext.ResolveOwnerUserId(channel);
         var owner = ownerId == Guid.Empty ? null : _userManager.GetUserById(ownerId);
@@ -518,8 +523,8 @@ public sealed class VirtualTvScheduleGenerator
         var bag = new ShuffleBag<BaseItem>(
             pool,
             item => item.Id,
-            GetLastConcreteItemId(prefix),
-            GetRecentlyUsedIds(prefix, pool.Select(item => item.Id).ToHashSet()));
+            GetLastConcreteItemId(resetRandomState ? [] : prefix),
+            GetRecentlyUsedIds(resetRandomState ? [] : prefix, pool.Select(item => item.Id).ToHashSet()));
 
         var entries = new List<VirtualTvScheduleEntry>();
         var cursor = startUtc;
@@ -1175,7 +1180,16 @@ public sealed class VirtualTvScheduleGenerator
                 (order[index], order[swap]) = (order[swap], order[index]);
             }
 
-            return order[slotOrdinal % order.Count];
+            var selectedIndex = slotOrdinal % order.Count;
+            var selected = order[selectedIndex];
+
+            if (_smartLastId.HasValue && order.Count > 1 && selected.Id == _smartLastId.Value)
+            {
+                selected = order[(selectedIndex + 1) % order.Count];
+            }
+
+            _smartLastId = selected.Id;
+            return selected;
         }
     }
 
