@@ -25,6 +25,7 @@ public sealed class LiveTvPlaybackCoordinator
 {
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan TransitionPositionTolerance = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PendingCommandWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ContinuationFallbackDelay = TimeSpan.FromMilliseconds(1500);
     private const int ManagedQueueLength = 6;
@@ -124,9 +125,13 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
-            if (!eventArgs.PlayedToCompletion)
+            var reachedPhysicalEnd = IsAtPhysicalEnd(eventArgs);
+
+            if (!eventArgs.PlayedToCompletion || !reachedPhysicalEnd)
             {
-                // Back/Stop is a user decision. Do not "fight" the client by reopening the channel.
+                // Jellyfin's PlayedToCompletion can be true before EOF because of the user's
+                // completion threshold. Require the actual playback position to be at the end
+                // as well, otherwise Back/Stop during credits would incorrectly reopen the channel.
                 context.AwaitingContinuation = false;
                 continuationGeneration = ++context.ContinuationGeneration;
             }
@@ -137,7 +142,7 @@ public sealed class LiveTvPlaybackCoordinator
             }
         }
 
-        if (!eventArgs.PlayedToCompletion)
+        if (!eventArgs.PlayedToCompletion || !IsAtPhysicalEnd(eventArgs))
         {
             EndSession(sessionId, "manual stop");
             return;
@@ -577,6 +582,18 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         return null;
+    }
+
+    private static bool IsAtPhysicalEnd(PlaybackStopEventArgs eventArgs)
+    {
+        if (!eventArgs.Item.RunTimeTicks.HasValue || eventArgs.Item.RunTimeTicks.Value <= 0)
+        {
+            return eventArgs.PlayedToCompletion;
+        }
+
+        var positionTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
+        var remainingTicks = eventArgs.Item.RunTimeTicks.Value - positionTicks;
+        return remainingTicks <= PhysicalEndTolerance.Ticks;
     }
 
     private long CalculateTargetTicks(VirtualTvScheduleEntry entry, long? runTimeTicks, DateTime nowUtc)
