@@ -22,6 +22,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly VirtualTvScheduleStore _scheduleStore;
     private readonly VirtualTvContentCatalog _catalog;
+    private readonly VirtualTvRuntimeFallbackResolver _runtimeFallback;
     private readonly ILogger<VirtualTvLiveTvService> _logger;
 
     public VirtualTvLiveTvService(
@@ -29,12 +30,14 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         IMediaSourceManager mediaSourceManager,
         VirtualTvScheduleStore scheduleStore,
         VirtualTvContentCatalog catalog,
+        VirtualTvRuntimeFallbackResolver runtimeFallback,
         ILogger<VirtualTvLiveTvService> logger)
     {
         _libraryManager = libraryManager;
         _mediaSourceManager = mediaSourceManager;
         _scheduleStore = scheduleStore;
         _catalog = catalog;
+        _runtimeFallback = runtimeFallback;
         _logger = logger;
     }
 
@@ -174,15 +177,39 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         if (entry.IsScheduleUnavailable)
             throw new InvalidOperationException("Schedule needs to be generated.");
 
-        if (!Guid.TryParse(entry.SourceItemId, out var itemId))
-            throw new InvalidOperationException("The scheduled source item id is invalid.");
+        Guid? scheduledItemId = Guid.TryParse(entry.SourceItemId, out var parsedItemId)
+            ? parsedItemId
+            : null;
 
-        var item = _libraryManager.GetItemById(itemId)
-            ?? throw new InvalidOperationException("The scheduled Jellyfin item is no longer available.");
+        var item = scheduledItemId.HasValue
+            ? _libraryManager.GetItemById(scheduledItemId.Value)
+            : null;
 
-        var sources = _mediaSourceManager.GetStaticMediaSources(item, false);
-        if (sources.Count == 0)
-            throw new InvalidOperationException("The scheduled Jellyfin item has no playable media source.");
+        var sources = item is null
+            ? new List<MediaSourceInfo>()
+            : _mediaSourceManager.GetStaticMediaSources(item, false);
+
+        if (item is null || sources.Count == 0)
+        {
+            var fallback = _runtimeFallback.ResolveBootstrapFallback(channel, entry, scheduledItemId);
+            if (fallback is null)
+            {
+                throw new InvalidOperationException("The scheduled content is not available and no runtime fallback is eligible.");
+            }
+
+            item = fallback;
+            sources = _mediaSourceManager.GetStaticMediaSources(item, false);
+            if (sources.Count == 0)
+            {
+                throw new InvalidOperationException("The fallback content has no playable media source.");
+            }
+
+            _logger.LogWarning(
+                "Virtual TV used local bootstrap fallback {FallbackItemId} for unavailable scheduled item {ScheduledItemId} on channel {ChannelName}; persisted Guide remains unchanged.",
+                item.Id,
+                scheduledItemId,
+                channel.Name);
+        }
 
         var source = !string.IsNullOrWhiteSpace(streamId)
             ? sources.FirstOrDefault(candidate => string.Equals(candidate.Id, streamId, StringComparison.OrdinalIgnoreCase))
