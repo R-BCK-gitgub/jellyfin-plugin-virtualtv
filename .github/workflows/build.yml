@@ -183,7 +183,7 @@ jobs:
 
           if '=> IsDynamicUnwatched(mode)' not in policy:
               raise SystemExit("Watched-state policy changed.")
-          if 'RestoreAllIfProtected' not in protection or 'RestoreAllIfProtected(eventArgs.Session.Id)' not in stop_consumer:
+          if 'RestoreAllIfProtected' not in protection or 'RestoreAllIfProtected(eventArgs.Session.Id, eventArgs.PlaySessionId)' not in stop_consumer:
               raise SystemExit("Traditional watched/resume protection regressed.")
           for token in [
               'CompleteProtection',
