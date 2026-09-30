@@ -69,7 +69,15 @@ public sealed class VirtualTvVisibilityManager
             return;
         }
 
-        var pluginChannelIds = map.Values.ToHashSet();
+        plugin.Configuration.KnownInternalChannelIds ??= [];
+        var previousManagedIds = plugin.Configuration.KnownInternalChannelIds
+            .Select(raw => Guid.TryParse(raw, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+        var currentManagedIds = map.Values.ToHashSet();
+        var staleManagedIds = previousManagedIds
+            .Where(id => !currentManagedIds.Contains(id))
+            .ToArray();
 
         foreach (var user in _userManager.GetUsers())
         {
@@ -108,8 +116,7 @@ public sealed class VirtualTvVisibilityManager
 
             // Remove stale blocks belonging to deleted Virtual TV channels while retaining
             // all non-Virtual-TV blocked channels.
-            var existingConfiguredIds = map.Values.ToHashSet();
-            foreach (var stale in pluginChannelIds.Where(id => !existingConfiguredIds.Contains(id)).ToArray())
+            foreach (var stale in staleManagedIds)
             {
                 if (blocked.Remove(stale))
                 {
@@ -126,6 +133,9 @@ public sealed class VirtualTvVisibilityManager
             await _userManager.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
         }
 
+        plugin.Configuration.KnownInternalChannelIds = currentManagedIds
+            .Select(id => id.ToString("N"))
+            .ToList();
         plugin.SaveConfiguration();
     }
 
