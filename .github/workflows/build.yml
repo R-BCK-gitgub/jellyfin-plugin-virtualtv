@@ -76,7 +76,7 @@ jobs:
       - name: Build plugin
         run: dotnet build Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj --configuration Release --no-restore
 
-      - name: Validate Virtual TV 1.10 UI and feature surface
+      - name: Validate Virtual TV 1.10.1 UI and feature surface
         shell: bash
         run: |
           python3 - <<'PY'
@@ -95,7 +95,7 @@ jobs:
               raise SystemExit("Head-level CSS detected.")
 
           required = [
-              'data-ui-version="1.10.0.0"',
+              'data-ui-version="1.10.1.0"',
               'class="vtv-channel-table"',
               'class="vtv-content-grid"',
               'class="vtv-content-card',
@@ -111,10 +111,14 @@ jobs:
               '<option value="120">120 minutes</option>',
               'Generate New Schedule',
               'Channel type, playback mode and schedule strategy are structural',
+              'id="channelDescription"',
+              'editorHistoryActive:false',
+              'window.history.pushState',
+              'window.addEventListener(\'popstate\',handleEditorBack)',
           ]
           missing = [token for token in required if token not in page]
           if missing:
-              raise SystemExit(f"Missing 1.10 UI tokens: {missing}")
+              raise SystemExit(f"Missing 1.10.1 UI tokens: {missing}")
 
           forbidden = [
               'vtv-channel-card',
@@ -125,7 +129,7 @@ jobs:
           if present:
               raise SystemExit(f"Obsolete/destructive UI behavior present: {present}")
 
-          print("Virtual TV 1.10 UI validation passed.")
+          print("Virtual TV 1.10.1 UI validation passed.")
           PY
 
       - name: Validate stable playback foundation
@@ -147,6 +151,11 @@ jobs:
               'completed before scheduled end; return to live',
               'completed away from live boundary; resynchronise to live',
               'if (!context.TracksJellyfinState && context.UserId != Guid.Empty)',
+              'ManagedStaticQueueLength = 2',
+              'NaturalTransitionGrace = TimeSpan.FromSeconds(12)',
+              'ContinuationFallbackDelay = TimeSpan.FromSeconds(5)',
+              'ignored duplicate channel-start event',
+              'managed queue exhausted; start current live programme',
           ]
           missing = [token for token in concrete if token not in coordinator]
           if missing:
@@ -176,6 +185,9 @@ jobs:
               raise SystemExit("Watched-state policy changed.")
           if 'RestoreAllIfProtected' not in protection or 'RestoreAllIfProtected(eventArgs.Session.Id)' not in stop_consumer:
               raise SystemExit("Traditional watched/resume protection regressed.")
+          for token in ['CompleteProtection', 'FinalRestoreGrace', 'PlaySessionIds', 'IsClosing']:
+              if token not in protection:
+                  raise SystemExit(f"Late-event watched/resume protection missing: {token}")
 
           forbidden = [
               'SendPlaystateCommand',
@@ -191,7 +203,7 @@ jobs:
           print("Stable 1.9.1 playback foundation validation passed.")
           PY
 
-      - name: Validate 1.10 schedule and content invariants
+      - name: Validate 1.10.1 schedule and content invariants
         shell: bash
         run: |
           python3 - <<'PY'
@@ -201,6 +213,8 @@ jobs:
           catalog = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvContentCatalog.cs").read_text(encoding="utf-8")
           movie = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
           visibility = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvVisibilityManager.cs").read_text(encoding="utf-8")
+          livetv = Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
+          channel_config = Path("Jellyfin.Plugin.VirtualTV/Configuration/ChannelConfiguration.cs").read_text(encoding="utf-8")
           registrator = Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8")
           extend = Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvExtendSchedulesTask.cs").read_text(encoding="utf-8")
           reconcile = Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvReconcileSchedulesTask.cs").read_text(encoding="utf-8")
@@ -257,10 +271,27 @@ jobs:
               'IsVisibleToUser',
               'VisibleToAllUsers',
               'VisibleUserIds',
+              'internalChannel.Overview = desiredOverview',
+              'ItemUpdateType.MetadataEdit',
           ]
           missing = [token for token in visibility_tokens if token not in visibility]
           if missing:
               raise SystemExit(f"Visibility invariant missing: {missing}")
+
+          presentation_tokens = [
+              'public string Description { get; set; } = string.Empty;',
+              'GetFrontendChannelNumber',
+              '"Channel " + channel.Number.ToString',
+              'GetFrontendChannelName',
+              '=> "- " + channel.Name',
+              'EpisodeTitle = entry.IsMovie || entry.IsDynamicBlock ? null : entry.Name',
+          ]
+          combined_presentation = channel_config + "\n" + livetv
+          missing = [token for token in presentation_tokens if token not in combined_presentation]
+          if missing:
+              raise SystemExit(f"Channel presentation invariant missing: {missing}")
+          if 'FormatEpisodeTitle' in livetv:
+              raise SystemExit("Legacy SxxExx EPG formatting returned.")
 
           task_tokens = [
               ('Extend', extend, ['Virtual TV — Extend Channel Schedules', 'TaskTriggerInfoType.WeeklyTrigger', 'DayOfWeek.Monday', 'TimeSpan.FromHours(3).Ticks']),
@@ -283,12 +314,12 @@ jobs:
           ]
           missing = [token for token in registrations if token not in registrator]
           if missing:
-              raise SystemExit(f"1.10 service registration missing: {missing}")
+              raise SystemExit(f"1.10.1 service registration missing: {missing}")
 
           if Path("Jellyfin.Plugin.VirtualTV/Tasks/VirtualTvSmartScheduleRefreshTask.cs").exists():
               raise SystemExit("Obsolete Smart-only refresh task must not return; Smart rotation belongs to Extend.")
 
-          print("Virtual TV 1.10 content, lifecycle, task and visibility validations passed.")
+          print("Virtual TV 1.10.1 content, lifecycle, task and visibility validations passed.")
           PY
 
       - name: Validate Virtual TV configuration JavaScript
@@ -308,7 +339,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.0.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.1.0"' "$DLL"
           grep -a -q 'class="vtv-channel-table"' "$DLL"
           grep -a -q 'class="vtv-content-card' "$DLL"
           grep -a -q 'id="seriesOptionsSection"' "$DLL"
@@ -319,7 +350,7 @@ jobs:
           grep -a -q 'value="RandomUnwatched"' "$DLL"
           grep -a -q 'value="SmartSchedule"' "$DLL"
           grep -a -q 'background:#15566c' "$DLL"
-          echo "Embedded 1.10 UI validation passed."
+          echo "Embedded 1.10.1 UI validation passed."
 
       - name: Prepare install package
         shell: bash
