@@ -56,6 +56,15 @@
 #VirtualTVConfigPage .vtv-content-card.selected .vtv-content-year{color:#fff}
 #VirtualTVConfigPage .vtv-content-card.selected .vtv-content-library{color:rgba(255,255,255,.86)}
 #VirtualTVConfigPage .vtv-count{margin:.45em 0 .7em;font-size:.92em;opacity:.8}
+#VirtualTVConfigPage .vtv-subcard{border:1px solid rgba(255,255,255,.12);border-radius:.65em;padding:.9em 1em;background:rgba(255,255,255,.025);margin:.65em 0}
+#VirtualTVConfigPage .vtv-subcard-title{font-weight:800;margin-bottom:.55em}
+#VirtualTVConfigPage .vtv-inline-options{display:flex;align-items:center;gap:1em;flex-wrap:wrap}
+#VirtualTVConfigPage .vtv-season-list{display:flex;gap:.45em .8em;flex-wrap:wrap;margin-top:.65em}
+#VirtualTVConfigPage .vtv-user-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(13em,1fr));gap:.45em .8em;margin-top:.65em}
+#VirtualTVConfigPage .vtv-order-row{display:flex;align-items:center;justify-content:space-between;gap:.8em;padding:.55em .7em;border-bottom:1px solid rgba(255,255,255,.08)}
+#VirtualTVConfigPage .vtv-order-row:last-child{border-bottom:0}
+#VirtualTVConfigPage .vtv-order-actions{display:flex;gap:.35em}
+#VirtualTVConfigPage .vtv-order-actions button{margin:0;min-width:2.5em}
 
 @media(max-width:800px){
   #VirtualTVConfigPage .vtv-header{display:block}
@@ -82,7 +91,7 @@
 
 <div id="channelEditor" class="vtv-card" style="display:none;">
   <h2 id="editorTitle">Create channel</h2>
-  <div id="immutableNotice" class="vtv-warning" style="display:none;">Channel type is structural. To change it, create a new channel.</div>
+  <div id="immutableNotice" class="vtv-warning" style="display:none;">Channel type, playback mode and schedule strategy are structural. To change them, create a new channel.</div>
 
   <form id="channelForm">
     <div class="vtv-form-grid">
@@ -123,6 +132,12 @@
     </div>
     <div id="contentCount" class="vtv-count"></div>
     <div id="contentList" class="vtv-content-list"></div>
+
+    <div id="seriesOptionsSection" style="display:none;">
+      <div class="vtv-section-title">Series options</div>
+      <div class="fieldDescription">Each selected series uses All Seasons by default. You can restrict individual series to specific seasons and optionally include Specials.</div>
+      <div id="seriesOptionsList"></div>
+    </div>
 
     <div id="seriesPlaybackSection">
       <div class="vtv-section-title">3. Playback and schedule</div>
@@ -184,9 +199,59 @@
           <div class="fieldDescription">The seven-day Sunday-to-Saturday template repeats until this rotation period expires, then Virtual TV generates a new template automatically.</div>
         </div>
       </div>
+
+      <div id="manualOrderSection" style="display:none;">
+        <div class="vtv-section-title">Manual series order</div>
+        <div class="fieldDescription">Use the arrows to define the repeating series order. New selections are appended to the end.</div>
+        <div id="manualOrderList" class="vtv-subcard"></div>
+      </div>
     </div>
 
-    <div class="vtv-section-title">4. Operating hours</div>
+    <div id="moviePlaybackSection" style="display:none;">
+      <div class="vtv-section-title">3. Playback</div>
+      <div class="vtv-form-grid">
+        <div class="selectContainer">
+          <label class="selectLabel" for="movieContentMode">Playback mode</label>
+          <select id="movieContentMode" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="Random">Random / Shuffle Cycle</option>
+            <option value="RandomUnwatched">Random Unwatched</option>
+          </select>
+          <div class="fieldDescription">Random / Shuffle Cycle does not change Jellyfin watched state. Random Unwatched is personal and uses the owner's Jellyfin watched state.</div>
+        </div>
+        <div id="movieBlockMinutesContainer" class="selectContainer" style="display:none;">
+          <label class="selectLabel" for="movieBlockMinutes">Block duration</label>
+          <select id="movieBlockMinutes" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="20">20 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="40">40 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60">60 minutes</option>
+            <option value="75">75 minutes</option>
+            <option value="90">90 minutes</option>
+            <option value="120">120 minutes</option>
+          </select>
+          <div class="fieldDescription">Random Unwatched materializes one movie per fixed block. A movie is never cut if it overruns the nominal block.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="vtv-section-title">4. Visibility</div>
+    <div id="personalVisibilityNotice" class="vtv-warning" style="display:none;">Watched-dependent channels are personal in this release and are visible only to their administrator owner.</div>
+    <div id="visibilityControls">
+      <div class="vtv-form-grid">
+        <div class="selectContainer">
+          <label class="selectLabel" for="visibilityMode">Channel visibility</label>
+          <select id="visibilityMode" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="all">All users</option>
+            <option value="selected">Selected users</option>
+          </select>
+          <div class="fieldDescription">Visibility changes apply immediately and do not require schedule regeneration.</div>
+        </div>
+      </div>
+      <div id="userSelection" class="vtv-user-grid" style="display:none;"></div>
+    </div>
+
+    <div class="vtv-section-title">5. Operating hours</div>
     <div class="checkboxContainer checkboxContainer-withDescription">
       <label class="emby-checkbox-label">
         <input id="is24Hours" type="checkbox" is="emby-checkbox">
@@ -224,7 +289,12 @@
     editingId:null,
     selectedLibraryIds:[],
     selectedItemIds:[],
-    availableItems:[]
+    availableItems:[],
+    users:[],
+    currentUserId:'',
+    selectedVisibleUserIds:[],
+    seriesSelections:[],
+    seasonCache:{}
   };
 
   function esc(v){
@@ -246,7 +316,7 @@
       c.OnAirStart=c.OnAirStart||'07:00';
       c.OffAirStart=c.OffAirStart||'02:00';
       c.ContentMode=c.ChannelType==='Movies'
-        ? 'RandomShuffleCycle'
+        ? (c.ContentMode==='RandomUnwatched'?'RandomUnwatched':'Random')
         : (['Sequential','NextUnwatched','RandomUnwatched','Random'].indexOf(c.ContentMode)!==-1?c.ContentMode:'Sequential');
       c.SchedulingMethod=c.ChannelType==='Movies'
         ? ''
@@ -254,6 +324,11 @@
       c.BlockMinutes=[20,30,40,45,60,75,90,120].indexOf(Number(c.BlockMinutes))!==-1?Number(c.BlockMinutes):30;
       c.EpisodesPerTurn=Number(c.EpisodesPerTurn)===2?2:1;
       c.SmartRotationMonths=[1,2,3,6].indexOf(Number(c.SmartRotationMonths))!==-1?Number(c.SmartRotationMonths):2;
+      c.SeriesSelections=Array.isArray(c.SeriesSelections)?c.SeriesSelections:[];
+      c.VisibleToAllUsers=c.VisibleToAllUsers!==false;
+      c.VisibleUserIds=Array.isArray(c.VisibleUserIds)?c.VisibleUserIds:[];
+      c.OwnerUserId=c.OwnerUserId||'';
+      c.RepeatingSeriesOrder=Array.isArray(c.RepeatingSeriesOrder)?c.RepeatingSeriesOrder:[];
     });
     return config;
   }
@@ -300,7 +375,11 @@
   }
 
   function modeLabel(c){
-    if(c.ChannelType==='Movies')return 'Random / Shuffle Cycle';
+    if(c.ChannelType==='Movies'){
+      return c.ContentMode==='RandomUnwatched'
+        ? 'Random Unwatched · '+c.BlockMinutes+' min'
+        : 'Random / Shuffle Cycle';
+    }
 
     var detail=scheduleMethodLabel(c.SchedulingMethod);
     if(c.ContentMode==='NextUnwatched'||c.ContentMode==='RandomUnwatched'){
