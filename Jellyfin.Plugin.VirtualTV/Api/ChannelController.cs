@@ -168,11 +168,12 @@ public sealed class ChannelController : ControllerBase
         try
         {
             await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            await _visibility.ApplyAsync(cancellationToken).ConfigureAwait(false);
             return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Virtual TV requested a Guide refresh, but Jellyfin could not complete it.");
+            _logger.LogWarning(ex, "Virtual TV requested a Guide/visibility refresh, but Jellyfin could not complete it.");
             return StatusCode(StatusCodes.Status500InternalServerError, new
             {
                 Stage = "guide",
@@ -241,12 +242,13 @@ public sealed class ChannelController : ControllerBase
         try
         {
             await _guideManager.RefreshGuide(new Progress<double>(), cancellationToken).ConfigureAwait(false);
+            await _visibility.ApplyAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // The schedule reset itself succeeded. Do not report the configuration save as failed
-            // merely because Jellyfin could not refresh the Guide at that exact moment.
-            _logger.LogWarning(ex, "Virtual TV schedule was reset for channel {ChannelId}, but Guide refresh failed.", channelId);
+            // merely because Jellyfin could not refresh the Guide/visibility at that exact moment.
+            _logger.LogWarning(ex, "Virtual TV schedule was reset for channel {ChannelId}, but Guide/visibility refresh failed.", channelId);
         }
 
         return NoContent();
