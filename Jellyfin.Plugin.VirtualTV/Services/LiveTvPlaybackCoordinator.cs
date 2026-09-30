@@ -103,23 +103,6 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        if (eventArgs.Failed)
-        {
-            bool belongsToManagedSession;
-            lock (context.Gate)
-            {
-                belongsToManagedSession =
-                    context.CurrentSourceItemId == eventArgs.Item.Id
-                    || context.PendingTargetItemId == eventArgs.Item.Id;
-            }
-
-            if (belongsToManagedSession)
-            {
-                await HandlePlaybackFailureAsync(context, eventArgs.Item.Id).ConfigureAwait(false);
-                return;
-            }
-        }
-
         bool isCurrent;
         bool isReplacementStop;
         long continuationGeneration;
@@ -579,53 +562,6 @@ public sealed class LiveTvPlaybackCoordinator
             liveEntry,
             nowUtc,
             "completed away from live boundary; resynchronise to live").ConfigureAwait(false);
-    }
-
-    private async Task HandlePlaybackFailureAsync(
-        SessionContext context,
-        Guid failedItemId)
-    {
-        var nowUtc = DateTime.UtcNow;
-        var liveEntry = FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc);
-        if (liveEntry is null)
-        {
-            EndSession(context.SessionId, "playback failed while channel has no live programme");
-            return;
-        }
-
-        if (context.IsDynamicUnwatched)
-        {
-            if (!context.IsDynamicMovie
-                && string.Equals(context.ContentMode, VirtualTvModePolicy.NextUnwatched, StringComparison.OrdinalIgnoreCase))
-            {
-                // Coverage-first means a failed earliest episode must not be silently skipped.
-                _logger.LogWarning(
-                    "Virtual TV Next Unwatched item {ItemId} failed on {ChannelName}; preserving chronological priority and ending this attempt.",
-                    failedItemId,
-                    context.ChannelName);
-                EndSession(context.SessionId, "Next Unwatched item failed; chronological priority preserved");
-                return;
-            }
-
-            lock (context.Gate)
-            {
-                // Random Unwatched excludes the failed item only from the immediate retry.
-                context.LastCompletedItemId = failedItemId;
-            }
-
-            await PlayScheduledEntryAsync(
-                context,
-                liveEntry,
-                nowUtc,
-                "runtime failure; selecting one temporary watched-dependent alternative").ConfigureAwait(false);
-            return;
-        }
-
-        await PlayTraditionalFallbackAsync(
-            context,
-            liveEntry,
-            failedItemId,
-            "materialized content failed at runtime").ConfigureAwait(false);
     }
 
     private async Task PlayTraditionalFallbackAsync(
