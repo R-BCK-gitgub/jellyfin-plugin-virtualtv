@@ -21,8 +21,75 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class VirtualTvVisibilityManager
 {
-    private const string GuideCssStart = "/* Virtual TV Guide UI START */";
-    private const string GuideCssEnd = "/* Virtual TV Guide UI END */";
+    private const string GuideCssStart = "/* Virtual TV Guide UI START */
+/*
+ * 1.10.5 uses one shared row metric for channel cards and programme rows.
+ * The fixed height + flex-basis prevents vertical drift between the two columns.
+ */
+.guide-channelHeaderCell,
+.guide-channelHeaderCell-tv,
+.channelPrograms,
+.channelPrograms-tv {
+    height: 7.8em !important;
+    min-height: 7.8em !important;
+    max-height: 7.8em !important;
+    flex: 0 0 7.8em !important;
+    box-sizing: border-box !important;
+}
+
+.channelPrograms + .channelPrograms,
+.guide-channelHeaderCell + .guide-channelHeaderCell {
+    margin-top: -1px !important;
+}
+
+.programCell {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    align-items: center !important;
+    box-sizing: border-box !important;
+}
+.guideProgramName,
+.guideProgramNameText,
+.guideProgramSecondaryInfo {
+    align-items: center !important;
+}
+.guideProgramName {
+    min-height: 100% !important;
+}
+
+.guideChannelImage {
+    top: 8% !important;
+    bottom: 8% !important;
+    width: 50% !important;
+}
+.guideChannelNumber {
+    max-width: 38% !important;
+    padding-left: .75em !important;
+    font-size: 1.18em !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+}
+.guideChannelName {
+    max-width: 60% !important;
+    font-size: 1.08em !important;
+    font-weight: 650 !important;
+}
+
+@media all and (min-width: 50em) {
+    .channelsContainer,
+    .guide-channelTimeslotHeader {
+        width: 27vw !important;
+    }
+}
+@media all and (min-width: 80em) {
+    .channelsContainer,
+    .guide-channelTimeslotHeader {
+        width: 27vw !important;
+    }
+}
+/* Virtual TV Guide UI END */";
 
     private readonly ILiveTvManager _liveTvManager;
     private readonly IUserManager _userManager;

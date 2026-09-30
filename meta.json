@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Simplifies playback to one generation-safe PlayNow request for exactly one resolved item per tune, with a cancellable 500 ms initial handoff delay, no Current+Next queue, no delayed LG seek, no continuation watchdog and schedule-authoritative re-resolution at every physical EOF. Stale events from a previous channel can no longer close or overwrite the current tune. Smart Schedule now uses a stable weekly coverage-first series cycle so every eligible series appears before any repeats when the week has enough turns. Existing channels are fully editable and structural changes mark the schedule for regeneration. Adds Content Coverage with clickable Unassigned/Assigned/Multiple filters and CSV export. Installs a delimited Jellyfin Custom CSS block that enlarges Live TV Guide rows and the channel column while preserving existing custom CSS. Channel descriptions remain hidden from Jellyfin Overview.",
+  "changelog": "Keeps the simplified 1.10.4 playback architecture unchanged. Refines the Jellyfin Live TV Guide presentation by enforcing one identical 7.8em row height/flex-basis for both channel cards and programme rows, preventing cumulative vertical drift. Programme-cell content is vertically centred. The channel column is widened by 50% from 18vw to 27vw, channel-number text is larger and bolder, and channel logos are slightly enlarged. All 1.10.4 scheduling, Smart coverage, full channel editing, Content Coverage reporting and playback behavior are preserved.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.4.0",
+  "version": "1.10.5.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
