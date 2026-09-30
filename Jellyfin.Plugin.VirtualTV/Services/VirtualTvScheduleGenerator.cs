@@ -153,6 +153,23 @@ public sealed class VirtualTvScheduleGenerator
             .ToList();
 
         var targetUtc = GetTargetHorizonUtc(channel, nowUtc);
+        var firstGapUtc = FindFirstGapStart(retained);
+
+        if (firstGapUtc.HasValue)
+        {
+            var stablePrefix = retained
+                .Where(item => item.GetStartUtc() < firstGapUtc.Value)
+                .ToList();
+
+            var repairedTail = IsSmart(channel)
+                ? BuildSmartAppendWithRotation(channel, firstGapUtc.Value, targetUtc, stablePrefix)
+                : BuildRange(channel, firstGapUtc.Value, targetUtc, stablePrefix);
+
+            var repaired = CombineAndTrim(stablePrefix, repairedTail, nowUtc);
+            Save(channel, repaired, nowUtc);
+            return repaired;
+        }
+
         var lastEndUtc = retained.Count > 0 ? retained[^1].GetEndUtc() : DateTime.MinValue;
 
         if (lastEndUtc < nowUtc)
@@ -846,6 +863,28 @@ public sealed class VirtualTvScheduleGenerator
             .Select(group => group.First())
             .OrderBy(entry => entry.GetStartUtc())
             .ToList();
+    }
+
+    private static DateTime? FindFirstGapStart(IReadOnlyList<VirtualTvScheduleEntry> schedule)
+    {
+        if (schedule.Count < 2)
+        {
+            return null;
+        }
+
+        var ordered = schedule.OrderBy(item => item.GetStartUtc()).ToList();
+        for (var index = 1; index < ordered.Count; index++)
+        {
+            var previousEnd = ordered[index - 1].GetEndUtc();
+            var currentStart = ordered[index].GetStartUtc();
+
+            if (currentStart - previousEnd > TimeSpan.FromSeconds(1))
+            {
+                return previousEnd;
+            }
+        }
+
+        return null;
     }
 
     private static DateTime GetNextMutableBoundary(
