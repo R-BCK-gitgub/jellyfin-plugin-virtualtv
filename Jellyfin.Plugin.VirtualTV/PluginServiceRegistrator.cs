@@ -16,11 +16,17 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<VirtualTvScheduleStore>();
+        serviceCollection.AddSingleton<VirtualTvContentCatalog>();
+        serviceCollection.AddSingleton<VirtualTvUserContextService>();
         serviceCollection.AddSingleton<VirtualTvScheduleGenerator>();
         serviceCollection.AddSingleton<VirtualTvEpisodeResolver>();
+        serviceCollection.AddSingleton<VirtualTvMovieResolver>();
+        serviceCollection.AddSingleton<VirtualTvVisibilityManager>();
         serviceCollection.AddSingleton<PlaybackStateProtectionManager>();
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
-        serviceCollection.AddSingleton<IScheduledTask, VirtualTvSmartScheduleRefreshTask>();
+        serviceCollection.AddSingleton<IScheduledTask, VirtualTvExtendSchedulesTask>();
+        serviceCollection.AddSingleton<IScheduledTask, VirtualTvReconcileSchedulesTask>();
+        serviceCollection.AddSingleton<IScheduledTask, VirtualTvRecoveryTask>();
         serviceCollection.AddSingleton<ILiveTvService, VirtualTvLiveTvService>();
 
         serviceCollection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, VirtualTvPlaybackStartConsumer>();
