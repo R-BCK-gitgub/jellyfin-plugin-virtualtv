@@ -206,8 +206,7 @@ public sealed class LiveTvPlaybackCoordinator
             bool activeOrRecent;
             lock (existingContext.Gate)
             {
-                activeOrRecent = existingContext.CurrentSourceItemId.HasValue
-                    || existingContext.PendingTargetItemId.HasValue
+                activeOrRecent = existingContext.PendingTargetItemId.HasValue
                     || DateTime.UtcNow - existingContext.CreatedUtc <= PendingCommandWindow;
             }
 
