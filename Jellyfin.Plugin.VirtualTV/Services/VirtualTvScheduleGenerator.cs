@@ -211,6 +211,8 @@ public sealed class VirtualTvScheduleGenerator
         var smartPatterns = string.Equals(channel.SchedulingMethod, VirtualTvModePolicy.SmartSchedule, StringComparison.OrdinalIgnoreCase)
             ? BuildSmartDayPatterns(channel, series)
             : null;
+        SeriesPool? currentRotationSeries = null;
+        var remainingRotationBlocks = 0;
 
         while (cursor < horizonUtc)
         {
@@ -231,7 +233,14 @@ public sealed class VirtualTvScheduleGenerator
             }
             else
             {
-                selected = rotation.Next();
+                if (currentRotationSeries is null || remainingRotationBlocks <= 0)
+                {
+                    currentRotationSeries = rotation.Next();
+                    remainingRotationBlocks = channel.EpisodesPerTurn;
+                }
+
+                selected = currentRotationSeries;
+                remainingRotationBlocks--;
             }
 
             var endUtc = cursor.Add(blockDuration);
@@ -553,8 +562,6 @@ public sealed class VirtualTvScheduleGenerator
         private readonly List<SeriesPool> _smartSequence;
         private List<SeriesPool> _randomCycle = [];
         private int _cursor;
-        private int _repeatCursor;
-        private SeriesPool? _current;
         private SeriesPool? _previousRandom;
 
         public SeriesRotation(ChannelConfiguration channel, IReadOnlyList<SeriesPool> series)
@@ -566,24 +573,13 @@ public sealed class VirtualTvScheduleGenerator
         }
 
         public SeriesPool Next()
-        {
-            if (_current is not null && _repeatCursor < _channel.EpisodesPerTurn)
-            {
-                _repeatCursor++;
-                return _current;
-            }
-
-            _repeatCursor = 1;
-            _current = _channel.SchedulingMethod switch
+            => _channel.SchedulingMethod switch
             {
                 VirtualTvModePolicy.RandomizedRotation => NextRandom(),
                 VirtualTvModePolicy.ManualOrder => NextFrom(_manualOrder),
                 VirtualTvModePolicy.SmartSchedule => NextFrom(_smartSequence),
                 _ => NextFrom(_alphabeticalOrder)
             };
-
-            return _current;
-        }
 
         private SeriesPool NextFrom(IReadOnlyList<SeriesPool> source)
         {
