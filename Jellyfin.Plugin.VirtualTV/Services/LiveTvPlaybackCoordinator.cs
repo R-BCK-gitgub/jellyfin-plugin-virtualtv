@@ -300,8 +300,7 @@ public sealed class LiveTvPlaybackCoordinator
                     context,
                     liveEntry,
                     nowUtc,
-                    "managed queue reached correct item at stale position",
-                    sessionId).ConfigureAwait(false);
+                    "managed queue reached correct item at stale position").ConfigureAwait(false);
                 return;
             }
 
@@ -317,8 +316,7 @@ public sealed class LiveTvPlaybackCoordinator
                 context,
                 liveEntry,
                 nowUtc,
-                "client transition did not match current schedule",
-                sessionId).ConfigureAwait(false);
+                "client transition did not match current schedule").ConfigureAwait(false);
             return;
         }
 
@@ -379,13 +377,11 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        var queue = BuildManagedQueue(context.ChannelId, entry);
-        if (queue.Count == 0)
+        var queueItemIds = BuildManagedQueue(context.ChannelId, entry);
+        if (queueItemIds.Length == 0)
         {
-            queue = [new QueueEntry(entry, sourceItemId)];
+            queueItemIds = [sourceItemId];
         }
-
-        var queueItemIds = queue.Select(item => item.SourceItemId).ToArray();
 
         if (context.UserId != Guid.Empty)
         {
@@ -445,16 +441,16 @@ public sealed class LiveTvPlaybackCoordinator
         }
     }
 
-    private IReadOnlyList<QueueEntry> BuildManagedQueue(string channelId, VirtualTvScheduleEntry activeEntry)
+    private Guid[] BuildManagedQueue(string channelId, VirtualTvScheduleEntry activeEntry)
     {
         var schedule = LoadSchedule(channelId);
         var startIndex = schedule.FindIndex(item => string.Equals(item.Id, activeEntry.Id, StringComparison.Ordinal));
         if (startIndex < 0)
         {
-            return Array.Empty<QueueEntry>();
+            return [];
         }
 
-        var result = new List<QueueEntry>(ManagedQueueLength);
+        var result = new List<Guid>(ManagedQueueLength);
         var seenSourceItems = new HashSet<Guid>();
 
         for (var index = startIndex; index < schedule.Count && result.Count < ManagedQueueLength; index++)
@@ -467,22 +463,24 @@ public sealed class LiveTvPlaybackCoordinator
                 break;
             }
 
-            if (!Guid.TryParse(candidate.SourceItemId, out var itemId))
+            if (!Guid.TryParse(candidate.SourceItemId, out var itemId)
+                || _libraryManager.GetItemById(itemId) is null)
             {
                 continue;
             }
 
-            // Jellyfin Web sorts a multi-item remote-play request by the supplied ID list.
-            // Keeping IDs unique avoids ambiguous indexOf ordering if an episode appears again.
+            // Jellyfin Server and Jellyfin Web only auto-expand a single Episode into the
+            // remainder of its series. Supplying multiple valid schedule IDs prevents that.
+            // Keep IDs unique because Jellyfin Web uses indexOf when restoring request order.
             if (!seenSourceItems.Add(itemId))
             {
                 continue;
             }
 
-            result.Add(new QueueEntry(candidate, itemId));
+            result.Add(itemId);
         }
 
-        return result;
+        return result.ToArray();
     }
 
     private async Task EnsureContinuationAsync(string sessionId, long generation)
@@ -520,8 +518,7 @@ public sealed class LiveTvPlaybackCoordinator
                 context,
                 liveEntry,
                 nowUtc,
-                "continuation watchdog",
-                sessionId).ConfigureAwait(false);
+                "continuation watchdog").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -653,8 +650,5 @@ public sealed class LiveTvPlaybackCoordinator
         public bool AwaitingContinuation { get; set; }
 
         public long ContinuationGeneration { get; set; }
-
     }
-
-    private sealed record QueueEntry(VirtualTvScheduleEntry Entry, Guid SourceItemId);
 }
