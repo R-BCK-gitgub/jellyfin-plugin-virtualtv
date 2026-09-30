@@ -210,7 +210,7 @@ jobs:
           resolver_tokens = [
               'BuildNextUnwatched',
               'PlaybackPositionTicks > 0',
-              'item.PremiereDate.HasValue',
+              'candidate.Item.PremiereDate.HasValue',
               'BuildRandomUnwatched',
               'Where(candidate => !candidate.Played)',
               'BuildRandomFallback',
