@@ -179,7 +179,9 @@ public sealed class VirtualTvScheduleGenerator
                 ? (IsSmart(channel) ? GetSundayStartUtc(nowUtc) : AlignStartToHour(nowUtc))
                 : lastEndUtc;
 
-            var recovery = BuildRange(channel, recoveryStart, targetUtc, retained);
+            var recovery = IsSmart(channel)
+                ? BuildSmartAppendWithRotation(channel, recoveryStart, targetUtc, retained)
+                : BuildRange(channel, recoveryStart, targetUtc, retained);
             var repaired = CombineAndTrim(retained, recovery, nowUtc);
             Save(channel, repaired, nowUtc);
             return repaired;
