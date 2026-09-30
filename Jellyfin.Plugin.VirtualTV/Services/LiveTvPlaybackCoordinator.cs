@@ -491,6 +491,13 @@ public sealed class LiveTvPlaybackCoordinator
                 context.ChannelName,
                 delay.TotalSeconds);
 
+            var localBoundary = TimeZoneInfo.ConvertTimeFromUtc(liveEntry.GetEndUtc(), TimeZoneInfo.Local);
+            await TrySendMessageAsync(
+                context,
+                "Virtual TV",
+                $"Next movie starts at {localBoundary:HH:mm}.",
+                delay).ConfigureAwait(false);
+
             ScheduleDynamicMovieBoundary(context.SessionId, liveEntry.GetEndUtc());
             return;
         }
@@ -611,6 +618,16 @@ public sealed class LiveTvPlaybackCoordinator
             StartIndex = 0,
             PlayCommand = PlayCommand.PlayNow
         };
+
+        var fallbackMessage = string.Equals(channel.ContentMode, VirtualTvModePolicy.Random, StringComparison.OrdinalIgnoreCase)
+            ? "This content is not available. Selecting another random item…"
+            : "This content is not available. Playing the next eligible item…";
+
+        await TrySendMessageAsync(
+            context,
+            "Virtual TV",
+            fallbackMessage,
+            TimeSpan.FromSeconds(5)).ConfigureAwait(false);
 
         _logger.LogWarning(
             "Virtual TV local runtime fallback on {ChannelName}: {Reason}; playing {FallbackItemId} without changing persisted Guide.",
@@ -757,6 +774,15 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
+        if (resolution.ReplacedScheduledItem)
+        {
+            await TrySendMessageAsync(
+                context,
+                "Virtual TV",
+                "This movie has already been watched or is unavailable. Selecting another unwatched movie…",
+                TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+
         var singleMovie = new[] { resolution.ItemId };
         PreparePendingCommand(
             context,
@@ -889,6 +915,37 @@ public sealed class LiveTvPlaybackCoordinator
             context.CurrentEntryId = entry.Id;
             context.AwaitingContinuation = false;
             context.ContinuationGeneration++;
+        }
+    }
+
+    private async Task TrySendMessageAsync(
+        SessionContext context,
+        string header,
+        string message,
+        TimeSpan timeout)
+    {
+        try
+        {
+            var timeoutMs = Math.Clamp(
+                (long)timeout.TotalMilliseconds,
+                3000,
+                (long)TimeSpan.FromMinutes(15).TotalMilliseconds);
+
+            await _sessionManager.SendMessageCommand(
+                context.SessionId,
+                context.SessionId,
+                new MessageCommand
+                {
+                    Header = header,
+                    Text = message,
+                    TimeoutMs = timeoutMs
+                },
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Client message support is best-effort and must never interfere with playback.
+            _logger.LogDebug(ex, "Virtual TV client {SessionId} did not accept a display message.", context.SessionId);
         }
     }
 
