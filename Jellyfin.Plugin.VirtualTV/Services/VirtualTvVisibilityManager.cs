@@ -175,7 +175,7 @@ public sealed class VirtualTvVisibilityManager
     {
         try
         {
-            var branding = _serverConfigurationManager.GetConfiguration<BrandingOptions>("branding");
+            var branding = (BrandingOptions)_serverConfigurationManager.GetConfiguration("branding");
             var existing = branding.CustomCss ?? string.Empty;
 
             var start = existing.IndexOf(GuideCssStart, StringComparison.Ordinal);
