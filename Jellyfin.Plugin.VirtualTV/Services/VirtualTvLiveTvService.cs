@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.VirtualTV.Configuration;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.LiveTv;
+using MediaBrowser.Model.MediaInfo;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
@@ -20,6 +24,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaSourceManager _mediaSourceManager;
+    private readonly IApplicationPaths _applicationPaths;
     private readonly VirtualTvScheduleStore _scheduleStore;
     private readonly VirtualTvContentCatalog _catalog;
     private readonly VirtualTvRuntimeFallbackResolver _runtimeFallback;
@@ -28,6 +33,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     public VirtualTvLiveTvService(
         ILibraryManager libraryManager,
         IMediaSourceManager mediaSourceManager,
+        IApplicationPaths applicationPaths,
         VirtualTvScheduleStore scheduleStore,
         VirtualTvContentCatalog catalog,
         VirtualTvRuntimeFallbackResolver runtimeFallback,
@@ -35,6 +41,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     {
         _libraryManager = libraryManager;
         _mediaSourceManager = mediaSourceManager;
+        _applicationPaths = applicationPaths;
         _scheduleStore = scheduleStore;
         _catalog = catalog;
         _runtimeFallback = runtimeFallback;
@@ -219,19 +226,130 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
         source.RequiresOpening = !openForPlayback;
         source.RequiresClosing = false;
         source.Name = item.Name;
+
+        // Keep Virtual TV inside Jellyfin's normal HLS transcode/remux pipeline. The opened
+        // source is rebased below so clients see a clean stream timeline that begins at 00:00.
         source.SupportsDirectPlay = false;
         source.SupportsDirectStream = false;
         source.SupportsTranscoding = true;
 
         if (openForPlayback)
         {
-            _logger.LogInformation(
-                "Virtual TV opened full-timeline source {SourceId} for channel {ChannelName}, item {ItemName}.",
-                source.Id, channel.Name, item.Name);
+            try
+            {
+                var sourceRuntimeTicks = source.RunTimeTicks ?? item.RunTimeTicks;
+                var rebasedInput = CreateRebasedInput(source, entry, sourceRuntimeTicks, now);
+
+                // Preserve the original MediaSourceId so Jellyfin subtitle endpoints can still
+                // resolve source subtitle tracks. Only the encoder input is replaced.
+                source.EncoderPath = rebasedInput.DescriptorPath;
+                source.EncoderProtocol = MediaProtocol.File;
+
+                _logger.LogInformation(
+                    "Virtual TV opened rebased source {SourceId} for channel {ChannelName}, item {ItemName}: source offset {OffsetSeconds:F3}s is exposed to the client as player 00:00. FFmpeg input: {DescriptorPath}",
+                    source.Id,
+                    channel.Name,
+                    item.Name,
+                    rebasedInput.Offset.TotalSeconds,
+                    rebasedInput.DescriptorPath);
+            }
+            catch (NotSupportedException ex)
+            {
+                // Non-file sources cannot use the ffconcat rebase. Preserve the previous
+                // full-timeline fallback rather than making such channels completely unusable.
+                _logger.LogWarning(
+                    ex,
+                    "Virtual TV could not create a rebased file source for channel {ChannelName}, item {ItemName}; using the original source timeline.",
+                    channel.Name,
+                    item.Name);
+            }
         }
 
+        // A Virtual TV tune is a new stream timeline. Guide StartDate/EndDate retain the real
+        // schedule clock; player position zero represents the instant the opened source was
+        // rebased. This is the critical webOS compatibility behavior.
         source.RunTimeTicks = null;
         return source;
+    }
+
+    private (string DescriptorPath, TimeSpan Offset) CreateRebasedInput(
+        MediaSourceInfo source,
+        VirtualTvScheduleEntry entry,
+        long? sourceRuntimeTicks,
+        DateTime nowUtc)
+    {
+        if (source.Protocol != MediaProtocol.File || string.IsNullOrWhiteSpace(source.Path))
+        {
+            throw new NotSupportedException(
+                "Virtual TV source rebasing requires a file-backed Jellyfin media source.");
+        }
+
+        var offset = nowUtc > entry.GetStartUtc()
+            ? nowUtc - entry.GetStartUtc()
+            : TimeSpan.Zero;
+
+        if (sourceRuntimeTicks.HasValue && sourceRuntimeTicks.Value > 0)
+        {
+            var maximumOffsetTicks = Math.Max(0, sourceRuntimeTicks.Value - TimeSpan.FromSeconds(1).Ticks);
+            if (offset.Ticks > maximumOffsetTicks)
+            {
+                offset = TimeSpan.FromTicks(maximumOffsetTicks);
+            }
+        }
+
+        var runtimeRoot = Path.Combine(_applicationPaths.CachePath, "virtualtv", "live-rebase");
+        Directory.CreateDirectory(runtimeRoot);
+        CleanupOldRuntimeDirectories(runtimeRoot);
+
+        var token = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var requestDirectory = Path.Combine(runtimeRoot, token);
+        Directory.CreateDirectory(requestDirectory);
+
+        var extension = Path.GetExtension(source.Path);
+        if (string.IsNullOrWhiteSpace(extension)
+            || extension.Length > 12
+            || extension.Any(character => character != '.' && !char.IsLetterOrDigit(character)))
+        {
+            extension = ".media";
+        }
+
+        var linkedSourceName = "source" + extension.ToLowerInvariant();
+        var linkedSourcePath = Path.Combine(requestDirectory, linkedSourceName);
+        File.CreateSymbolicLink(linkedSourcePath, source.Path);
+
+        var descriptorPath = Path.Combine(requestDirectory, "source.ffconcat");
+        var descriptor =
+            "ffconcat version 1.0\n"
+            + "file '" + linkedSourceName + "'\n"
+            + "inpoint " + offset.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) + "\n";
+
+        File.WriteAllText(descriptorPath, descriptor, new UTF8Encoding(false));
+
+        return (descriptorPath, offset);
+    }
+
+    private static void CleanupOldRuntimeDirectories(string runtimeRoot)
+    {
+        var cutoff = DateTime.UtcNow.AddHours(-2);
+
+        foreach (var directory in Directory.EnumerateDirectories(runtimeRoot))
+        {
+            try
+            {
+                if (Directory.GetCreationTimeUtc(directory) < cutoff)
+                {
+                    Directory.Delete(directory, true);
+                }
+            }
+            catch (IOException)
+            {
+                // An active FFmpeg process may still have the source open.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Cleanup is best-effort and must never block channel playback.
+            }
+        }
     }
 
     private static ProgramInfo ToProgram(string channelId, VirtualTvScheduleEntry entry)
@@ -261,7 +379,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
 
         DateTime? premiereDate = null;
         if (!string.IsNullOrWhiteSpace(entry.PremiereDateUtc)
-            && DateTime.TryParse(entry.PremiereDateUtc, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+            && DateTime.TryParse(entry.PremiereDateUtc, null, DateTimeStyles.RoundtripKind, out var parsed))
             premiereDate = parsed.ToUniversalTime();
 
         return new ProgramInfo
