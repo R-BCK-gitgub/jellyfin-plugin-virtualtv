@@ -227,6 +227,11 @@ jobs:
               'FutureHorizon = TimeSpan.FromDays(30)',
               'GetNextSundayUtc',
               'GetSundayStartUtc',
+              'ShouldRotateSmartTemplate',
+              'SmartTemplateCreatedUtc',
+              'HasReconcileChanges',
+              'ContentFingerprint',
+              'FindFirstGapStart',
               'RepeatingSeriesOrder',
               'ShuffleBag',
               'BuildDynamicMovieSchedule',
@@ -270,6 +275,7 @@ jobs:
           registrations = [
               'AddSingleton<VirtualTvContentCatalog>()',
               'AddSingleton<VirtualTvMovieResolver>()',
+              'AddSingleton<VirtualTvRuntimeFallbackResolver>()',
               'AddSingleton<VirtualTvVisibilityManager>()',
               'AddSingleton<IScheduledTask, VirtualTvExtendSchedulesTask>()',
               'AddSingleton<IScheduledTask, VirtualTvReconcileSchedulesTask>()',
@@ -284,6 +290,19 @@ jobs:
 
           print("Virtual TV 1.10 content, lifecycle, task and visibility validations passed.")
           PY
+
+      - name: Validate Virtual TV configuration JavaScript
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          page = Path("Jellyfin.Plugin.VirtualTV/Configuration/configPage.html").read_text(encoding="utf-8")
+          start = page.index('<script type="text/javascript">') + len('<script type="text/javascript">')
+          end = page.index('</script>', start)
+          Path("/tmp/virtualtv-config.js").write_text(page[start:end], encoding="utf-8")
+          PY
+          node --check /tmp/virtualtv-config.js
+          echo "Virtual TV configuration JavaScript syntax validation passed."
 
       - name: Validate embedded Virtual TV UI
         shell: bash
