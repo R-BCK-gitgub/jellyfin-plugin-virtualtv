@@ -195,12 +195,23 @@ public sealed class LiveTvPlaybackCoordinator
             ? "RandomShuffleCycle"
             : VirtualTvModePolicy.NormalizeContentMode(channelConfiguration.ContentMode);
 
+        var playbackUserId = ResolvePlaybackUserId(eventArgs);
+
         var context = new SessionContext(
             sessionId,
             configurationChannelId,
-            eventArgs.Session.UserId,
+            playbackUserId,
             channel.Name,
             contentMode);
+
+        _logger.LogInformation(
+            "Virtual TV tune context: session {SessionId}, channel {ChannelName}, mode {Mode}, session user {SessionUserId}, resolved playback user {PlaybackUserId}, event users {EventUserCount}.",
+            sessionId,
+            channel.Name,
+            contentMode,
+            eventArgs.Session.UserId,
+            playbackUserId,
+            eventArgs.Users?.Count ?? 0);
 
         _sessions[sessionId] = context;
 
@@ -290,6 +301,9 @@ public sealed class LiveTvPlaybackCoordinator
         string queueSeriesId,
         DateTime nowUtc)
     {
+        _ = queueSeriesId;
+        _ = nowUtc;
+
         if (!liveEntry.IsDynamicBlock
             || string.IsNullOrWhiteSpace(liveEntry.SourceSeriesId))
         {
@@ -299,54 +313,30 @@ public sealed class LiveTvPlaybackCoordinator
 
         var startedItemId = eventArgs.Item!.Id;
 
-        if (isPendingTarget)
+        // A watched-dependent block is always handed off to a concrete Jellyfin Episode
+        // using PlayNow. Once that exact episode reports PlaybackStart, the client is in
+        // normal VOD episode playback (episode title + elapsed/remaining duration), not in
+        // the Live TV wall-clock player.
+        if (isPendingTarget && context.PendingTargetItemId == startedItemId)
         {
             AcceptSourceStart(
                 context,
                 liveEntry,
                 startedItemId,
                 eventArgs.PlaySessionId,
-                context.PendingStartPositionTicks > 0);
+                startedFromResume: false);
             return;
         }
 
-        var correctSeriesBlock = string.Equals(
-            queueSeriesId,
-            liveEntry.SourceSeriesId,
-            StringComparison.OrdinalIgnoreCase);
-
-        if (isManagedQueueItem && correctSeriesBlock)
-        {
-            var resumeTicks = _episodeResolver.GetResumePosition(context.UserId, startedItemId);
-            var actualTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
-
-            if (resumeTicks > TransitionPositionTolerance.Ticks
-                && Math.Abs(resumeTicks - actualTicks) > TransitionPositionTolerance.Ticks)
-            {
-                await PlayDynamicManagedItemAsync(
-                    context,
-                    liveEntry,
-                    startedItemId,
-                    resumeTicks,
-                    "queued partial episode requires Jellyfin resume position").ConfigureAwait(false);
-                return;
-            }
-
-            AcceptSourceStart(
-                context,
-                liveEntry,
-                startedItemId,
-                eventArgs.PlaySessionId,
-                startedFromResume: resumeTicks > 0);
-            return;
-        }
-
-        if (isManagedQueueItem || awaitingContinuation)
+        // There is intentionally no pre-built dynamic episode queue in 1.9.1. If the Jellyfin
+        // client races ahead to a Next Up item at physical EOF, or a stale managed item starts,
+        // resolve the active schedule block again and issue a fresh single-episode PlayNow.
+        if (isManagedQueueItem || awaitingContinuation || isPendingTarget)
         {
             await PlayDynamicEntryAsync(
                 context,
                 liveEntry,
-                "dynamic queue no longer matches the current schedule block").ConfigureAwait(false);
+                "dynamic playback must be re-resolved from the active schedule block").ConfigureAwait(false);
             return;
         }
 
@@ -424,41 +414,35 @@ public sealed class LiveTvPlaybackCoordinator
         DateTime nowUtc,
         long continuationGeneration)
     {
+        _ = nowUtc;
+        _ = continuationGeneration;
+
         if (!liveEntry.IsDynamicBlock || string.IsNullOrWhiteSpace(liveEntry.SourceSeriesId))
         {
             EndSession(context.SessionId, "dynamic completion reached invalid schedule block");
             return;
         }
 
-        bool sameSeriesBlock;
-        bool hasQueuedNext;
-        bool startedFromResume;
-
+        string previousSeriesId;
         lock (context.Gate)
         {
-            sameSeriesBlock = string.Equals(
-                context.QueueSeriesId,
-                liveEntry.SourceSeriesId,
-                StringComparison.OrdinalIgnoreCase);
-
-            hasQueuedNext = GetNextManagedQueueItem(context) is not null;
-            startedFromResume = context.CurrentStartedFromResume;
+            previousSeriesId = context.QueueSeriesId;
         }
 
-        // A resumed partial item must re-run the resolver when it ends so another older
-        // partial episode is not skipped by a prebuilt zero-start queue.
-        if (sameSeriesBlock && hasQueuedNext && !startedFromResume)
-        {
-            ScheduleContinuationFallback(context.SessionId, continuationGeneration);
-            return;
-        }
+        var sameSeriesBlock = string.Equals(
+            previousSeriesId,
+            liveEntry.SourceSeriesId,
+            StringComparison.OrdinalIgnoreCase);
 
+        // Dynamic playback never assumes "next episode". Physical EOF is the synchronization
+        // point: consult the wall-clock schedule again, then resolve one episode from the
+        // series that owns the block that is active now.
         await PlayDynamicEntryAsync(
             context,
             liveEntry,
             sameSeriesBlock
-                ? "episode ended inside the same series block; resolve next unwatched"
-                : "episode ended after schedule moved to a different block").ConfigureAwait(false);
+                ? "episode ended; active block is still the same series"
+                : "episode ended; schedule has moved to another series block").ConfigureAwait(false);
     }
 
     private async Task HandleConcreteCompletionAsync(
@@ -530,10 +514,21 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
+        if (context.UserId == Guid.Empty)
+        {
+            _logger.LogError(
+                "Virtual TV cannot resolve {Mode} for channel {ChannelName}: no authenticated Jellyfin user was attached to session {SessionId}.",
+                context.ContentMode,
+                context.ChannelName,
+                context.SessionId);
+            EndSession(context.SessionId, "watched-dependent playback requires an authenticated user");
+            return;
+        }
+
         VirtualTvEpisodeResolver.EpisodeResolution resolution;
         try
         {
-            resolution = _episodeResolver.ResolveQueue(
+            resolution = _episodeResolver.ResolveEpisode(
                 context.UserId,
                 seriesId,
                 context.ContentMode,
@@ -550,83 +545,37 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        var queueItemIds = resolution.QueueItemIds.Length == 0
-            ? new[] { resolution.ItemId }
-            : resolution.QueueItemIds;
+        // Critical 1.9.1 rule: watched-dependent modes resolve exactly one concrete Episode,
+        // then open that Episode as normal Jellyfin VOD. The schedule's elapsed block time is
+        // NOT used as a playback offset. The selected episode always starts at 00:00.
+        var singleEpisode = new[] { resolution.ItemId };
 
         PreparePendingCommand(
             context,
             entry,
             resolution.ItemId,
-            queueItemIds,
+            singleEpisode,
             entry.SourceSeriesId,
-            resolution.StartPositionTicks);
+            startPositionTicks: 0);
 
         var command = new PlayRequest
         {
-            ItemIds = queueItemIds,
-            StartPositionTicks = resolution.StartPositionTicks,
+            ItemIds = singleEpisode,
+            StartPositionTicks = 0,
             StartIndex = 0,
             PlayCommand = PlayCommand.PlayNow
         };
 
         _logger.LogInformation(
-            "Virtual TV dynamic play command: session {SessionId}, channel {ChannelName}, series {SeriesName}, mode {Mode}, reason {Reason}, source {SourceItemId}, resume {ResumeSeconds:F1}s, queue {QueueCount} item(s).",
+            "Virtual TV dynamic VOD handoff: session {SessionId}, channel {ChannelName}, series {SeriesName}, mode {Mode}, reason {Reason}, selected episode {SourceItemId}, selection {SelectionReason}, previous Jellyfin position {PreviousSeconds:F1}s, playback starts 0.0s, queue size 1.",
             context.SessionId,
             context.ChannelName,
             entry.SeriesName,
             context.ContentMode,
             reason,
             resolution.ItemId,
-            TimeSpan.FromTicks(resolution.StartPositionTicks).TotalSeconds,
-            queueItemIds.Length);
-
-        await SendPlayCommandAsync(context, command).ConfigureAwait(false);
-    }
-
-    private async Task PlayDynamicManagedItemAsync(
-        SessionContext context,
-        VirtualTvScheduleEntry entry,
-        Guid itemId,
-        long startPositionTicks,
-        string reason)
-    {
-        Guid[] queueItemIds;
-        lock (context.Gate)
-        {
-            var index = Array.IndexOf(context.ManagedQueueOrder, itemId);
-            queueItemIds = index >= 0
-                ? context.ManagedQueueOrder.Skip(index).ToArray()
-                : [itemId];
-        }
-
-        if (queueItemIds.Length == 0)
-        {
-            queueItemIds = [itemId];
-        }
-
-        PreparePendingCommand(
-            context,
-            entry,
-            itemId,
-            queueItemIds,
-            entry.SourceSeriesId,
-            startPositionTicks);
-
-        var command = new PlayRequest
-        {
-            ItemIds = queueItemIds,
-            StartPositionTicks = startPositionTicks,
-            StartIndex = 0,
-            PlayCommand = PlayCommand.PlayNow
-        };
-
-        _logger.LogInformation(
-            "Virtual TV corrected queued partial episode {ItemId} to resume at {ResumeSeconds:F1}s for channel {ChannelName}: {Reason}.",
-            itemId,
-            TimeSpan.FromTicks(startPositionTicks).TotalSeconds,
-            context.ChannelName,
-            reason);
+            resolution.SelectionReason,
+            TimeSpan.FromTicks(resolution.PreviousPlaybackPositionTicks).TotalSeconds);
 
         await SendPlayCommandAsync(context, command).ConfigureAwait(false);
     }
@@ -812,22 +761,6 @@ public sealed class LiveTvPlaybackCoordinator
         return result.ToArray();
     }
 
-    private Guid? GetNextManagedQueueItem(SessionContext context)
-    {
-        if (!context.CurrentSourceItemId.HasValue || context.ManagedQueueOrder.Length == 0)
-        {
-            return null;
-        }
-
-        var index = Array.IndexOf(context.ManagedQueueOrder, context.CurrentSourceItemId.Value);
-        if (index < 0 || index + 1 >= context.ManagedQueueOrder.Length)
-        {
-            return null;
-        }
-
-        return context.ManagedQueueOrder[index + 1];
-    }
-
     private async Task EnsureContinuationAsync(string sessionId, long generation)
     {
         try
@@ -869,6 +802,25 @@ public sealed class LiveTvPlaybackCoordinator
 
     private void ScheduleContinuationFallback(string sessionId, long generation)
         => _ = EnsureContinuationAsync(sessionId, generation);
+
+    private static Guid ResolvePlaybackUserId(PlaybackStartEventArgs eventArgs)
+    {
+        if (eventArgs.Session is not null && eventArgs.Session.UserId != Guid.Empty)
+        {
+            return eventArgs.Session.UserId;
+        }
+
+        if (eventArgs.Users is not null)
+        {
+            var eventUser = eventArgs.Users.FirstOrDefault(user => user.Id != Guid.Empty);
+            if (eventUser is not null)
+            {
+                return eventUser.Id;
+            }
+        }
+
+        return Guid.Empty;
+    }
 
     private ChannelConfiguration? GetChannelConfiguration(string channelId)
         => Plugin.Instance?.Configuration.Channels.FirstOrDefault(
