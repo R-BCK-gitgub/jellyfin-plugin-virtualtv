@@ -48,7 +48,7 @@ public sealed class VirtualTvReconcileSchedulesTask : IScheduledTask
             cancellationToken.ThrowIfCancellationRequested();
             var channel = channels[index];
 
-            if (channel.NeedsReconcile)
+            if (channel.NeedsReconcile || _generator.HasReconcileChanges(channel))
             {
                 try
                 {
