@@ -124,7 +124,69 @@
     <div id="contentCount" class="vtv-count"></div>
     <div id="contentList" class="vtv-content-list"></div>
 
-    <div class="vtv-section-title">3. Operating hours</div>
+    <div id="seriesPlaybackSection">
+      <div class="vtv-section-title">3. Playback and schedule</div>
+      <div class="vtv-form-grid">
+        <div class="selectContainer">
+          <label class="selectLabel" for="contentMode">Playback mode</label>
+          <select id="contentMode" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="Sequential">Sequential</option>
+            <option value="NextUnwatched">Next Unwatched</option>
+            <option value="RandomUnwatched">Random Unwatched</option>
+            <option value="Random">Random</option>
+          </select>
+          <div class="fieldDescription" id="contentModeHelp"></div>
+        </div>
+
+        <div class="selectContainer">
+          <label class="selectLabel" for="schedulingMethod">Schedule strategy</label>
+          <select id="schedulingMethod" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="RepeatingOrder">Repeating Order</option>
+            <option value="RandomizedRotation">Randomized Rotation</option>
+            <option value="ManualOrder">Manual Order</option>
+            <option value="SmartSchedule">Smart Schedule</option>
+          </select>
+          <div class="fieldDescription" id="scheduleMethodHelp"></div>
+        </div>
+
+        <div class="selectContainer">
+          <label class="selectLabel" for="episodesPerTurn">Consecutive turns</label>
+          <select id="episodesPerTurn" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="1">1 episode / block</option>
+            <option value="2">2 episodes / blocks</option>
+          </select>
+          <div class="fieldDescription">How many consecutive turns a series receives before the schedule rotates to another selected series.</div>
+        </div>
+
+        <div id="blockMinutesContainer" class="selectContainer" style="display:none;">
+          <label class="selectLabel" for="blockMinutes">Block duration</label>
+          <select id="blockMinutes" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="20">20 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="40">40 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60">60 minutes</option>
+            <option value="75">75 minutes</option>
+            <option value="90">90 minutes</option>
+            <option value="120">120 minutes</option>
+          </select>
+          <div class="fieldDescription">Next Unwatched and Random Unwatched use one fixed block size for the whole channel. Changing it requires Generate schedule again.</div>
+        </div>
+
+        <div id="smartRotationContainer" class="selectContainer" style="display:none;">
+          <label class="selectLabel" for="smartRotationMonths">Smart Schedule refresh</label>
+          <select id="smartRotationMonths" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="1">Every 1 month</option>
+            <option value="2">Every 2 months</option>
+            <option value="3">Every 3 months</option>
+            <option value="6">Every 6 months</option>
+          </select>
+          <div class="fieldDescription">The seven-day Sunday-to-Saturday template repeats until this rotation period expires, then Virtual TV generates a new template automatically.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="vtv-section-title">4. Operating hours</div>
     <div class="checkboxContainer checkboxContainer-withDescription">
       <label class="emby-checkbox-label">
         <input id="is24Hours" type="checkbox" is="emby-checkbox">
@@ -183,6 +245,15 @@
       c.Is24Hours=c.Is24Hours===true;
       c.OnAirStart=c.OnAirStart||'07:00';
       c.OffAirStart=c.OffAirStart||'02:00';
+      c.ContentMode=c.ChannelType==='Movies'
+        ? 'RandomShuffleCycle'
+        : (['Sequential','NextUnwatched','RandomUnwatched','Random'].indexOf(c.ContentMode)!==-1?c.ContentMode:'Sequential');
+      c.SchedulingMethod=c.ChannelType==='Movies'
+        ? ''
+        : (c.SchedulingMethod==='RepeatingSchedule'?'RepeatingOrder':(['RepeatingOrder','RandomizedRotation','ManualOrder','SmartSchedule'].indexOf(c.SchedulingMethod)!==-1?c.SchedulingMethod:'RepeatingOrder'));
+      c.BlockMinutes=[20,30,40,45,60,75,90,120].indexOf(Number(c.BlockMinutes))!==-1?Number(c.BlockMinutes):30;
+      c.EpisodesPerTurn=Number(c.EpisodesPerTurn)===2?2:1;
+      c.SmartRotationMonths=[1,2,3,6].indexOf(Number(c.SmartRotationMonths))!==-1?Number(c.SmartRotationMonths):2;
     });
     return config;
   }
@@ -214,8 +285,28 @@
     return c.Is24Hours?'24 Hours':(c.OnAirStart||'07:00')+' – '+(c.OffAirStart||'02:00');
   }
 
+  function contentModeLabel(value){
+    if(value==='NextUnwatched')return 'Next Unwatched';
+    if(value==='RandomUnwatched')return 'Random Unwatched';
+    if(value==='Random')return 'Random';
+    return 'Sequential';
+  }
+
+  function scheduleMethodLabel(value){
+    if(value==='RandomizedRotation')return 'Randomized Rotation';
+    if(value==='ManualOrder')return 'Manual Order';
+    if(value==='SmartSchedule')return 'Smart Schedule';
+    return 'Repeating Order';
+  }
+
   function modeLabel(c){
-    return c.ChannelType==='Movies'?'Random / Shuffle Cycle':'Sequential · Repeating Schedule';
+    if(c.ChannelType==='Movies')return 'Random / Shuffle Cycle';
+
+    var detail=scheduleMethodLabel(c.SchedulingMethod);
+    if(c.ContentMode==='NextUnwatched'||c.ContentMode==='RandomUnwatched'){
+      detail+=' · '+c.BlockMinutes+' min';
+    }
+    return contentModeLabel(c.ContentMode)+' · '+detail;
   }
 
   function scheduleLabel(c){
@@ -281,10 +372,45 @@
 
   function setTypeUi(){
     var movies=page.querySelector('#channelType').value==='Movies';
-    page.querySelector('#modeDisplay').value=movies?'Random / Shuffle Cycle':'Sequential · Repeating Schedule';
+    page.querySelector('#seriesPlaybackSection').style.display=movies?'none':'';
+    page.querySelector('#modeDisplay').value=movies
+      ? 'Random / Shuffle Cycle'
+      : contentModeLabel(page.querySelector('#contentMode').value)+' · '+scheduleMethodLabel(page.querySelector('#schedulingMethod').value);
     page.querySelector('#libraryHelp').textContent=movies
       ? 'Only Jellyfin libraries configured as Movies are available for a movie channel.'
       : 'Only Jellyfin libraries configured as Shows are available for a series channel.';
+    updateSeriesModeUi();
+  }
+
+  function updateSeriesModeUi(){
+    var mode=page.querySelector('#contentMode').value;
+    var method=page.querySelector('#schedulingMethod').value;
+    var dynamic=mode==='NextUnwatched'||mode==='RandomUnwatched';
+
+    page.querySelector('#blockMinutesContainer').style.display=dynamic?'':'none';
+    page.querySelector('#smartRotationContainer').style.display=method==='SmartSchedule'?'':'none';
+
+    page.querySelector('#contentModeHelp').textContent=
+      mode==='NextUnwatched'
+        ? 'Uses Jellyfin progress: resume the earliest partial episode, otherwise play the oldest unwatched episode. When everything is watched, fall back to Random.'
+        : mode==='RandomUnwatched'
+          ? 'Uses Jellyfin progress and chooses randomly from episodes that are not watched yet. When everything is watched, fall back to Random.'
+          : mode==='Random'
+            ? 'Chooses episodes randomly and does not change Jellyfin watched or resume state.'
+            : 'Plays episodes in chronological order and does not change Jellyfin watched or resume state.';
+
+    page.querySelector('#scheduleMethodHelp').textContent=
+      method==='SmartSchedule'
+        ? 'Builds a seven-day Sunday-to-Saturday TV-style template and repeats it for the selected refresh period.'
+        : method==='RandomizedRotation'
+          ? 'Uses every selected series in randomized cycles while avoiding an immediate adjacent repeat.'
+          : method==='ManualOrder'
+            ? 'Uses the order in which titles were selected in the Content section.'
+            : 'Repeats the selected series in a stable alphabetical rotation.';
+
+    if(page.querySelector('#channelType').value!=='Movies'){
+      page.querySelector('#modeDisplay').value=contentModeLabel(mode)+' · '+scheduleMethodLabel(method);
+    }
   }
 
   function renderLibraries(){
@@ -494,6 +620,11 @@
     page.querySelector('#channelType').value='Series';
     page.querySelector('#channelType').disabled=false;
     page.querySelector('#contentFilter').value='';
+    page.querySelector('#contentMode').value='Sequential';
+    page.querySelector('#schedulingMethod').value='RepeatingOrder';
+    page.querySelector('#episodesPerTurn').value='1';
+    page.querySelector('#blockMinutes').value='30';
+    page.querySelector('#smartRotationMonths').value='2';
     page.querySelector('#is24Hours').checked=false;
     page.querySelector('#onAirStart').value='07:00';
     page.querySelector('#offAirStart').value='02:00';
@@ -519,6 +650,11 @@
       page.querySelector('#channelNumber').value=c.Number||1;
       page.querySelector('#channelType').value=c.ChannelType||'Series';
       page.querySelector('#channelType').disabled=true;
+      page.querySelector('#contentMode').value=c.ContentMode||'Sequential';
+      page.querySelector('#schedulingMethod').value=c.SchedulingMethod||'RepeatingOrder';
+      page.querySelector('#episodesPerTurn').value=String(c.EpisodesPerTurn||1);
+      page.querySelector('#blockMinutes').value=String(c.BlockMinutes||30);
+      page.querySelector('#smartRotationMonths').value=String(c.SmartRotationMonths||2);
       page.querySelector('#is24Hours').checked=c.Is24Hours===true;
       page.querySelector('#onAirStart').value=c.OnAirStart||'07:00';
       page.querySelector('#offAirStart').value=c.OffAirStart||'02:00';
@@ -656,12 +792,22 @@
 
     var existing=state.editingId?state.config.Channels.find(function(c){return c.Id===state.editingId;}):null;
     var type=existing?existing.ChannelType:page.querySelector('#channelType').value;
+    var contentMode=type==='Movies'?'RandomShuffleCycle':page.querySelector('#contentMode').value;
+    var schedulingMethod=type==='Movies'?'':page.querySelector('#schedulingMethod').value;
+    var blockMinutes=parseInt(page.querySelector('#blockMinutes').value,10)||30;
+    var episodesPerTurn=parseInt(page.querySelector('#episodesPerTurn').value,10)===2?2:1;
+    var smartRotationMonths=parseInt(page.querySelector('#smartRotationMonths').value,10)||2;
     var scheduleChanged=false;
 
     if(existing){
       scheduleChanged=
         !arraysEqual(existing.SelectedLibraryIds,state.selectedLibraryIds)
         || !arraysEqual(existing.SelectedItemIds,state.selectedItemIds)
+        || String(existing.ContentMode||'Sequential')!==String(contentMode)
+        || String(existing.SchedulingMethod||'RepeatingOrder')!==String(schedulingMethod)
+        || Number(existing.BlockMinutes||30)!==Number(blockMinutes)
+        || Number(existing.EpisodesPerTurn||1)!==Number(episodesPerTurn)
+        || Number(existing.SmartRotationMonths||2)!==Number(smartRotationMonths)
         || existing.Is24Hours!==page.querySelector('#is24Hours').checked
         || String(existing.OnAirStart||'07:00')!==String(page.querySelector('#onAirStart').value||'07:00')
         || String(existing.OffAirStart||'02:00')!==String(page.querySelector('#offAirStart').value||'02:00');
@@ -680,8 +826,11 @@
     existing.Name=name;
     existing.Number=number;
     existing.ChannelType=type;
-    existing.ContentMode=type==='Movies'?'RandomShuffleCycle':'Sequential';
-    existing.SchedulingMethod=type==='Series'?'RepeatingSchedule':'';
+    existing.ContentMode=contentMode;
+    existing.SchedulingMethod=schedulingMethod;
+    existing.BlockMinutes=blockMinutes;
+    existing.EpisodesPerTurn=episodesPerTurn;
+    existing.SmartRotationMonths=smartRotationMonths;
     existing.SelectedLibraryIds=state.selectedLibraryIds.slice();
     existing.SelectedItemIds=state.selectedItemIds.slice();
     existing.VisibleToAllUsers=true;
@@ -807,6 +956,8 @@
     renderContentList();
   });
 
+  page.querySelector('#contentMode').addEventListener('change',updateSeriesModeUi);
+  page.querySelector('#schedulingMethod').addEventListener('change',updateSeriesModeUi);
   page.querySelector('#is24Hours').addEventListener('change',updateHours);
   page.querySelector('#contentFilter').addEventListener('input',renderContentList);
 
