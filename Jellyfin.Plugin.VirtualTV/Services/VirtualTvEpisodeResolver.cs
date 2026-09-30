@@ -8,13 +8,12 @@ using MediaBrowser.Controller.Library;
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
-/// Resolves user-specific episodes for Next Unwatched and Random Unwatched blocks.
-/// The schedule selects the series; this resolver selects the actual episode.
+/// Resolves the single library episode that must be opened for a watched-dependent
+/// Virtual TV series block. The schedule selects the series; this resolver selects
+/// the concrete episode for the active Jellyfin user.
 /// </summary>
 public sealed class VirtualTvEpisodeResolver
 {
-    private const int QueueLength = 8;
-
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
     private readonly IUserDataManager _userDataManager;
@@ -29,72 +28,88 @@ public sealed class VirtualTvEpisodeResolver
         _userDataManager = userDataManager;
     }
 
-    public EpisodeResolution ResolveQueue(
+    public EpisodeResolution ResolveEpisode(
         Guid userId,
         Guid seriesId,
         string contentMode,
         Guid? lastItemId)
     {
+        if (userId == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Virtual TV cannot resolve a watched-dependent episode without an active Jellyfin user.");
+        }
+
+        var user = _userManager.GetUserById(userId)
+            ?? throw new InvalidOperationException(
+                "Virtual TV could not resolve the active Jellyfin user for watched-dependent playback.");
+
         var episodes = GetEpisodes(seriesId);
         if (episodes.Count == 0)
         {
             throw new InvalidOperationException("The scheduled series has no playable episodes.");
         }
 
-        var user = userId == Guid.Empty ? null : _userManager.GetUserById(userId);
-        var states = episodes.Select(item =>
-        {
-            var data = user is null ? null : _userDataManager.GetUserData(user, item);
-            return new Candidate(
-                item,
-                data?.Played == true,
-                Math.Max(0, data?.PlaybackPositionTicks ?? 0));
-        }).ToList();
+        var candidates = episodes
+            .Select(item =>
+            {
+                var data = _userDataManager.GetUserData(user, item);
+                return new Candidate(
+                    item,
+                    data?.Played == true,
+                    Math.Max(0, data?.PlaybackPositionTicks ?? 0));
+            })
+            .ToList();
 
-        List<Candidate> ordered;
+        Candidate selected;
+        string selectionReason;
+
         if (string.Equals(contentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase))
         {
-            ordered = BuildRandomUnwatched(states, lastItemId);
+            var unwatched = candidates
+                .Where(candidate => !candidate.Played)
+                .ToList();
+
+            if (unwatched.Count > 0)
+            {
+                selected = PickRandom(unwatched, lastItemId);
+                selectionReason = "RandomUnwatched";
+            }
+            else
+            {
+                selected = PickRandom(candidates, lastItemId);
+                selectionReason = "RandomFallback";
+            }
         }
         else
         {
-            ordered = BuildNextUnwatched(states, lastItemId);
-        }
+            // Next Unwatched is coverage-first chronological. A later partially watched
+            // episode never jumps ahead of an earlier never-started episode. Played=false
+            // already includes both never-started and partially watched episodes.
+            var next = candidates
+                .Where(candidate => !candidate.Played)
+                .OrderBy(candidate => candidate.Item.ParentIndexNumber ?? int.MaxValue)
+                .ThenBy(candidate => candidate.Item.IndexNumber ?? int.MaxValue)
+                .ThenBy(candidate => candidate.Item.PremiereDate ?? DateTime.MaxValue)
+                .ThenBy(candidate => candidate.Item.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
 
-        if (ordered.Count == 0)
-        {
-            ordered = BuildRandomFallback(states, lastItemId);
+            if (next is not null)
+            {
+                selected = next;
+                selectionReason = "NextUnwatched";
+            }
+            else
+            {
+                selected = PickRandom(candidates, lastItemId);
+                selectionReason = "RandomFallback";
+            }
         }
-
-        var first = ordered[0];
-        var ids = ordered
-            .Take(QueueLength)
-            .Select(candidate => candidate.Item.Id)
-            .Distinct()
-            .ToArray();
 
         return new EpisodeResolution(
-            first.Item.Id,
-            first.PlaybackPositionTicks,
-            ids);
-    }
-
-    public long GetResumePosition(Guid userId, Guid itemId)
-    {
-        if (userId == Guid.Empty)
-        {
-            return 0;
-        }
-
-        var user = _userManager.GetUserById(userId);
-        var item = _libraryManager.GetItemById(itemId);
-        if (user is null || item is null)
-        {
-            return 0;
-        }
-
-        var data = _userDataManager.GetUserData(user, item);
-        return data is { Played: false } ? Math.Max(0, data.PlaybackPositionTicks) : 0;
+            selected.Item.Id,
+            selected.PlaybackPositionTicks,
+            selectionReason);
     }
 
     private List<BaseItem> GetEpisodes(Guid seriesId)
@@ -104,104 +119,48 @@ public sealed class VirtualTvEpisodeResolver
             AncestorIds = [seriesId],
             IsVirtualItem = false
         })
+        // Season 0 / Specials stay excluded until the dedicated season/specials feature is
+        // implemented. Normal episodes remain deterministically ordered by season/episode.
         .Where(item => item.ParentIndexNumber.GetValueOrDefault() != 0)
-        .OrderBy(item => item.PremiereDate ?? DateTime.MaxValue)
-        .ThenBy(item => item.ParentIndexNumber ?? int.MaxValue)
+        .OrderBy(item => item.ParentIndexNumber ?? int.MaxValue)
         .ThenBy(item => item.IndexNumber ?? int.MaxValue)
+        .ThenBy(item => item.PremiereDate ?? DateTime.MaxValue)
         .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    private static List<Candidate> BuildNextUnwatched(
+    private static Candidate PickRandom(
         IReadOnlyList<Candidate> candidates,
         Guid? lastItemId)
     {
-        // Next Unwatched intentionally excludes episodes without an air date. This keeps
-        // chronological progression deterministic; undated episodes remain available to Random.
-        var eligible = candidates
-            .Where(candidate => candidate.Item.PremiereDate.HasValue && !candidate.Played)
-            .ToList();
-
-        var partial = eligible
-            .Where(candidate => candidate.PlaybackPositionTicks > 0)
-            .OrderBy(candidate => candidate.Item.PremiereDate)
-            .ThenBy(candidate => candidate.Item.ParentIndexNumber ?? int.MaxValue)
-            .ThenBy(candidate => candidate.Item.IndexNumber ?? int.MaxValue)
-            .ToList();
-
-        var fresh = eligible
-            .Where(candidate => candidate.PlaybackPositionTicks == 0)
-            .OrderBy(candidate => candidate.Item.PremiereDate)
-            .ThenBy(candidate => candidate.Item.ParentIndexNumber ?? int.MaxValue)
-            .ThenBy(candidate => candidate.Item.IndexNumber ?? int.MaxValue)
-            .ToList();
-
-        var result = partial.Concat(fresh).ToList();
-        AvoidImmediateRepeat(result, lastItemId);
-        return result;
-    }
-
-    private static List<Candidate> BuildRandomUnwatched(
-        IReadOnlyList<Candidate> candidates,
-        Guid? lastItemId)
-    {
-        var result = candidates
-            .Where(candidate => !candidate.Played)
-            .ToList();
-
-        Shuffle(result);
-        AvoidImmediateRepeat(result, lastItemId);
-
-        // If a partially watched episode is selected first, Jellyfin can resume it. Later
-        // queue entries start at zero, so keep additional partial episodes out of the prebuilt
-        // queue; they will be reconsidered the next time the block resolves.
-        if (result.Count > 0 && result[0].PlaybackPositionTicks > 0)
+        if (candidates.Count == 0)
         {
-            var first = result[0];
-            result = new[] { first }
-                .Concat(result.Skip(1).Where(candidate => candidate.PlaybackPositionTicks == 0))
-                .ToList();
+            throw new InvalidOperationException("No eligible episode is available.");
         }
 
-        return result;
-    }
-
-    private static List<Candidate> BuildRandomFallback(
-        IReadOnlyList<Candidate> candidates,
-        Guid? lastItemId)
-    {
-        var result = candidates.ToList();
-        Shuffle(result);
-        AvoidImmediateRepeat(result, lastItemId);
-        return result;
-    }
-
-    private static void AvoidImmediateRepeat(List<Candidate> candidates, Guid? lastItemId)
-    {
-        if (!lastItemId.HasValue || candidates.Count < 2 || candidates[0].Item.Id != lastItemId.Value)
+        if (candidates.Count == 1)
         {
-            return;
+            return candidates[0];
         }
 
-        var replacementIndex = candidates.FindIndex(1, candidate => candidate.Item.Id != lastItemId.Value);
-        if (replacementIndex > 0)
+        var selectable = lastItemId.HasValue
+            ? candidates.Where(candidate => candidate.Item.Id != lastItemId.Value).ToArray()
+            : candidates.ToArray();
+
+        if (selectable.Length == 0)
         {
-            (candidates[0], candidates[replacementIndex]) = (candidates[replacementIndex], candidates[0]);
+            selectable = candidates.ToArray();
         }
+
+        return selectable[Random.Shared.Next(selectable.Length)];
     }
 
-    private static void Shuffle<T>(IList<T> list)
-    {
-        for (var i = list.Count - 1; i > 0; i--)
-        {
-            var j = Random.Shared.Next(i + 1);
-            (list[i], list[j]) = (list[j], list[i]);
-        }
-    }
-
-    private sealed record Candidate(BaseItem Item, bool Played, long PlaybackPositionTicks);
+    private sealed record Candidate(
+        BaseItem Item,
+        bool Played,
+        long PlaybackPositionTicks);
 
     public sealed record EpisodeResolution(
         Guid ItemId,
-        long StartPositionTicks,
-        Guid[] QueueItemIds);
+        long PreviousPlaybackPositionTicks,
+        string SelectionReason);
 }
