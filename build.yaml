@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.9.0.0"
+version: "1.9.1.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Dynamic series playback milestone: adds Sequential, Next Unwatched, Random Unwatched and Random modes; fixed 20/30/40/45/60/75/90/120-minute unwatched blocks; Repeating Order, Randomized Rotation, Manual Order and Smart Schedule strategies; one/two consecutive turns; automatic Smart Schedule rotation refresh; and strict Jellyfin state policy so only the two Unwatched modes write watched/resume progress.
+  Watched-dependent playback correction: Next Unwatched now selects the earliest chronologically unwatched episode for the active Jellyfin user; Random Unwatched selects only from that user's unwatched pool. Both modes hand off exactly one resolved Episode to normal Jellyfin VOD playback at 00:00, so episode title, elapsed/remaining duration, seek and subtitle behavior match the proven Sequential player. Episode completion always re-queries the active schedule block before resolving the next episode. Sequential playback is unchanged.
