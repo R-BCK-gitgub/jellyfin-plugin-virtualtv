@@ -97,7 +97,7 @@ public sealed class VirtualTvEpisodeResolver
         return data is { Played: false } ? Math.Max(0, data.PlaybackPositionTicks) : 0;
     }
 
-    private List<Candidate> GetEpisodes(Guid seriesId)
+    private List<BaseItem> GetEpisodes(Guid seriesId)
         => _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Episode],
@@ -109,7 +109,6 @@ public sealed class VirtualTvEpisodeResolver
         .ThenBy(item => item.ParentIndexNumber ?? int.MaxValue)
         .ThenBy(item => item.IndexNumber ?? int.MaxValue)
         .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-        .Select(item => new Candidate(item, false, 0))
         .ToList();
 
     private static List<Candidate> BuildNextUnwatched(
