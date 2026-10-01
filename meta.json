@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Removes the Personalized TV metadata-protection layer entirely. Sequential, Random and other non-watched-dependent Personalized modes now resolve the current Guide item, send one isolated one-item PlayNow without StartPositionTicks, and then leave Jellyfin's normal VOD playback and user-state handling alone until stop or EOF. They no longer snapshot, restore, suppress or rewrite Watched, Resume, PlayCount, stream selections or Continue Watching. Next Unwatched and Random Unwatched are intentionally unchanged and retain their existing zero-start plus guarded Resume-first behavior. Standard TV is intentionally unchanged. The 2-second Loading handoff, one-item queue and EOF-to-Loading re-resolution remain intact. Obsolete state-protection code, DI wiring and event logic are removed.",
+  "changelog": "Unifies Personalized TV VOD startup on the exact playback path already proven stable by Next Unwatched and Random Unwatched. Sequential, Random and other traditional Personalized modes now send the same isolated one-item PlayNow with StartPositionTicks=1 and no special null/start-position branch. Their pending Resume is always zero, so no follow-up seek or playback command occurs after PlayNow. Next Unwatched and Random Unwatched keep their existing selection and Resume-first behavior unchanged. Standard TV is unchanged. Obsolete omitStartPosition/start-mode branching and related temporary variables have been removed. The 2-second Loading handoff, one-item queue, no-Next-Up behavior, normal Jellyfin metadata handling and EOF-to-Loading Guide re-resolution remain intact.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.14.0",
+  "version": "1.10.15.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

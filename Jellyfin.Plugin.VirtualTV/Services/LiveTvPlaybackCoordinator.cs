@@ -711,16 +711,16 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         // Traditional Personalized TV uses the Guide only to choose WHAT is on.
-        // After that, the plugin does not inspect, snapshot, restore or rewrite Jellyfin
-        // user state and it does not force a start position.
+        // Playback then uses the exact same isolated VOD startup path as the proven
+        // Next/Random Unwatched modes. A traditional item has no pending Resume, so
+        // there is no follow-up seek or any other command after PlayNow.
         PrepareVodHandoff(context, entry, sourceItemId, 0);
 
         await SendIsolatedVodPlayNowAsync(
             context,
             sourceItemId,
             0,
-            reason + "; concrete Personalized TV normal Jellyfin playback",
-            omitStartPosition: true).ConfigureAwait(false);
+            reason + "; concrete Personalized TV").ConfigureAwait(false);
     }
 
     private async Task PlayTraditionalFallbackAsync(
@@ -749,15 +749,14 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             fallback.Id,
             0,
-            reason + "; local fallback; normal Jellyfin playback",
-            omitStartPosition: true).ConfigureAwait(false);
+            reason + "; local fallback").ConfigureAwait(false);
     }
 
     private void PrepareVodHandoff(
         SessionContext context,
         VirtualTvScheduleEntry entry,
         Guid targetItemId,
-        long requestedStartTicks)
+        long resumePositionTicks)
     {
         lock (context.Gate)
         {
@@ -769,7 +768,7 @@ public sealed class LiveTvPlaybackCoordinator
             context.Phase = PlaybackPhase.AwaitingVod;
             context.ReplacingPlaySessionId = context.BootstrapPlaySessionId;
             context.PendingVodItemId = targetItemId;
-            context.PendingResumeTicks = Math.Max(0, requestedStartTicks);
+            context.PendingResumeTicks = Math.Max(0, resumePositionTicks);
             context.ResumeSeekScheduled = false;
             context.CurrentEntryId = entry.Id;
         }
@@ -790,9 +789,8 @@ public sealed class LiveTvPlaybackCoordinator
     private async Task SendIsolatedVodPlayNowAsync(
         SessionContext context,
         Guid itemId,
-        long startPositionTicks,
-        string reason,
-        bool omitStartPosition = false)
+        long resumePositionTicks,
+        string reason)
     {
         var gate = _commandGates.GetOrAdd(context.SessionId, _ => new SemaphoreSlim(1, 1));
 
@@ -838,28 +836,27 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
-            // Next/Random Unwatched keep their already-proven zero-start + guarded Resume
-            // path. Traditional Personalized TV omits StartPositionTicks completely: the
-            // plugin chooses the item, then leaves normal Jellyfin VOD playback alone.
-            var requestedStartTicks = Math.Max(0, startPositionTicks);
-            var isolatedStartTicks = 1L;
+            // Every Personalized TV mode now initializes VOD identically. One concrete item,
+            // one PlayNow, and one near-zero start tick. Traditional modes stop here.
+            // Next/Random Unwatched may later issue the existing single guarded Resume seek
+            // only when their resolver supplied a real Resume position.
+            var resumeTicks = Math.Max(0, resumePositionTicks);
 
             var request = new PlayRequest
             {
                 ItemIds = new[] { itemId },
-                StartPositionTicks = omitStartPosition ? null : isolatedStartTicks,
+                StartPositionTicks = 1L,
                 StartIndex = 0,
                 PlayCommand = PlayCommand.PlayNow,
                 ControllingUserId = context.UserId
             };
 
             _logger.LogInformation(
-                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, start mode {StartMode}, requested Resume {StartSeconds:F1}s; reason {Reason}.",
+                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, start 1 tick, pending Resume {ResumeSeconds:F1}s; reason {Reason}.",
                 context.Generation,
                 context.SessionId,
                 itemId,
-                omitStartPosition ? "normal Jellyfin" : "zero then optional Resume",
-                TimeSpan.FromTicks(requestedStartTicks).TotalSeconds,
+                TimeSpan.FromTicks(resumeTicks).TotalSeconds,
                 reason);
 
             var messageId = Guid.NewGuid();

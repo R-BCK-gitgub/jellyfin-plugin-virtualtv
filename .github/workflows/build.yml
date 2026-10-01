@@ -85,7 +85,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.14.0" or len(set(values.values()))!=1:
+          if version!="1.10.15.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
           PY
 
@@ -103,26 +103,36 @@ jobs:
 
           root=Path("Jellyfin.Plugin.VirtualTV")
           c=(root/"Services/LiveTvPlaybackCoordinator.cs").read_text()
-          policy=(root/"Services/VirtualTvModePolicy.cs").read_text()
-          reg=(root/"PluginServiceRegistrator.cs").read_text()
-          stop=(root/"Events/VirtualTvPlaybackStopConsumer.cs").read_text()
           e=(root/"Services/VirtualTvEpisodeResolver.cs").read_text()
           m=(root/"Services/VirtualTvMovieResolver.cs").read_text()
+          reg=(root/"PluginServiceRegistrator.cs").read_text()
+          stop=(root/"Events/VirtualTvPlaybackStopConsumer.cs").read_text()
 
-          for token in [
+          # Baseline architecture: one Personalized VOD startup implementation for every mode.
+          required=[
               'BootstrapBuffer = TimeSpan.FromSeconds(2)',
+              'private async Task SendIsolatedVodPlayNowAsync(',
               'ItemIds = new[] { itemId }',
+              'StartPositionTicks = 1L',
+              'StartIndex = 0',
               'PlayCommand = PlayCommand.PlayNow',
-              'StartPositionTicks = omitStartPosition ? null : isolatedStartTicks',
-              'omitStartPosition: true',
-              'normal Jellyfin playback',
+              'SessionMessageType.Play',
+              'queue length 1',
+              'PrepareVodHandoff(context, entry, sourceItemId, 0)',
+              'reason + "; concrete Personalized TV"',
               'CompleteResumeSeekAsync',
               'await ReturnToBootstrapAsync(context, "physical VOD EOF")',
-          ]:
-              if token not in c:
-                  raise SystemExit(f"Playback invariant missing: {token}")
+          ]
+          missing=[x for x in required if x not in c]
+          if missing:
+              raise SystemExit(f"Personalized baseline invariant missing: {missing}")
 
-          for forbidden in [
+          # No second/special traditional startup path is allowed.
+          forbidden=[
+              'omitStartPosition',
+              'StartPositionTicks = null',
+              'isolatedStartTicks',
+              'requestedStartTicks',
               'PlaybackStateProtectionManager',
               'TracksJellyfinState',
               'BeginProtection',
@@ -131,43 +141,62 @@ jobs:
               'GridSeek',
               'WallClock',
               'CalculateConcreteTargetTicks',
-          ]:
-              if forbidden in c+policy+reg+stop:
-                  raise SystemExit(f"Obsolete playback/state logic remains: {forbidden}")
+          ]
+          present=[x for x in forbidden if x in c+reg+stop]
+          if present:
+              raise SystemExit(f"Obsolete/special playback logic remains: {present}")
 
-          if (root/"Services/PlaybackStateProtectionManager.cs").exists():
-              raise SystemExit("Obsolete PlaybackStateProtectionManager.cs still exists.")
+          if c.count('private async Task SendIsolatedVodPlayNowAsync(') != 1:
+              raise SystemExit("Personalized VOD startup implementation is duplicated.")
+          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
+              raise SystemExit("Resume must remain the only automatic Playstate command.")
 
+          # Traditional Personalized: Guide selects item, pending Resume is zero, same PlayNow.
           concrete_start=c.index('private async Task PlayConcreteEntryAsync')
           concrete_end=c.index('private async Task PlayTraditionalFallbackAsync',concrete_start)
           concrete=c[concrete_start:concrete_end]
-          if 'omitStartPosition: true' not in concrete:
-              raise SystemExit("Traditional Personalized still forces a start position.")
-          for forbidden in ['PlaybackPositionTicks','Played','PlayCount','SendPlaystateCommand']:
+          for token in [
+              'PrepareVodHandoff(context, entry, sourceItemId, 0)',
+              'SendIsolatedVodPlayNowAsync(',
+              'sourceItemId,\n            0,',
+          ]:
+              if token not in concrete:
+                  raise SystemExit(f"Traditional Personalized does not use common VOD path: {token}")
+          for forbidden in ['SendPlaystateCommand','PlaybackPositionTicks','Played','PlayCount','Task.Delay']:
               if forbidden in concrete:
-                  raise SystemExit(f"Traditional Personalized inspects/mutates user state: {forbidden}")
+                  raise SystemExit(f"Traditional Personalized has unexpected post-selection logic: {forbidden}")
 
-          # Next/Random Unwatched Resume-first behavior is deliberately untouched.
-          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
-              raise SystemExit("Resume must remain the only automatic Playstate command.")
-          for token in ['"NextResume"','"RandomResume"','startTicks = selected.PlaybackPositionTicks']:
+          # Next/Random Unwatched: item-selection + Resume semantics unchanged.
+          for token in [
+              '"NextResume"',
+              '"RandomResume"',
+              'startTicks = selected.PlaybackPositionTicks',
+              'selected = PickRandom(resumable, lastItemId)',
+              'selected = resumable[0]',
+          ]:
               if token not in e:
                   raise SystemExit(f"Series Resume-first invariant missing: {token}")
           for token in ['"RandomResume"','resume.PlaybackPositionTicks']:
               if token not in m:
                   raise SystemExit(f"Movie Resume-first invariant missing: {token}")
 
-          isolated_start=c.index('private async Task SendIsolatedVodPlayNowAsync')
-          isolated_end=c.index('private async Task CompleteResumeSeekAsync',isolated_start)
-          isolated=c[isolated_start:isolated_end]
-          for token in ['ItemIds = new[] { itemId }','SessionMessageType.Play','queue length 1']:
-              if token not in isolated:
-                  raise SystemExit(f"One-item VOD invariant missing: {token}")
+          # No metadata-rewrite service may return.
+          if (root/"Services/PlaybackStateProtectionManager.cs").exists():
+              raise SystemExit("Obsolete metadata-protection source still exists.")
 
-          print("Natural traditional Jellyfin playback and unchanged watched-dependent Resume validation passed.")
+          # EOF remains authoritative and re-enters via Loading/Guide, not a VOD queue.
+          for token in [
+              'if (!IsAtPhysicalEnd(eventArgs))',
+              'await ReturnToBootstrapAsync(context, "physical VOD EOF")',
+              'FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc)',
+          ]:
+              if token not in c:
+                  raise SystemExit(f"EOF re-entry invariant missing: {token}")
+
+          print("Single Personalized VOD startup path and unchanged Resume/EOF invariants passed.")
           PY
 
-      - name: Validate 1.10.14 scheduling, editing and coverage
+      - name: Validate 1.10.15 scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -194,7 +223,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.14.0"',
+              'data-ui-version="1.10.15.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -216,7 +245,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.14 UI missing: {missing}")
+              raise SystemExit(f"1.10.15 UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -266,7 +295,7 @@ jobs:
           from pathlib import Path
 
           root=Path("Jellyfin.Plugin.VirtualTV")
-          files=[
+          runtime=[
               root/"Services/LiveTvPlaybackCoordinator.cs",
               root/"Services/VirtualTvModePolicy.cs",
               root/"PluginServiceRegistrator.cs",
@@ -274,7 +303,7 @@ jobs:
               root/"Events/VirtualTvPlaybackProgressConsumer.cs",
               root/"Events/VirtualTvPlaybackStopConsumer.cs",
           ]
-          combined="\n".join(path.read_text() for path in files)
+          combined="\n".join(path.read_text() for path in runtime)
 
           if (root/"Services/PlaybackStateProtectionManager.cs").exists():
               raise SystemExit("Obsolete metadata-protection source still exists.")
@@ -292,7 +321,7 @@ jobs:
               if forbidden in combined:
                   raise SystemExit(f"Obsolete metadata-protection reference remains: {forbidden}")
 
-          print("Traditional Personalized uses normal Jellyfin Watched/Resume metadata with no plugin rewrite layer.")
+          print("Jellyfin owns VOD Watched/Resume metadata; plugin has no rewrite layer.")
           PY
 
       - name: Validate Virtual TV configuration JavaScript
@@ -340,7 +369,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.14.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.15.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -380,7 +409,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 1.10.14 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
+          echo "Embedded 1.10.15 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash
