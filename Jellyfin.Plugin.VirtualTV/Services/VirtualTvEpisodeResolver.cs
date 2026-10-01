@@ -9,8 +9,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
 /// Resolves the single library episode that must be opened for a watched-dependent
-/// Virtual TV series block. The schedule selects the series; this resolver selects
-/// the concrete episode for the active Jellyfin user.
+/// Personalized TV series block. Jellyfin watched/resume data is the source of truth.
 /// </summary>
 public sealed class VirtualTvEpisodeResolver
 {
@@ -49,6 +48,8 @@ public sealed class VirtualTvEpisodeResolver
             ?? throw new InvalidOperationException(
                 "The scheduled series has no eligible playable episodes.");
 
+        // The catalogue already supplies chronological episode order. Do not invent our own
+        // watched threshold: Played and PlaybackPositionTicks are Jellyfin's persisted state.
         var candidates = series.Episodes
             .Select(item =>
             {
@@ -60,49 +61,68 @@ public sealed class VirtualTvEpisodeResolver
             })
             .ToList();
 
+        var resumable = candidates
+            .Where(candidate => !candidate.Played && candidate.PlaybackPositionTicks > 0)
+            .ToList();
+        var neverStarted = candidates
+            .Where(candidate => !candidate.Played && candidate.PlaybackPositionTicks <= 0)
+            .ToList();
+
         Candidate selected;
+        long startTicks;
         string selectionReason;
 
         if (string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase))
         {
-            var unwatched = candidates
-                .Where(candidate => !candidate.Played)
-                .ToList();
-
-            if (unwatched.Count > 0)
+            if (resumable.Count > 0)
             {
-                selected = PickRandom(unwatched, lastItemId);
+                // Latest requirement: when several episodes are partially watched, Random
+                // Unwatched chooses randomly among those Resume candidates before touching
+                // any never-started episode.
+                selected = PickRandom(resumable, lastItemId);
+                startTicks = selected.PlaybackPositionTicks;
+                selectionReason = "RandomResume";
+            }
+            else if (neverStarted.Count > 0)
+            {
+                selected = PickRandom(neverStarted, lastItemId);
+                startTicks = 0;
                 selectionReason = "RandomUnwatched";
             }
             else
             {
                 selected = PickRandom(candidates, lastItemId);
+                startTicks = 0;
                 selectionReason = "RandomFallback";
             }
         }
         else
         {
-            // Coverage-first chronological. The catalogue already applied season/Specials
-            // eligibility and chronological ordering.
-            var next = candidates.FirstOrDefault(candidate => !candidate.Played);
-
-            if (next is not null)
+            if (resumable.Count > 0)
             {
-                selected = next;
+                // Next Unwatched is chronological: resume the earliest eligible partial
+                // episode before selecting a never-started episode.
+                selected = resumable[0];
+                startTicks = selected.PlaybackPositionTicks;
+                selectionReason = "NextResume";
+            }
+            else if (neverStarted.Count > 0)
+            {
+                selected = neverStarted[0];
+                startTicks = 0;
                 selectionReason = "NextUnwatched";
             }
             else
             {
                 selected = PickRandom(candidates, lastItemId);
+                startTicks = 0;
                 selectionReason = "RandomFallback";
             }
         }
 
-        // 1.9.1 was explicitly approved with watched-dependent series opening at 00:00.
-        // PreviousPlaybackPositionTicks is retained for logging/diagnostics only.
         return new EpisodeResolution(
             selected.Item.Id,
-            selected.PlaybackPositionTicks,
+            startTicks,
             selectionReason);
     }
 
@@ -139,6 +159,6 @@ public sealed class VirtualTvEpisodeResolver
 
     public sealed record EpisodeResolution(
         Guid ItemId,
-        long PreviousPlaybackPositionTicks,
+        long StartPositionTicks,
         string SelectionReason);
 }

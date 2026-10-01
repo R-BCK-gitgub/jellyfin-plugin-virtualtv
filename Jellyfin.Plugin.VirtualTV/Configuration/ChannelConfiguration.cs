@@ -15,6 +15,14 @@ public sealed class ChannelConfiguration
     public string Description { get; set; } = string.Empty;
 
     public int Number { get; set; }
+
+    /// <summary>
+    /// Playback architecture for the channel. Existing channels default to PersonalizedTV.
+    /// StandardTV is a true linear Live TV stream with a fully materialized schedule and no
+    /// per-user watched-state behavior.
+    /// </summary>
+    public string PlaybackExperience { get; set; } = "PersonalizedTV";
+
     public string ChannelType { get; set; } = "Series";
 
     /// <summary>

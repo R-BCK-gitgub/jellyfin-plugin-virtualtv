@@ -8,7 +8,8 @@ using MediaBrowser.Controller.Library;
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
-/// Resolves materialized Movie Random Unwatched blocks against the current Jellyfin state.
+/// Resolves materialized Personalized TV Movie Random Unwatched blocks against
+/// current Jellyfin watched/resume state.
 /// </summary>
 public sealed class VirtualTvMovieResolver
 {
@@ -54,27 +55,43 @@ public sealed class VirtualTvMovieResolver
                 Math.Max(0, data?.PlaybackPositionTicks ?? 0));
         }).ToList();
 
+        var resumable = candidates
+            .Where(item => !item.Played && item.PlaybackPositionTicks > 0)
+            .ToList();
+        if (resumable.Count > 0)
+        {
+            var resume = PickRandom(resumable, lastItemId);
+            return new MovieResolution(
+                resume.Item.Id,
+                resume.PlaybackPositionTicks,
+                !scheduledItemId.HasValue || resume.Item.Id != scheduledItemId.Value,
+                "RandomResume");
+        }
+
+        var neverStarted = candidates
+            .Where(item => !item.Played && item.PlaybackPositionTicks <= 0)
+            .ToList();
+
         if (scheduledItemId.HasValue
             && (!lastItemId.HasValue || scheduledItemId.Value != lastItemId.Value))
         {
-            var scheduled = candidates.FirstOrDefault(item => item.Item.Id == scheduledItemId.Value);
-            if (scheduled is not null && !scheduled.Played)
+            var scheduled = neverStarted.FirstOrDefault(item => item.Item.Id == scheduledItemId.Value);
+            if (scheduled is not null)
             {
                 return new MovieResolution(
                     scheduled.Item.Id,
-                    scheduled.PlaybackPositionTicks,
+                    0,
                     false,
                     "MaterializedUnwatched");
             }
         }
 
-        var unwatched = candidates.Where(item => !item.Played).ToList();
-        if (unwatched.Count > 0)
+        if (neverStarted.Count > 0)
         {
-            var replacement = PickRandom(unwatched, lastItemId);
+            var replacement = PickRandom(neverStarted, lastItemId);
             return new MovieResolution(
                 replacement.Item.Id,
-                replacement.PlaybackPositionTicks,
+                0,
                 scheduledItemId.HasValue,
                 "RuntimeUnwatchedReplacement");
         }
@@ -102,6 +119,11 @@ public sealed class VirtualTvMovieResolver
 
     private static Candidate PickRandom(IReadOnlyList<Candidate> source, Guid? lastItemId)
     {
+        if (source.Count == 0)
+        {
+            throw new InvalidOperationException("No eligible movie is available.");
+        }
+
         if (source.Count == 1)
         {
             return source[0];

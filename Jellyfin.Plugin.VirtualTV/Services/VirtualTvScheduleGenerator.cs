@@ -820,16 +820,25 @@ public sealed class VirtualTvScheduleGenerator
 
     private void Normalize(ChannelConfiguration channel)
     {
+        channel.PlaybackExperience = VirtualTvModePolicy.NormalizePlaybackExperience(channel.PlaybackExperience);
+        var standardTv = VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience);
+
         if (string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase))
         {
-            channel.ContentMode = string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase)
-                ? VirtualTvModePolicy.RandomUnwatched
-                : VirtualTvModePolicy.Random;
+            channel.ContentMode = standardTv
+                ? VirtualTvModePolicy.Random
+                : string.Equals(channel.ContentMode, VirtualTvModePolicy.RandomUnwatched, StringComparison.OrdinalIgnoreCase)
+                    ? VirtualTvModePolicy.RandomUnwatched
+                    : VirtualTvModePolicy.Random;
             channel.SchedulingMethod = string.Empty;
         }
         else
         {
-            channel.ContentMode = VirtualTvModePolicy.NormalizeContentMode(channel.ContentMode);
+            channel.ContentMode = standardTv
+                ? (string.Equals(channel.ContentMode, VirtualTvModePolicy.Random, StringComparison.OrdinalIgnoreCase)
+                    ? VirtualTvModePolicy.Random
+                    : VirtualTvModePolicy.Sequential)
+                : VirtualTvModePolicy.NormalizeContentMode(channel.ContentMode);
             channel.SchedulingMethod = VirtualTvModePolicy.NormalizeSchedulingMethod(channel.SchedulingMethod);
         }
 
@@ -848,6 +857,7 @@ public sealed class VirtualTvScheduleGenerator
     {
         var parts = new List<string>
         {
+            VirtualTvModePolicy.NormalizePlaybackExperience(channel.PlaybackExperience),
             channel.ChannelType,
             channel.ContentMode,
             channel.SchedulingMethod,

@@ -9,6 +9,9 @@ public static class VirtualTvModePolicy
     public const string RandomUnwatched = "RandomUnwatched";
     public const string Random = "Random";
 
+    public const string PersonalizedTV = "PersonalizedTV";
+    public const string StandardTV = "StandardTV";
+
     public const string RepeatingOrder = "RepeatingOrder";
     public const string RandomizedRotation = "RandomizedRotation";
     public const string ManualOrder = "ManualOrder";
@@ -17,6 +20,12 @@ public static class VirtualTvModePolicy
     public static bool IsDynamicUnwatched(string? mode)
         => string.Equals(mode, NextUnwatched, StringComparison.OrdinalIgnoreCase)
             || string.Equals(mode, RandomUnwatched, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsStandardTV(string? experience)
+        => string.Equals(experience, StandardTV, StringComparison.OrdinalIgnoreCase);
+
+    public static string NormalizePlaybackExperience(string? experience)
+        => IsStandardTV(experience) ? StandardTV : PersonalizedTV;
 
     public static bool TracksJellyfinState(string? mode)
         => IsDynamicUnwatched(mode);
@@ -47,7 +56,7 @@ public static class VirtualTvModePolicy
     }
 
     public static int NormalizeBlockMinutes(int minutes)
-        => minutes is 20 or 30 or 40 or 45 or 60 or 75 or 90 or 120 ? minutes : 30;
+        => minutes is 15 or 20 or 30 or 40 or 45 or 60 or 75 or 90 or 120 ? minutes : 30;
 
     public static int NormalizeEpisodesPerTurn(int count)
         => count == 2 ? 2 : 1;

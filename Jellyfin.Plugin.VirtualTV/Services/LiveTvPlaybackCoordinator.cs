@@ -22,9 +22,9 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///
 /// The Live TV layer never plays scheduled library media. It is only a neutral 10-second loading
 /// surface. PlaybackStart only arms the bootstrap; after the first real PlaybackProgress report,
-/// a fixed five-second buffer runs before the coordinator resolves the schedule/rules and sends one PlayNow
+/// a fixed 1.5-second buffer runs before the coordinator resolves the schedule/rules and sends one PlayNow
 /// for exactly one concrete episode/movie. At physical EOF it always returns to the Live TV
-/// bootstrap first; only after that bootstrap reports progress and then runs for five more seconds
+/// bootstrap first; only after that bootstrap reports progress and then runs for 1.5 more seconds
 /// does it resolve the next VOD.
 ///
 /// This keeps client state transitions explicit and serial, avoids VOD-to-VOD auto-next races, and
@@ -34,7 +34,8 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
-    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan VodSeekSettleBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
@@ -89,6 +90,12 @@ public sealed class LiveTvPlaybackCoordinator
             && string.Equals(liveChannel.ServiceName, VirtualTvLiveTvService.ServiceName, StringComparison.OrdinalIgnoreCase)
             && VirtualTvLiveTvService.TryGetConfigurationChannelId(liveChannel.ExternalId, out var configurationChannelId))
         {
+            var channel = GetChannelConfiguration(configurationChannelId);
+            if (channel is null || VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+            {
+                return;
+            }
+
             await HandleBootstrapStartAsync(eventArgs, liveChannel, configurationChannelId).ConfigureAwait(false);
             return;
         }
@@ -100,14 +107,37 @@ public sealed class LiveTvPlaybackCoordinator
     {
         if (eventArgs.Session is null
             || string.IsNullOrWhiteSpace(eventArgs.Session.Id)
-            || eventArgs.Item is not LiveTvChannel liveChannel
-            || !string.Equals(liveChannel.ServiceName, VirtualTvLiveTvService.ServiceName, StringComparison.OrdinalIgnoreCase)
-            || !VirtualTvLiveTvService.TryGetConfigurationChannelId(liveChannel.ExternalId, out var configurationChannelId))
+            || eventArgs.Item is null)
         {
             return Task.CompletedTask;
         }
 
-        var sessionId = eventArgs.Session.Id;
+        if (eventArgs.Item is LiveTvChannel liveChannel)
+        {
+            if (!string.Equals(liveChannel.ServiceName, VirtualTvLiveTvService.ServiceName, StringComparison.OrdinalIgnoreCase)
+                || !VirtualTvLiveTvService.TryGetConfigurationChannelId(liveChannel.ExternalId, out var configurationChannelId))
+            {
+                return Task.CompletedTask;
+            }
+
+            var channel = GetChannelConfiguration(configurationChannelId);
+            if (channel is null || VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+            {
+                return Task.CompletedTask;
+            }
+
+            return HandleBootstrapProgress(eventArgs, liveChannel, configurationChannelId);
+        }
+
+        return HandleVodProgress(eventArgs);
+    }
+
+    private Task HandleBootstrapProgress(
+        PlaybackProgressEventArgs eventArgs,
+        LiveTvChannel liveChannel,
+        string configurationChannelId)
+    {
+        var sessionId = eventArgs.Session!.Id;
         if (!_sessions.TryGetValue(sessionId, out var context)
             || context.LiveChannelItemId != liveChannel.Id
             || !string.Equals(context.ChannelId, configurationChannelId, StringComparison.OrdinalIgnoreCase))
@@ -122,27 +152,56 @@ public sealed class LiveTvPlaybackCoordinator
                 return Task.CompletedTask;
             }
 
-            // A PlaybackStart notification is not enough: on webOS it can arrive while the
-            // platform player is still being initialised. The first progress report is our
-            // confirmation that the loading source is actually running.
             context.Phase = PlaybackPhase.BootstrapBuffering;
             context.BootstrapFirstProgressUtc = DateTime.UtcNow;
             context.BootstrapFirstProgressTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
         }
 
         _logger.LogInformation(
-            "Virtual TV loading playback confirmed for session {SessionId}, generation {Generation}, channel {ChannelName} at {PositionSeconds:F2}s. Starting full five-second buffer now.",
+            "Virtual TV loading playback confirmed for session {SessionId}, generation {Generation}, channel {ChannelName} at {PositionSeconds:F2}s. Starting 1.5-second buffer now.",
             sessionId,
             context.Generation,
             context.ChannelName,
             TimeSpan.FromTicks(context.BootstrapFirstProgressTicks).TotalSeconds);
 
-        // Deliberately detach the five-second wait from Jellyfin's playback-progress event
-        // pipeline. Holding the event consumer open while the client is starting can itself
-        // increase startup pressure on slower TV clients. The generation/token guards make the
-        // detached continuation safe if the user changes channel or leaves playback.
         _ = CompleteBootstrapBufferAsync(context);
+        return Task.CompletedTask;
+    }
 
+    private Task HandleVodProgress(PlaybackProgressEventArgs eventArgs)
+    {
+        var sessionId = eventArgs.Session!.Id;
+        if (!_sessions.TryGetValue(sessionId, out var context))
+        {
+            return Task.CompletedTask;
+        }
+
+        var itemId = eventArgs.Item!.Id;
+        long seekTicks;
+
+        lock (context.Gate)
+        {
+            if (context.Phase != PlaybackPhase.Vod
+                || !context.CurrentVodItemId.HasValue
+                || context.CurrentVodItemId.Value != itemId
+                || context.PendingSeekTicks <= 0
+                || context.SeekScheduled)
+            {
+                return Task.CompletedTask;
+            }
+
+            context.SeekScheduled = true;
+            seekTicks = context.PendingSeekTicks;
+        }
+
+        _logger.LogInformation(
+            "Virtual TV VOD playback confirmed for session {SessionId}, generation {Generation}, item {ItemId}; arming one safe seek to {SeekSeconds:F1}s.",
+            sessionId,
+            context.Generation,
+            itemId,
+            TimeSpan.FromTicks(seekTicks).TotalSeconds);
+
+        _ = CompleteVodSeekAsync(context, itemId, seekTicks);
         return Task.CompletedTask;
     }
 
@@ -231,7 +290,7 @@ public sealed class LiveTvPlaybackCoordinator
             }
 
             _logger.LogInformation(
-                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the five-second buffer.",
+                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the 1.5-second buffer.",
                 sessionId,
                 existing.Generation,
                 existing.ChannelName);
@@ -474,7 +533,7 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             liveEntry,
             nowUtc,
-            "five seconds after confirmed loading playback").ConfigureAwait(false);
+            "1.5 seconds after confirmed loading playback").ConfigureAwait(false);
     }
 
     private async Task ReturnToBootstrapAsync(SessionContext context, string reason)
@@ -492,6 +551,8 @@ public sealed class LiveTvPlaybackCoordinator
             context.Phase = PlaybackPhase.AwaitingBootstrap;
             context.ReplacingPlaySessionId = currentVodPlaySession;
             context.PendingVodItemId = null;
+            context.PendingSeekTicks = 0;
+            context.SeekScheduled = false;
         }
 
         _logger.LogInformation(
@@ -572,12 +633,12 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        PrepareVodHandoff(context, entry, resolution.ItemId);
+        PrepareVodHandoff(context, entry, resolution.ItemId, resolution.StartPositionTicks);
 
         await SendIsolatedVodPlayNowAsync(
             context,
             resolution.ItemId,
-            0,
+            resolution.StartPositionTicks,
             reason + "; " + resolution.SelectionReason).ConfigureAwait(false);
     }
 
@@ -618,7 +679,7 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        PrepareVodHandoff(context, entry, resolution.ItemId);
+        PrepareVodHandoff(context, entry, resolution.ItemId, resolution.StartPositionTicks);
 
         await SendIsolatedVodPlayNowAsync(
             context,
@@ -660,7 +721,7 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         var targetTicks = CalculateConcreteTargetTicks(entry, sourceItem.RunTimeTicks, nowUtc);
-        PrepareVodHandoff(context, entry, sourceItemId);
+        PrepareVodHandoff(context, entry, sourceItemId, targetTicks);
 
         await SendIsolatedVodPlayNowAsync(
             context,
@@ -694,7 +755,7 @@ public sealed class LiveTvPlaybackCoordinator
             _stateProtection.BeginProtection(context.SessionId, new[] { fallback.Id }, context.UserId);
         }
 
-        PrepareVodHandoff(context, entry, fallback.Id);
+        PrepareVodHandoff(context, entry, fallback.Id, 0);
 
         await SendIsolatedVodPlayNowAsync(
             context,
@@ -706,7 +767,8 @@ public sealed class LiveTvPlaybackCoordinator
     private void PrepareVodHandoff(
         SessionContext context,
         VirtualTvScheduleEntry entry,
-        Guid targetItemId)
+        Guid targetItemId,
+        long requestedStartTicks)
     {
         lock (context.Gate)
         {
@@ -718,6 +780,8 @@ public sealed class LiveTvPlaybackCoordinator
             context.Phase = PlaybackPhase.AwaitingVod;
             context.ReplacingPlaySessionId = context.BootstrapPlaySessionId;
             context.PendingVodItemId = targetItemId;
+            context.PendingSeekTicks = Math.Max(0, requestedStartTicks);
+            context.SeekScheduled = false;
             context.CurrentEntryId = entry.Id;
         }
     }
@@ -784,9 +848,12 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
-            // A non-zero one-tick start still represents 00:00 to the user but prevents Jellyfin
-            // Web from injecting Cinema Mode intros when a Virtual TV rule requires start-at-zero.
-            var isolatedStartTicks = Math.Max(1, startPositionTicks);
+            // Always establish the VOD player at 00:00. Direct non-zero StartPositionTicks can
+            // leave webOS with working audio/subtitles but a frozen video frame. If a scheduler
+            // offset or Resume is required, a single guarded seek is sent only after real VOD
+            // PlaybackProgress confirms the decoder is alive.
+            var requestedStartTicks = Math.Max(0, startPositionTicks);
+            var isolatedStartTicks = 1L;
 
             var request = new PlayRequest
             {
@@ -798,11 +865,11 @@ public sealed class LiveTvPlaybackCoordinator
             };
 
             _logger.LogInformation(
-                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, start {StartSeconds:F1}s, reason {Reason}.",
+                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, requested target {StartSeconds:F1}s; player opens at 00:00, reason {Reason}.",
                 context.Generation,
                 context.SessionId,
                 itemId,
-                TimeSpan.FromTicks(isolatedStartTicks).TotalSeconds,
+                TimeSpan.FromTicks(requestedStartTicks).TotalSeconds,
                 reason);
 
             var messageId = Guid.NewGuid();
@@ -840,6 +907,77 @@ public sealed class LiveTvPlaybackCoordinator
     /// normal SendPlayCommand path because a LiveTvChannel cannot trigger episode auto-expansion.
     /// The channel always resolves to the universal embedded Loading Virtual TV source.
     /// </summary>
+    private async Task CompleteVodSeekAsync(
+        SessionContext context,
+        Guid itemId,
+        long seekTicks)
+    {
+        try
+        {
+            await Task.Delay(VodSeekSettleBuffer, context.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!IsCurrent(context))
+        {
+            return;
+        }
+
+        lock (context.Gate)
+        {
+            if (context.Phase != PlaybackPhase.Vod
+                || context.CurrentVodItemId != itemId
+                || context.PendingSeekTicks != seekTicks
+                || !context.SeekScheduled)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await _sessionManager.SendPlaystateCommand(
+                context.SessionId,
+                context.SessionId,
+                new PlaystateRequest
+                {
+                    Command = PlaystateCommand.Seek,
+                    SeekPositionTicks = seekTicks
+                },
+                context.Token).ConfigureAwait(false);
+
+            lock (context.Gate)
+            {
+                if (context.CurrentVodItemId == itemId)
+                {
+                    context.PendingSeekTicks = 0;
+                }
+            }
+
+            _logger.LogInformation(
+                "Virtual TV completed safe VOD seek for session {SessionId}, generation {Generation}, item {ItemId} to {SeekSeconds:F1}s.",
+                context.SessionId,
+                context.Generation,
+                itemId,
+                TimeSpan.FromTicks(seekTicks).TotalSeconds);
+        }
+        catch (OperationCanceledException) when (context.Token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Virtual TV safe VOD seek failed for session {SessionId}, generation {Generation}, item {ItemId}. Playback remains at 00:00.",
+                context.SessionId,
+                context.Generation,
+                itemId);
+        }
+    }
+
     private async Task SendBootstrapPlayNowAsync(
         SessionContext context,
         string reason)
@@ -1079,6 +1217,10 @@ public sealed class LiveTvPlaybackCoordinator
         public Guid? PendingVodItemId { get; set; }
 
         public Guid? CurrentVodItemId { get; set; }
+
+        public long PendingSeekTicks { get; set; }
+
+        public bool SeekScheduled { get; set; }
 
         public Guid? LastCompletedItemId { get; set; }
 
