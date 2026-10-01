@@ -110,8 +110,8 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Kept only because ILiveTvService requires it. The loading MP4 is already returned with
-        // RequiresOpening=false, so normal playback should not need a second live-stream open.
+        // Kept only because ILiveTvService requires it. The universal MPEG-TS loading source is
+        // already materialized with RequiresOpening=false, so normal playback needs no second tuner open.
         _ = streamId;
         return Task.FromResult(GetSource(channelId));
     }
@@ -148,8 +148,8 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
 
         // The Live TV layer is deliberately content-agnostic. Every Virtual TV channel exposes
-        // exactly the same ready-to-play loading clip. Schedule/rule resolution happens only
-        // after Jellyfin confirms that this bootstrap is actually playing.
+        // exactly the same MPEG-TS loading stream. Schedule/rule resolution happens only after
+        // Jellyfin confirms that this bootstrap is actually playing.
         var source = _bootstrapMedia.CreateLoadingSource();
 
         _logger.LogDebug(

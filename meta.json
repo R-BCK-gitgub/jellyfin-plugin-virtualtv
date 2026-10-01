@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Final revision of 1.10.7 keeps the universal Loading Virtual TV bootstrap and progress-confirmed five-second buffer, and makes each resolved episode/movie a truly isolated one-item VOD session. Virtual TV now bypasses Jellyfin's SendPlayCommand only for concrete VOD items because Jellyfin 12.1 automatically expands a single Episode PlayNow into the remainder of the series when the user's next-episode autoplay preference is enabled. The plugin sends the already-resolved VOD item directly to the exact session controller as one raw Play message, so there is no native Next Up queue and no sequential SxxExx autoplay. At physical EOF, including near-end seek completion, the VOD player is allowed to close, Virtual TV waits a one-second teardown buffer, reopens the neutral Live TV loading channel through Jellyfin's standard channel path, waits for real loading playback progress plus five seconds, then resolves the wall clock/rules again and opens one new isolated VOD item. Existing Guide alignment and Content Coverage UI fixes remain unchanged.",
+  "changelog": "Replaces the failing finite-MP4 Live TV bootstrap with a stream-oriented 60-second MPEG-TS loading runway while keeping the same universal Loading Virtual TV experience. The source is read at native frame rate, DirectPlay is disabled, DirectStream/remux and compatible transcoding remain available, and the plugin still waits for real PlaybackProgress plus five seconds before opening exactly one isolated VOD item. This avoids presenting a 10-second MP4 DirectPlay source as Jellyfin's infinite Live TV stream and gives browser/webOS clients a conventional Live TV delivery path. The Guide keeps its corrected row alignment and now adds a synchronized 0.45rem vertical gutter between every channel row and the matching programme row. All scheduling, watched-state, Content Coverage and single-item VOD/No-Next-Up behavior are otherwise unchanged.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.7.0",
+  "version": "1.10.8.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

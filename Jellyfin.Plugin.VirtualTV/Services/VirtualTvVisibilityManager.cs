@@ -194,6 +194,7 @@ public sealed class VirtualTvVisibilityManager
  */
 :root {
     --vtv-guide-row-height: 8.25rem;
+    --vtv-guide-row-gap: .45rem;
 }
 
 .guide-channelHeaderCell,
@@ -208,9 +209,8 @@ public sealed class VirtualTvVisibilityManager
 }
 
 /*
- * Some Jellyfin themes/clients add button margins to channel headers but not to programme rows.
- * That changes the outer flex-item height and makes the two stacks drift further apart per row.
- * Neutralise vertical margins explicitly on both stacks, then apply the same one-pixel border overlap.
+ * Keep the two vertical stacks on exactly the same pitch. A small synchronized
+ * gutter separates channels visually without reintroducing cumulative drift.
  */
 .guide-channelHeaderCell,
 .guide-channelHeaderCell-tv,
@@ -228,8 +228,10 @@ public sealed class VirtualTvVisibilityManager
     margin-right: 0 !important;
 }
 .channelPrograms + .channelPrograms,
-.guide-channelHeaderCell + .guide-channelHeaderCell {
-    margin-top: -1px !important;
+.channelPrograms-tv + .channelPrograms-tv,
+.guide-channelHeaderCell + .guide-channelHeaderCell,
+.guide-channelHeaderCell-tv + .guide-channelHeaderCell-tv {
+    margin-top: var(--vtv-guide-row-gap) !important;
 }
 
 .programCell {
