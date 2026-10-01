@@ -6,7 +6,7 @@
 
 </head>
 <body>
-<div id="VirtualTVConfigPage" data-ui-version="1.10.8.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="VirtualTVConfigPage" data-ui-version="1.10.9.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
 <style>
 #VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
 #VirtualTVConfigPage .vtv-muted{opacity:.72}
@@ -90,7 +90,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v1.10.8</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v1.10.9</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -153,10 +153,18 @@
         <input id="channelNumber" type="number" is="emby-input" required min="1" step="1">
       </div>
       <!-- Stock Jellyfin renders Live TV Overview below the full Guide. Until Jellyfin exposes
-           a stable client-independent title-area extension point, v1.10.8 keeps any legacy
+           a stable client-independent title-area extension point, v1.10.9 keeps any legacy
            description value private in plugin configuration and does not offer a misleading
            public-description editor. -->
       <input id="channelDescription" type="hidden">
+      <div class="selectContainer">
+        <label class="selectLabel" for="channelExperience">Channel experience</label>
+        <select id="channelExperience" is="emby-select" class="emby-select-withcolor emby-select">
+          <option value="PersonalizedTV">Personalized TV</option>
+          <option value="StandardTV">Standard TV</option>
+        </select>
+        <div id="channelExperienceHelp" class="fieldDescription">Personalized TV supports watched-state modes and normal VOD controls. Standard TV is a true linear Live TV stream.</div>
+      </div>
       <div class="selectContainer">
         <label class="selectLabel" for="channelType">Channel type</label>
         <select id="channelType" is="emby-select" class="emby-select-withcolor emby-select">
@@ -230,6 +238,7 @@
         <div id="blockMinutesContainer" class="selectContainer" style="display:none;">
           <label class="selectLabel" for="blockMinutes">Block duration</label>
           <select id="blockMinutes" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="15">15 minutes</option>
             <option value="20">20 minutes</option>
             <option value="30">30 minutes</option>
             <option value="40">40 minutes</option>
@@ -275,6 +284,7 @@
         <div id="movieBlockMinutesContainer" class="selectContainer" style="display:none;">
           <label class="selectLabel" for="movieBlockMinutes">Block duration</label>
           <select id="movieBlockMinutes" is="emby-select" class="emby-select-withcolor emby-select">
+            <option value="15">15 minutes</option>
             <option value="20">20 minutes</option>
             <option value="30">30 minutes</option>
             <option value="40">40 minutes</option>
@@ -386,13 +396,20 @@
       c.OffAirStart=c.OffAirStart||'02:00';
       c.OwnerUserId=c.OwnerUserId||'';
       c.Description=c.Description||'';
-      c.ContentMode=c.ChannelType==='Movies'
-        ? (c.ContentMode==='RandomUnwatched'?'RandomUnwatched':'Random')
-        : (['Sequential','NextUnwatched','RandomUnwatched','Random'].indexOf(c.ContentMode)!==-1?c.ContentMode:'Sequential');
-      c.SchedulingMethod=c.ChannelType==='Movies'
-        ? ''
-        : (c.SchedulingMethod==='RepeatingSchedule'?'RepeatingOrder':(['RepeatingOrder','RandomizedRotation','ManualOrder','SmartSchedule'].indexOf(c.SchedulingMethod)!==-1?c.SchedulingMethod:'RepeatingOrder'));
-      c.BlockMinutes=[20,30,40,45,60,75,90,120].indexOf(Number(c.BlockMinutes))!==-1?Number(c.BlockMinutes):30;
+      c.PlaybackExperience=c.PlaybackExperience==='StandardTV'?'StandardTV':'PersonalizedTV';
+      if(c.ChannelType==='Movies'){
+        c.ContentMode=c.PlaybackExperience==='StandardTV'
+          ? 'Random'
+          : (c.ContentMode==='RandomUnwatched'?'RandomUnwatched':'Random');
+        c.SchedulingMethod='';
+      }else{
+        c.ContentMode=['Sequential','NextUnwatched','RandomUnwatched','Random'].indexOf(c.ContentMode)!==-1?c.ContentMode:'Sequential';
+        if(c.PlaybackExperience==='StandardTV'&&c.ContentMode!=='Random')c.ContentMode='Sequential';
+        c.SchedulingMethod=c.SchedulingMethod==='RepeatingSchedule'
+          ? 'RepeatingOrder'
+          : (['RepeatingOrder','RandomizedRotation','ManualOrder','SmartSchedule'].indexOf(c.SchedulingMethod)!==-1?c.SchedulingMethod:'RepeatingOrder');
+      }
+      c.BlockMinutes=[15,20,30,40,45,60,75,90,120].indexOf(Number(c.BlockMinutes))!==-1?Number(c.BlockMinutes):30;
       c.EpisodesPerTurn=Number(c.EpisodesPerTurn)===2?2:1;
       c.SmartRotationMonths=[1,2,3,6].indexOf(Number(c.SmartRotationMonths))!==-1?Number(c.SmartRotationMonths):2;
     });
@@ -445,22 +462,27 @@
     return 'Repeating Order';
   }
 
+  function experienceLabel(value){
+    return value==='StandardTV'?'Standard TV':'Personalized TV';
+  }
+
   function modeLabel(c){
+    var prefix=experienceLabel(c.PlaybackExperience)+' · ';
     if(c.ChannelType==='Movies'){
-      return c.ContentMode==='RandomUnwatched'
+      return prefix+(c.ContentMode==='RandomUnwatched'
         ? 'Random Unwatched · '+c.BlockMinutes+' min'
-        : 'Random / Shuffle Cycle';
+        : 'Random / Shuffle Cycle');
     }
 
     var detail=scheduleMethodLabel(c.SchedulingMethod);
     if(c.ContentMode==='NextUnwatched'||c.ContentMode==='RandomUnwatched'){
       detail+=' · '+c.BlockMinutes+' min';
     }
-    return contentModeLabel(c.ContentMode)+' · '+detail;
+    return prefix+contentModeLabel(c.ContentMode)+' · '+detail;
   }
 
-  function isWatchedDependentMode(type,mode){
-    return mode==='NextUnwatched'||mode==='RandomUnwatched';
+  function isWatchedDependentMode(experience,type,mode){
+    return experience!=='StandardTV'&&(mode==='NextUnwatched'||mode==='RandomUnwatched');
   }
 
   function scheduleState(c){
@@ -523,7 +545,43 @@
     });
   }
 
+  function replaceSelectOptions(select,options,preferred){
+    var selected=preferred||select.value;
+    select.innerHTML=options.map(function(option){
+      return '<option value="'+option[0]+'">'+option[1]+'</option>';
+    }).join('');
+    var allowed=options.some(function(option){return option[0]===selected;});
+    select.value=allowed?selected:options[0][0];
+  }
+
+  function updateExperienceModeOptions(){
+    var experience=page.querySelector('#channelExperience').value;
+    var standard=experience==='StandardTV';
+    var movies=page.querySelector('#channelType').value==='Movies';
+
+    page.querySelector('#channelExperienceHelp').textContent=standard
+      ? 'True linear Live TV: enter at the current broadcast position, no restart/seek/resume, no watched-state changes, and English subtitles are burned in automatically when available.'
+      : 'Personalized TV: neutral loading handoff to one VOD item, normal player controls, plus optional Next Unwatched / Random Unwatched watched-state behavior.';
+
+    if(movies){
+      replaceSelectOptions(
+        page.querySelector('#movieContentMode'),
+        standard
+          ? [['Random','Random / Shuffle Cycle']]
+          : [['Random','Random / Shuffle Cycle'],['RandomUnwatched','Random Unwatched']],
+        page.querySelector('#movieContentMode').value);
+    }else{
+      replaceSelectOptions(
+        page.querySelector('#contentMode'),
+        standard
+          ? [['Sequential','Sequential'],['Random','Random']]
+          : [['Sequential','Sequential'],['NextUnwatched','Next Unwatched'],['RandomUnwatched','Random Unwatched'],['Random','Random']],
+        page.querySelector('#contentMode').value);
+    }
+  }
+
   function setTypeUi(){
+    updateExperienceModeOptions();
     var movies=page.querySelector('#channelType').value==='Movies';
     page.querySelector('#seriesPlaybackSection').style.display=movies?'none':'';
     page.querySelector('#moviePlaybackSection').style.display=movies?'':'none';
@@ -541,19 +599,24 @@
   }
 
   function updateSeriesModeUi(){
+    var experience=page.querySelector('#channelExperience').value;
+    var standard=experience==='StandardTV';
     var mode=page.querySelector('#contentMode').value;
     var method=page.querySelector('#schedulingMethod').value;
-    var dynamic=mode==='NextUnwatched'||mode==='RandomUnwatched';
+    var dynamic=!standard&&(mode==='NextUnwatched'||mode==='RandomUnwatched');
 
     page.querySelector('#blockMinutesContainer').style.display=dynamic?'':'none';
     page.querySelector('#smartRotationContainer').style.display=method==='SmartSchedule'?'':'none';
     page.querySelector('#manualOrderSection').style.display=method==='ManualOrder'?'':'none';
 
-    page.querySelector('#contentModeHelp').textContent=
-      mode==='NextUnwatched'
-        ? 'Uses Jellyfin watched state to choose the earliest chronologically eligible episode that is not fully watched. The resolved episode opens at 00:00.'
+    page.querySelector('#contentModeHelp').textContent=standard
+      ? (mode==='Random'
+          ? 'Materializes a concrete shuffle cycle into the Guide. Standard TV then broadcasts that fixed schedule as one linear live stream.'
+          : 'Materializes concrete episodes in chronological order. Standard TV broadcasts the persisted Guide without using watched state.')
+      : mode==='NextUnwatched'
+        ? 'Resume-first: resumes the earliest chronologically eligible partial episode; otherwise plays the earliest never-started episode. If all are watched, falls back to Random.'
         : mode==='RandomUnwatched'
-          ? 'Uses Jellyfin watched state and chooses randomly from all eligible episodes that are not fully watched. The resolved episode opens at 00:00.'
+          ? 'Resume-first: randomly chooses among partially watched episodes; if none exist, randomly chooses a never-started episode. If all are watched, falls back to Random.'
           : mode==='Random'
             ? 'Uses a shuffle cycle so every eligible episode is scheduled once before a new shuffle. Jellyfin watched state is not changed.'
             : 'Plays eligible episodes in chronological order and does not change Jellyfin watched or resume state.';
@@ -568,7 +631,7 @@
             : 'Shuffles the selected series once, persists that base order, and repeats it.';
 
     if(page.querySelector('#channelType').value!=='Movies'){
-      page.querySelector('#modeDisplay').value=contentModeLabel(mode)+' · '+scheduleMethodLabel(method);
+      page.querySelector('#modeDisplay').value=experienceLabel(experience)+' · '+contentModeLabel(mode)+' · '+scheduleMethodLabel(method);
     }
     updateVisibilityUi();
     renderManualOrder();
@@ -577,18 +640,21 @@
   function updateMovieModeUi(){
     var movies=page.querySelector('#channelType').value==='Movies';
     if(!movies)return;
+    var experience=page.querySelector('#channelExperience').value;
+    var standard=experience==='StandardTV';
     var mode=page.querySelector('#movieContentMode').value;
-    page.querySelector('#movieBlockMinutesContainer').style.display=mode==='RandomUnwatched'?'':'none';
-    page.querySelector('#modeDisplay').value=mode==='RandomUnwatched'
+    page.querySelector('#movieBlockMinutesContainer').style.display=!standard&&mode==='RandomUnwatched'?'':'none';
+    page.querySelector('#modeDisplay').value=experienceLabel(experience)+' · '+(mode==='RandomUnwatched'
       ? 'Random Unwatched · '+page.querySelector('#movieBlockMinutes').value+' min'
-      : 'Random / Shuffle Cycle';
+      : 'Random / Shuffle Cycle');
     updateVisibilityUi();
   }
 
   function updateVisibilityUi(){
+    var experience=page.querySelector('#channelExperience').value;
     var type=page.querySelector('#channelType').value;
     var mode=type==='Movies'?page.querySelector('#movieContentMode').value:page.querySelector('#contentMode').value;
-    var personal=isWatchedDependentMode(type,mode);
+    var personal=isWatchedDependentMode(experience,type,mode);
 
     page.querySelector('#personalVisibilityNotice').style.display=personal?'':'none';
     page.querySelector('#visibilityControls').style.display=personal?'none':'';
@@ -1004,6 +1070,7 @@
     page.querySelector('#channelName').value='';
     page.querySelector('#channelNumber').value=nextNumber();
     page.querySelector('#channelDescription').value='';
+    page.querySelector('#channelExperience').value='PersonalizedTV';
     page.querySelector('#channelType').value='Series';
     page.querySelector('#channelType').disabled=false;
     page.querySelector('#contentFilter').value='';
@@ -1051,6 +1118,7 @@
       page.querySelector('#channelName').value=c.Name||'';
       page.querySelector('#channelNumber').value=c.Number||1;
       page.querySelector('#channelDescription').value=c.Description||'';
+      page.querySelector('#channelExperience').value=c.PlaybackExperience==='StandardTV'?'StandardTV':'PersonalizedTV';
       page.querySelector('#channelType').value=c.ChannelType||'Series';
       page.querySelector('#channelType').disabled=false;
       page.querySelector('#contentMode').value=c.ChannelType==='Series'?(c.ContentMode||'Sequential'):'Sequential';
@@ -1220,15 +1288,17 @@
       return false;
     }
     var existing=state.editingId?state.config.Channels.find(function(c){return c.Id===state.editingId;}):null;
+    var experience=page.querySelector('#channelExperience').value==='StandardTV'?'StandardTV':'PersonalizedTV';
     var type=page.querySelector('#channelType').value;
 
     var contentMode;
     var schedulingMethod;
     if(type==='Movies'){
-      contentMode=page.querySelector('#movieContentMode').value;
+      contentMode=experience==='StandardTV'?'Random':page.querySelector('#movieContentMode').value;
       schedulingMethod='';
     }else{
       contentMode=page.querySelector('#contentMode').value;
+      if(experience==='StandardTV'&&contentMode!=='Random')contentMode='Sequential';
       schedulingMethod=page.querySelector('#schedulingMethod').value;
     }
 
@@ -1239,7 +1309,7 @@
     var smartRotationMonths=parseInt(page.querySelector('#smartRotationMonths').value,10)||2;
     var seriesSelections=type==='Series'?normalizedSeriesSelections():[];
 
-    var personal=isWatchedDependentMode(type,contentMode);
+    var personal=isWatchedDependentMode(experience,type,contentMode);
     var visibleToAll=personal?false:page.querySelector('#visibilityMode').value!=='selected';
     var visibleUserIds=personal
       ? (state.currentUserId?[state.currentUserId]:[])
@@ -1253,7 +1323,8 @@
     var scheduleChanged=false;
     if(existing){
       scheduleChanged=
-        String(existing.ChannelType||'Series')!==String(type)
+        String(existing.PlaybackExperience||'PersonalizedTV')!==String(experience)
+        || String(existing.ChannelType||'Series')!==String(type)
         || String(existing.ContentMode||'')!==String(contentMode)
         || String(existing.SchedulingMethod||'')!==String(schedulingMethod)
         || !arraysEqual(existing.SelectedLibraryIds,state.selectedLibraryIds)
@@ -1283,7 +1354,8 @@
     }
 
     var structuralChanged=existing && (
-      String(existing.ChannelType||'Series')!==String(type)
+      String(existing.PlaybackExperience||'PersonalizedTV')!==String(experience)
+      || String(existing.ChannelType||'Series')!==String(type)
       || String(existing.ContentMode||'')!==String(contentMode)
       || String(existing.SchedulingMethod||'')!==String(schedulingMethod)
     );
@@ -1297,6 +1369,7 @@
     existing.Name=name;
     existing.Number=number;
     existing.Description=description;
+    existing.PlaybackExperience=experience;
     existing.ChannelType=type;
     existing.ContentMode=contentMode;
     existing.SchedulingMethod=schedulingMethod;
@@ -1570,6 +1643,10 @@
   page.querySelector('#btnCancelEdit').addEventListener('click',function(){closeEditor(false);});
   window.addEventListener('popstate',handleEditorBack);
   page.querySelector('#channelForm').addEventListener('submit',saveChannel);
+
+  page.querySelector('#channelExperience').addEventListener('change',function(){
+    setTypeUi();
+  });
 
   page.querySelector('#channelType').addEventListener('change',function(){
     state.selectedLibraryIds=[];
