@@ -20,9 +20,11 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///   Live TV bootstrap ("Loading Virtual TV...") -> one resolved VOD item -> Live TV bootstrap -> ...
 ///
 /// The Live TV layer never plays scheduled library media. It is only a neutral 10-second loading
-/// surface. After a fixed five-second buffer, the coordinator resolves the schedule/rules and sends one PlayNow
+/// surface. PlaybackStart only arms the bootstrap; after the first real PlaybackProgress report,
+/// a fixed five-second buffer runs before the coordinator resolves the schedule/rules and sends one PlayNow
 /// for exactly one concrete episode/movie. At physical EOF it always returns to the Live TV
-/// bootstrap first; only after that bootstrap has started and settled does it resolve the next VOD.
+/// bootstrap first; only after that bootstrap reports progress and then runs for five more seconds
+/// does it resolve the next VOD.
 ///
 /// This keeps client state transitions explicit and serial, avoids VOD-to-VOD auto-next races, and
 /// gives webOS/Android TV time to tear down one player before the next request is issued.
@@ -85,6 +87,56 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         HandleVodStart(eventArgs);
+    }
+
+    public Task HandlePlaybackProgressAsync(PlaybackProgressEventArgs eventArgs)
+    {
+        if (eventArgs.Session is null
+            || string.IsNullOrWhiteSpace(eventArgs.Session.Id)
+            || eventArgs.Item is not LiveTvChannel liveChannel
+            || !string.Equals(liveChannel.ServiceName, VirtualTvLiveTvService.ServiceName, StringComparison.OrdinalIgnoreCase)
+            || !VirtualTvLiveTvService.TryGetConfigurationChannelId(liveChannel.ExternalId, out var configurationChannelId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var sessionId = eventArgs.Session.Id;
+        if (!_sessions.TryGetValue(sessionId, out var context)
+            || context.LiveChannelItemId != liveChannel.Id
+            || !string.Equals(context.ChannelId, configurationChannelId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
+
+        lock (context.Gate)
+        {
+            if (context.Phase != PlaybackPhase.BootstrapWaitingForProgress)
+            {
+                return Task.CompletedTask;
+            }
+
+            // A PlaybackStart notification is not enough: on webOS it can arrive while the
+            // platform player is still being initialised. The first progress report is our
+            // confirmation that the loading source is actually running.
+            context.Phase = PlaybackPhase.BootstrapBuffering;
+            context.BootstrapFirstProgressUtc = DateTime.UtcNow;
+            context.BootstrapFirstProgressTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
+        }
+
+        _logger.LogInformation(
+            "Virtual TV loading playback confirmed for session {SessionId}, generation {Generation}, channel {ChannelName} at {PositionSeconds:F2}s. Starting full five-second buffer now.",
+            sessionId,
+            context.Generation,
+            context.ChannelName,
+            TimeSpan.FromTicks(context.BootstrapFirstProgressTicks).TotalSeconds);
+
+        // Deliberately detach the five-second wait from Jellyfin's playback-progress event
+        // pipeline. Holding the event consumer open while the client is starting can itself
+        // increase startup pressure on slower TV clients. The generation/token guards make the
+        // detached continuation safe if the user changes channel or leaves playback.
+        _ = CompleteBootstrapBufferAsync(context);
+
+        return Task.CompletedTask;
     }
 
     public async Task HandlePlaybackStopAsync(PlaybackStopEventArgs eventArgs)
@@ -151,7 +203,7 @@ public sealed class LiveTvPlaybackCoordinator
         await ReturnToBootstrapAsync(context, "physical VOD EOF").ConfigureAwait(false);
     }
 
-    private async Task HandleBootstrapStartAsync(
+    private Task HandleBootstrapStartAsync(
         PlaybackStartEventArgs eventArgs,
         LiveTvChannel liveChannel,
         string configurationChannelId)
@@ -164,7 +216,7 @@ public sealed class LiveTvPlaybackCoordinator
         {
             lock (existing.Gate)
             {
-                existing.Phase = PlaybackPhase.Bootstrap;
+                existing.Phase = PlaybackPhase.BootstrapWaitingForProgress;
                 existing.BootstrapPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
                 existing.ReplacingPlaySessionId = string.Empty;
                 existing.CurrentVodItemId = null;
@@ -172,13 +224,12 @@ public sealed class LiveTvPlaybackCoordinator
             }
 
             _logger.LogInformation(
-                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}.",
+                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the five-second buffer.",
                 sessionId,
                 existing.Generation,
                 existing.ChannelName);
 
-            await HandoffFromBootstrapAsync(existing, "post-EOF bootstrap").ConfigureAwait(false);
-            return;
+            return Task.CompletedTask;
         }
 
         if (_sessions.TryGetValue(sessionId, out existing))
@@ -188,7 +239,7 @@ public sealed class LiveTvPlaybackCoordinator
 
             var fallbackDuplicate = string.IsNullOrWhiteSpace(eventArgs.PlaySessionId)
                 && existing.LiveChannelItemId == liveChannel.Id
-                && existing.Phase == PlaybackPhase.Bootstrap
+                && existing.Phase is PlaybackPhase.BootstrapWaitingForProgress or PlaybackPhase.BootstrapBuffering
                 && DateTime.UtcNow - existing.CreatedUtc < DuplicateTuneFallbackWindow;
 
             if (samePlaySession || fallbackDuplicate)
@@ -197,20 +248,20 @@ public sealed class LiveTvPlaybackCoordinator
                     "Virtual TV ignored duplicate bootstrap start for session {SessionId}, generation {Generation}.",
                     sessionId,
                     existing.Generation);
-                return;
+                return Task.CompletedTask;
             }
         }
 
         var channelConfiguration = GetChannelConfiguration(configurationChannelId);
         if (channelConfiguration is null)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         var playbackUserId = ResolvePlaybackUserId(eventArgs);
         if (playbackUserId != Guid.Empty && !_visibility.IsVisibleToUser(channelConfiguration, playbackUserId))
         {
-            return;
+            return Task.CompletedTask;
         }
 
         var contentMode = string.Equals(channelConfiguration.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
@@ -245,13 +296,13 @@ public sealed class LiveTvPlaybackCoordinator
         _sessions[sessionId] = context;
 
         _logger.LogInformation(
-            "Virtual TV tune {Generation}: session {SessionId}, channel {ChannelName}, phase Bootstrap, mode {Mode}.",
+            "Virtual TV tune {Generation}: session {SessionId}, channel {ChannelName}, phase BootstrapWaitingForProgress, mode {Mode}. No VOD command will be sent until the loading source reports playback progress.",
             context.Generation,
             sessionId,
             context.ChannelName,
             context.ContentMode);
 
-        await HandoffFromBootstrapAsync(context, "initial channel bootstrap").ConfigureAwait(false);
+        return Task.CompletedTask;
     }
 
     private void HandleBootstrapStop(PlaybackStopEventArgs eventArgs, SessionContext context)
@@ -276,14 +327,26 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        // Bootstrap may stop after a VOD PlayNow has already been accepted; that is expected.
+        // Bootstrap stops after a VOD PlayNow or while returning from VOD are expected.
         if (phase is PlaybackPhase.AwaitingVod or PlaybackPhase.Vod or PlaybackPhase.AwaitingBootstrap)
         {
             return;
         }
 
-        // If the user explicitly backs out while the loading clip is the active player, do not
-        // allow the delayed handoff to resurrect playback.
+        // While waiting for/inside the confirmed loading buffer, a non-complete stop means the
+        // user actually left the channel. Cancel the detached buffer so playback is not resurrected.
+        // A completed loading clip is harmless; if it ever happens, keep the pending buffer alive.
+        if (phase is PlaybackPhase.BootstrapWaitingForProgress or PlaybackPhase.BootstrapBuffering)
+        {
+            if (eventArgs.PlayedToCompletion)
+            {
+                return;
+            }
+
+            EndSession(context.SessionId, context.Generation, "loading playback stopped before VOD handoff");
+            return;
+        }
+
         EndSession(context.SessionId, context.Generation, "manual bootstrap stop");
     }
 
@@ -353,16 +416,26 @@ public sealed class LiveTvPlaybackCoordinator
         EndSession(sessionId, context.Generation, "unrelated playback started");
     }
 
-    private async Task HandoffFromBootstrapAsync(SessionContext context, string reason)
+    private async Task CompleteBootstrapBufferAsync(SessionContext context)
     {
         try
         {
-            // Deliberate client buffer: let webOS/Android TV fully open the neutral Live TV source
-            // before asking it to tear that player down and open the real VOD item.
+            // The timer starts only after the client has reported real progress for the loading
+            // source. This guarantees a visible/stable loading phase instead of counting while
+            // webOS/Android TV is still constructing the Live TV player.
             await Task.Delay(BootstrapBuffer, context.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Virtual TV bootstrap buffer failed for session {SessionId}, generation {Generation}.",
+                context.SessionId,
+                context.Generation);
             return;
         }
 
@@ -373,20 +446,20 @@ public sealed class LiveTvPlaybackCoordinator
 
         lock (context.Gate)
         {
-            if (context.Phase != PlaybackPhase.Bootstrap)
+            if (context.Phase != PlaybackPhase.BootstrapBuffering)
             {
                 return;
             }
         }
 
-        // Resolve only now, after the loading video is established. This makes the wall clock at
-        // the actual VOD handoff authoritative and avoids carrying stale schedule decisions across
-        // channel switches or EOF transitions.
+        // Resolve only after five confirmed seconds of loading playback. The wall clock at this
+        // point is authoritative, so channel changes and EOF transitions cannot carry an old
+        // schedule decision into the VOD handoff.
         var nowUtc = DateTime.UtcNow;
         var liveEntry = FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc);
         if (liveEntry is null)
         {
-            EndSession(context.SessionId, context.Generation, "no active schedule entry after bootstrap");
+            EndSession(context.SessionId, context.Generation, "no active schedule entry after confirmed bootstrap buffer");
             return;
         }
 
@@ -394,7 +467,7 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             liveEntry,
             nowUtc,
-            reason).ConfigureAwait(false);
+            "five seconds after confirmed loading playback").ConfigureAwait(false);
     }
 
     private async Task ReturnToBootstrapAsync(SessionContext context, string reason)
@@ -618,7 +691,7 @@ public sealed class LiveTvPlaybackCoordinator
     {
         lock (context.Gate)
         {
-            if (context.Phase != PlaybackPhase.Bootstrap)
+            if (context.Phase != PlaybackPhase.BootstrapBuffering)
             {
                 return;
             }
@@ -797,7 +870,8 @@ public sealed class LiveTvPlaybackCoordinator
 
     private enum PlaybackPhase
     {
-        Bootstrap,
+        BootstrapWaitingForProgress,
+        BootstrapBuffering,
         AwaitingVod,
         Vod,
         AwaitingBootstrap
@@ -827,7 +901,7 @@ public sealed class LiveTvPlaybackCoordinator
             LiveChannelItemId = liveChannelItemId;
             BootstrapPlaySessionId = bootstrapPlaySessionId;
             Generation = generation;
-            Phase = PlaybackPhase.Bootstrap;
+            Phase = PlaybackPhase.BootstrapWaitingForProgress;
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
             IsDynamicMovie = IsDynamicUnwatched
                 && string.Equals(channelType, "Movies", StringComparison.OrdinalIgnoreCase);
@@ -863,6 +937,10 @@ public sealed class LiveTvPlaybackCoordinator
         public PlaybackPhase Phase { get; set; }
 
         public string BootstrapPlaySessionId { get; set; }
+
+        public DateTime? BootstrapFirstProgressUtc { get; set; }
+
+        public long BootstrapFirstProgressTicks { get; set; }
 
         public string CurrentEntryId { get; set; } = string.Empty;
 

@@ -139,6 +139,37 @@ public sealed class VirtualTvBootstrapMediaProvider
             RequiresOpening = false,
             RequiresClosing = false,
             RunTimeTicks = TimeSpan.FromSeconds(10).Ticks,
-            MediaStreams = new List<MediaStream>()
+            DefaultAudioStreamIndex = 1,
+            DefaultSubtitleStreamIndex = null,
+            SupportsProbing = false,
+            IsInfiniteStream = false,
+            RequiresLooping = false,
+            MediaStreams = new List<MediaStream>
+            {
+                new()
+                {
+                    Index = 0,
+                    Type = MediaStreamType.Video,
+                    Codec = "h264",
+                    Profile = "main",
+                    Width = 1280,
+                    Height = 720,
+                    AverageFrameRate = 24,
+                    RealFrameRate = 24,
+                    IsAVC = true,
+                    IsDefault = true
+                },
+                new()
+                {
+                    Index = 1,
+                    Type = MediaStreamType.Audio,
+                    Codec = "aac",
+                    Profile = "lc",
+                    Channels = 2,
+                    ChannelLayout = "stereo",
+                    SampleRate = 48000,
+                    IsDefault = true
+                }
+            }
         };
 }
