@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.LiveTv;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.LiveTv;
 using Microsoft.Extensions.Logging;
