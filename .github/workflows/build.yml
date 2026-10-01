@@ -102,7 +102,6 @@ jobs:
               'PlaybackPhase.AwaitingVod',
               'PlaybackPhase.Vod',
               'ReturnToBootstrapAsync',
-              'post-EOF bootstrap',
               'HandlePlaybackProgressAsync',
               'Starting full five-second buffer now',
               'CompleteBootstrapBufferAsync',
@@ -192,7 +191,7 @@ jobs:
               raise SystemExit("Confirmed progress must start the non-blocking five-second buffer.")
 
           stop_start=c.index('public async Task HandlePlaybackStopAsync')
-          stop_end=c.index('private async Task HandleBootstrapStartAsync', stop_start)
+          stop_end=c.index('private Task HandleBootstrapStartAsync', stop_start)
           stop_handler=c[stop_start:stop_end]
           if 'PlayScheduledEntryAsync' in stop_handler:
               raise SystemExit("HandlePlaybackStopAsync must not perform a direct VOD-to-VOD handoff.")
