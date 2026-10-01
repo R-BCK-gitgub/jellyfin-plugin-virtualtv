@@ -237,7 +237,6 @@ jobs:
           # Standard TV is a separate true Live TV path, never the Personalized coordinator.
           standard_required=[
               'class VirtualTvStandardStreamService',
-              'ISupportsDirectStreamProvider',
               'IDirectStreamProvider',
               '/LiveTv/LiveStreamFiles/',
               'Container = "mpegts"',
@@ -267,7 +266,7 @@ jobs:
 
           if 'VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)' not in l:
               raise SystemExit("Live TV service does not split Standard and Personalized pipelines.")
-          if 'GetChannelStreamWithDirectStreamProvider' not in l:
+          if 'ISupportsDirectStreamProvider' not in l or 'GetChannelStreamWithDirectStreamProvider' not in l:
               raise SystemExit("Standard TV does not use Jellyfin direct Live TV stream provider.")
 
           print("Personalized/Standard playback architecture validation passed.")
