@@ -27,9 +27,6 @@ public static class VirtualTvModePolicy
     public static string NormalizePlaybackExperience(string? experience)
         => IsStandardTV(experience) ? StandardTV : PersonalizedTV;
 
-    public static bool TracksJellyfinState(string? mode)
-        => IsDynamicUnwatched(mode);
-
     public static string NormalizeContentMode(string? mode)
     {
         if (string.Equals(mode, NextUnwatched, StringComparison.OrdinalIgnoreCase))

@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Stabilizes Personalized TV playback on webOS by removing all plugin user-data writes while a VOD is actively running. Traditional Personalized TV now snapshots the item's original Jellyfin state once before PlayNow, leaves PlaybackStart and PlaybackProgress untouched, and restores the stopped item only after Jellyfin has processed PlaybackStop; session close retains a short final restore grace for late Jellyfin events. Next Unwatched and Random Unwatched remain unprotected and keep normal Resume/Watched behavior. Personalized Loading is increased from 1.5 to 2 seconds. Standard TV now reuses an already-open direct live stream for the same streamId and enables stream sharing to avoid probe/player duplicate producers. Scheduling, one-item VOD playback, zero-start traditional Personalized behavior, EOF-to-Loading continuity and UI are unchanged.",
+  "changelog": "Removes the Personalized TV metadata-protection layer entirely. Sequential, Random and other non-watched-dependent Personalized modes now resolve the current Guide item, send one isolated one-item PlayNow without StartPositionTicks, and then leave Jellyfin's normal VOD playback and user-state handling alone until stop or EOF. They no longer snapshot, restore, suppress or rewrite Watched, Resume, PlayCount, stream selections or Continue Watching. Next Unwatched and Random Unwatched are intentionally unchanged and retain their existing zero-start plus guarded Resume-first behavior. Standard TV is intentionally unchanged. The 2-second Loading handoff, one-item queue and EOF-to-Loading re-resolution remain intact. Obsolete state-protection code, DI wiring and event logic are removed.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.13.0",
+  "version": "1.10.14.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

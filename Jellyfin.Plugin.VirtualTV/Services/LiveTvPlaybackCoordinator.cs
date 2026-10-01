@@ -48,7 +48,6 @@ public sealed class LiveTvPlaybackCoordinator
     private readonly VirtualTvMovieResolver _movieResolver;
     private readonly VirtualTvRuntimeFallbackResolver _runtimeFallback;
     private readonly VirtualTvVisibilityManager _visibility;
-    private readonly PlaybackStateProtectionManager _stateProtection;
     private readonly ILogger<LiveTvPlaybackCoordinator> _logger;
     private readonly ConcurrentDictionary<string, SessionContext> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _commandGates = new(StringComparer.Ordinal);
@@ -63,7 +62,6 @@ public sealed class LiveTvPlaybackCoordinator
         VirtualTvMovieResolver movieResolver,
         VirtualTvRuntimeFallbackResolver runtimeFallback,
         VirtualTvVisibilityManager visibility,
-        PlaybackStateProtectionManager stateProtection,
         ILogger<LiveTvPlaybackCoordinator> logger)
     {
         _sessionManager = sessionManager;
@@ -74,7 +72,6 @@ public sealed class LiveTvPlaybackCoordinator
         _movieResolver = movieResolver;
         _runtimeFallback = runtimeFallback;
         _visibility = visibility;
-        _stateProtection = stateProtection;
         _logger = logger;
     }
 
@@ -339,16 +336,9 @@ public sealed class LiveTvPlaybackCoordinator
                 : VirtualTvModePolicy.Random)
             : VirtualTvModePolicy.NormalizeContentMode(channelConfiguration.ContentMode);
 
-        var tracksState = VirtualTvModePolicy.TracksJellyfinState(contentMode);
-
         if (_sessions.TryRemove(sessionId, out var previous))
         {
             previous.Cancel();
-
-            if (!previous.TracksJellyfinState && tracksState)
-            {
-                _stateProtection.CompleteProtection(sessionId);
-            }
         }
 
         var context = new SessionContext(
@@ -720,21 +710,17 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        if (!context.TracksJellyfinState && context.UserId != Guid.Empty)
-        {
-            _stateProtection.BeginProtection(context.SessionId, new[] { sourceItemId }, context.UserId);
-        }
-
         // Traditional Personalized TV uses the Guide only to choose WHAT is on.
-        // It deliberately ignores the Guide's elapsed time and always opens the
-        // concrete item from 00:00. No Resume and no schedule offset are applied.
+        // After that, the plugin does not inspect, snapshot, restore or rewrite Jellyfin
+        // user state and it does not force a start position.
         PrepareVodHandoff(context, entry, sourceItemId, 0);
 
         await SendIsolatedVodPlayNowAsync(
             context,
             sourceItemId,
             0,
-            reason + "; concrete Personalized TV always starts at 00:00").ConfigureAwait(false);
+            reason + "; concrete Personalized TV normal Jellyfin playback",
+            omitStartPosition: true).ConfigureAwait(false);
     }
 
     private async Task PlayTraditionalFallbackAsync(
@@ -757,18 +743,14 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        if (!context.TracksJellyfinState && context.UserId != Guid.Empty)
-        {
-            _stateProtection.BeginProtection(context.SessionId, new[] { fallback.Id }, context.UserId);
-        }
-
         PrepareVodHandoff(context, entry, fallback.Id, 0);
 
         await SendIsolatedVodPlayNowAsync(
             context,
             fallback.Id,
             0,
-            reason + "; local fallback").ConfigureAwait(false);
+            reason + "; local fallback; normal Jellyfin playback",
+            omitStartPosition: true).ConfigureAwait(false);
     }
 
     private void PrepareVodHandoff(
@@ -809,7 +791,8 @@ public sealed class LiveTvPlaybackCoordinator
         SessionContext context,
         Guid itemId,
         long startPositionTicks,
-        string reason)
+        string reason,
+        bool omitStartPosition = false)
     {
         var gate = _commandGates.GetOrAdd(context.SessionId, _ => new SemaphoreSlim(1, 1));
 
@@ -855,26 +838,27 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
-            // Always establish the VOD player at 00:00. Traditional Personalized TV stays
-            // there. Only watched-dependent Next/Random Unwatched may later issue one guarded
-            // Resume seek after VOD PlaybackProgress confirms the decoder is alive.
+            // Next/Random Unwatched keep their already-proven zero-start + guarded Resume
+            // path. Traditional Personalized TV omits StartPositionTicks completely: the
+            // plugin chooses the item, then leaves normal Jellyfin VOD playback alone.
             var requestedStartTicks = Math.Max(0, startPositionTicks);
             var isolatedStartTicks = 1L;
 
             var request = new PlayRequest
             {
                 ItemIds = new[] { itemId },
-                StartPositionTicks = isolatedStartTicks,
+                StartPositionTicks = omitStartPosition ? null : isolatedStartTicks,
                 StartIndex = 0,
                 PlayCommand = PlayCommand.PlayNow,
                 ControllingUserId = context.UserId
             };
 
             _logger.LogInformation(
-                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, requested Resume {StartSeconds:F1}s; player opens at 00:00, reason {Reason}.",
+                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, start mode {StartMode}, requested Resume {StartSeconds:F1}s; reason {Reason}.",
                 context.Generation,
                 context.SessionId,
                 itemId,
+                omitStartPosition ? "normal Jellyfin" : "zero then optional Resume",
                 TimeSpan.FromTicks(requestedStartTicks).TotalSeconds,
                 reason);
 
@@ -1113,11 +1097,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         context.Cancel();
 
-        if (!context.TracksJellyfinState)
-        {
-            _stateProtection.CompleteProtection(sessionId);
-        }
-
         _logger.LogInformation(
             "Virtual TV ended session {SessionId}, generation {Generation}, channel {ChannelName}: {Reason}.",
             sessionId,
@@ -1163,7 +1142,6 @@ public sealed class LiveTvPlaybackCoordinator
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
             IsDynamicMovie = IsDynamicUnwatched
                 && string.Equals(channelType, "Movies", StringComparison.OrdinalIgnoreCase);
-            TracksJellyfinState = VirtualTvModePolicy.TracksJellyfinState(contentMode);
         }
 
         public object Gate { get; } = new();
@@ -1189,8 +1167,6 @@ public sealed class LiveTvPlaybackCoordinator
         public bool IsDynamicUnwatched { get; }
 
         public bool IsDynamicMovie { get; }
-
-        public bool TracksJellyfinState { get; }
 
         public PlaybackPhase Phase { get; set; }
 
