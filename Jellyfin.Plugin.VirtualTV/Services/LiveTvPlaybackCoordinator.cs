@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -28,16 +29,20 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///
 /// This keeps client state transitions explicit and serial, avoids VOD-to-VOD auto-next races, and
 /// gives webOS/Android TV time to tear down one player before the next request is issued.
+/// Concrete VOD items are sent as raw one-item Play messages so Jellyfin cannot expand an episode
+/// into the rest of its series; Virtual TV never exposes a native Next Up item.
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
     private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DuplicateTuneFallbackWindow = TimeSpan.FromSeconds(2);
 
     private readonly ISessionManager _sessionManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly IUserManager _userManager;
     private readonly VirtualTvScheduleStore _scheduleStore;
     private readonly VirtualTvEpisodeResolver _episodeResolver;
     private readonly VirtualTvMovieResolver _movieResolver;
@@ -52,6 +57,7 @@ public sealed class LiveTvPlaybackCoordinator
     public LiveTvPlaybackCoordinator(
         ISessionManager sessionManager,
         ILibraryManager libraryManager,
+        IUserManager userManager,
         VirtualTvScheduleStore scheduleStore,
         VirtualTvEpisodeResolver episodeResolver,
         VirtualTvMovieResolver movieResolver,
@@ -62,6 +68,7 @@ public sealed class LiveTvPlaybackCoordinator
     {
         _sessionManager = sessionManager;
         _libraryManager = libraryManager;
+        _userManager = userManager;
         _scheduleStore = scheduleStore;
         _episodeResolver = episodeResolver;
         _movieResolver = movieResolver;
@@ -187,7 +194,7 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        if (!eventArgs.PlayedToCompletion || !IsAtPhysicalEnd(eventArgs))
+        if (!IsAtPhysicalEnd(eventArgs))
         {
             EndSession(sessionId, context.Generation, "manual VOD stop");
             return;
@@ -488,17 +495,29 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         _logger.LogInformation(
-            "Virtual TV returning to bootstrap: session {SessionId}, generation {Generation}, channel {ChannelName}, reason {Reason}.",
+            "Virtual TV VOD finished: session {SessionId}, generation {Generation}, channel {ChannelName}. Waiting {BufferMs}ms for the normal Jellyfin VOD player to close before reopening the neutral Live TV bootstrap.",
             context.SessionId,
             context.Generation,
             context.ChannelName,
-            reason);
+            VodTeardownBuffer.TotalMilliseconds);
 
-        await SendPlayNowAsync(
+        try
+        {
+            await Task.Delay(VodTeardownBuffer, context.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!IsCurrent(context))
+        {
+            return;
+        }
+
+        await SendBootstrapPlayNowAsync(
             context,
-            context.LiveChannelItemId,
-            0,
-            reason + "; return to neutral Live TV bootstrap").ConfigureAwait(false);
+            reason + "; reopen neutral Live TV bootstrap after VOD teardown").ConfigureAwait(false);
     }
 
     private Task PlayScheduledEntryAsync(
@@ -555,7 +574,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         PrepareVodHandoff(context, entry, resolution.ItemId);
 
-        await SendPlayNowAsync(
+        await SendIsolatedVodPlayNowAsync(
             context,
             resolution.ItemId,
             0,
@@ -601,7 +620,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         PrepareVodHandoff(context, entry, resolution.ItemId);
 
-        await SendPlayNowAsync(
+        await SendIsolatedVodPlayNowAsync(
             context,
             resolution.ItemId,
             resolution.StartPositionTicks,
@@ -643,7 +662,7 @@ public sealed class LiveTvPlaybackCoordinator
         var targetTicks = CalculateConcreteTargetTicks(entry, sourceItem.RunTimeTicks, nowUtc);
         PrepareVodHandoff(context, entry, sourceItemId);
 
-        await SendPlayNowAsync(
+        await SendIsolatedVodPlayNowAsync(
             context,
             sourceItemId,
             targetTicks,
@@ -677,7 +696,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         PrepareVodHandoff(context, entry, fallback.Id);
 
-        await SendPlayNowAsync(
+        await SendIsolatedVodPlayNowAsync(
             context,
             fallback.Id,
             0,
@@ -703,7 +722,19 @@ public sealed class LiveTvPlaybackCoordinator
         }
     }
 
-    private async Task SendPlayNowAsync(
+    /// <summary>
+    /// Sends one concrete VOD item directly to the controllers of the exact Jellyfin session.
+    ///
+    /// This deliberately bypasses ISessionManager.SendPlayCommand for episodes. Jellyfin's server
+    /// expands a single Episode PlayNow into the remainder of the series whenever the user's
+    /// "Play next episode automatically" setting is enabled. That server-side expansion creates
+    /// Next Up / SxxExx queue items that are wrong for Virtual TV.
+    ///
+    /// Sending the already-resolved concrete item as a raw SessionMessageType.Play message keeps
+    /// the client playlist to exactly one item. At EOF the normal VOD player therefore has no next
+    /// item to autoplay; it closes, and Virtual TV explicitly reopens the neutral Live TV bootstrap.
+    /// </summary>
+    private async Task SendIsolatedVodPlayNowAsync(
         SessionContext context,
         Guid itemId,
         long startPositionTicks,
@@ -727,21 +758,123 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
+            var item = _libraryManager.GetItemById(itemId);
+            if (item is null || item.IsFolder)
+            {
+                EndSession(context.SessionId, context.Generation, "isolated VOD target is not a concrete playable item");
+                return;
+            }
+
+            if (context.UserId != Guid.Empty)
+            {
+                var user = _userManager.GetUserById(context.UserId);
+                if (user is null || item.GetPlayAccess(user) != PlayAccess.Full)
+                {
+                    EndSession(context.SessionId, context.Generation, "active user does not have full play access to isolated VOD target");
+                    return;
+                }
+            }
+
+            var targetSession = _sessionManager.Sessions.FirstOrDefault(
+                session => string.Equals(session.Id, context.SessionId, StringComparison.Ordinal));
+
+            if (targetSession is null || targetSession.SessionControllers.Count == 0)
+            {
+                EndSession(context.SessionId, context.Generation, "target session has no active controller for isolated VOD PlayNow");
+                return;
+            }
+
+            // A non-zero one-tick start still represents 00:00 to the user but prevents Jellyfin
+            // Web from injecting Cinema Mode intros when a Virtual TV rule requires start-at-zero.
+            var isolatedStartTicks = Math.Max(1, startPositionTicks);
+
             var request = new PlayRequest
             {
                 ItemIds = new[] { itemId },
-                StartPositionTicks = Math.Max(0, startPositionTicks),
+                StartPositionTicks = isolatedStartTicks,
+                StartIndex = 0,
+                PlayCommand = PlayCommand.PlayNow,
+                ControllingUserId = context.UserId
+            };
+
+            _logger.LogInformation(
+                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, start {StartSeconds:F1}s, reason {Reason}.",
+                context.Generation,
+                context.SessionId,
+                itemId,
+                TimeSpan.FromTicks(isolatedStartTicks).TotalSeconds,
+                reason);
+
+            var messageId = Guid.NewGuid();
+            foreach (var controller in targetSession.SessionControllers)
+            {
+                await controller.SendMessage(
+                    SessionMessageType.Play,
+                    messageId,
+                    request,
+                    context.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (context.Token.IsCancellationRequested)
+        {
+            // A newer tune superseded this request.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Virtual TV isolated VOD PlayNow failed for session {SessionId}, generation {Generation}.",
+                context.SessionId,
+                context.Generation);
+
+            EndSession(context.SessionId, context.Generation, "isolated VOD PlayNow failed");
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reopens the Virtual TV channel itself. Unlike episode playback this may use Jellyfin's
+    /// normal SendPlayCommand path because a LiveTvChannel cannot trigger episode auto-expansion.
+    /// The channel always resolves to the universal embedded Loading Virtual TV source.
+    /// </summary>
+    private async Task SendBootstrapPlayNowAsync(
+        SessionContext context,
+        string reason)
+    {
+        var gate = _commandGates.GetOrAdd(context.SessionId, _ => new SemaphoreSlim(1, 1));
+
+        try
+        {
+            await gate.WaitAsync(context.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!IsCurrent(context))
+            {
+                return;
+            }
+
+            var request = new PlayRequest
+            {
+                ItemIds = new[] { context.LiveChannelItemId },
+                StartPositionTicks = 0,
                 StartIndex = 0,
                 PlayCommand = PlayCommand.PlayNow
             };
 
             _logger.LogInformation(
-                "Virtual TV PlayNow {Generation}: session {SessionId}, phase {Phase}, item {ItemId}, start {StartSeconds:F1}s, reason {Reason}.",
+                "Virtual TV bootstrap PlayNow {Generation}: session {SessionId}, channel {ChannelName}, reason {Reason}.",
                 context.Generation,
                 context.SessionId,
-                context.Phase,
-                itemId,
-                TimeSpan.FromTicks(Math.Max(0, startPositionTicks)).TotalSeconds,
+                context.ChannelName,
                 reason);
 
             await _sessionManager.SendPlayCommand(
@@ -758,12 +891,11 @@ public sealed class LiveTvPlaybackCoordinator
         {
             _logger.LogWarning(
                 ex,
-                "Virtual TV PlayNow failed for session {SessionId}, generation {Generation}, phase {Phase}.",
+                "Virtual TV bootstrap PlayNow failed for session {SessionId}, generation {Generation}.",
                 context.SessionId,
-                context.Generation,
-                context.Phase);
+                context.Generation);
 
-            EndSession(context.SessionId, context.Generation, "PlayNow failed");
+            EndSession(context.SessionId, context.Generation, "bootstrap PlayNow failed");
         }
         finally
         {

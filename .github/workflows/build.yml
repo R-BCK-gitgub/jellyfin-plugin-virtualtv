@@ -94,6 +94,10 @@ jobs:
               'Interlocked.Increment(ref _nextGeneration)',
               'SemaphoreSlim',
               'context.Token',
+              'VodTeardownBuffer = TimeSpan.FromSeconds(1)',
+              'SendIsolatedVodPlayNowAsync',
+              'SessionMessageType.Play',
+              'targetSession.SessionControllers',
               'ItemIds = new[] { itemId }',
               'PlayCommand = PlayCommand.PlayNow',
               'PlaybackPhase.AwaitingBootstrap',
@@ -126,6 +130,8 @@ jobs:
               'IsLgWebOsSession',
               'BuildConcreteManagedQueue',
               'ManagedQueueOrder',
+              'PlayCommand.PlayNext',
+              'PlayCommand.PlayLast',
           ]
           present=[x for x in forbidden if x in c]
           if present:
@@ -165,6 +171,32 @@ jobs:
           missing=[token for token in bootstrap_required if token not in l+b]
           if missing:
               raise SystemExit(f"Embedded bootstrap invariant missing: {missing}")
+
+          isolated_start=c.index('private async Task SendIsolatedVodPlayNowAsync')
+          isolated_end=c.index('private async Task SendBootstrapPlayNowAsync', isolated_start)
+          isolated_sender=c[isolated_start:isolated_end]
+          if '_sessionManager.SendPlayCommand' in isolated_sender:
+              raise SystemExit("Isolated VOD playback must bypass Jellyfin SendPlayCommand episode auto-expansion.")
+          for token in [
+              'ItemIds = new[] { itemId }',
+              'SessionMessageType.Play',
+              'targetSession.SessionControllers',
+              'queue length 1',
+              'Math.Max(1, startPositionTicks)',
+              'item.GetPlayAccess(user) != PlayAccess.Full',
+          ]:
+              if token not in isolated_sender:
+                  raise SystemExit(f"Isolated one-item VOD invariant missing: {token}")
+
+          bootstrap_sender=c[c.index('private async Task SendBootstrapPlayNowAsync'):c.index('private bool IsCurrent')]
+          if '_sessionManager.SendPlayCommand' not in bootstrap_sender:
+              raise SystemExit("Live TV bootstrap must use Jellyfin's normal channel PlayNow path.")
+
+          stop_start=c.index('public async Task HandlePlaybackStopAsync')
+          stop_end=c.index('private Task HandleBootstrapStartAsync', stop_start)
+          stop_handler=c[stop_start:stop_end]
+          if '!eventArgs.PlayedToCompletion || !IsAtPhysicalEnd' in stop_handler:
+              raise SystemExit("Near-physical EOF must return to bootstrap even when the client does not set PlayedToCompletion.")
 
           if '_scheduleStore.Load(channel.Id)' in l[l.index('private MediaSourceInfo GetSource'):]:
               raise SystemExit("Live TV bootstrap source must not read the schedule.")
