@@ -15,19 +15,21 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
-/// Coordinates Virtual TV playback with one deterministic VOD handoff per tune.
+/// Virtual TV playback is intentionally a two-stage loop:
 ///
-/// The Live TV channel is only the entry point. Once Jellyfin reports that the channel was
-/// opened, Virtual TV resolves the programme that owns the wall clock, resolves the concrete
-/// media item, and sends exactly one PlayNow request for that item.
+///   Live TV bootstrap ("Loading Virtual TV...") -> one resolved VOD item -> Live TV bootstrap -> ...
 ///
-/// No Current+Next queue, client auto-next dependency, delayed seek, continuation watchdog or
-/// client-specific playback command is used. Every physical EOF re-reads the schedule and opens
-/// exactly the item that should be live at that instant.
+/// The Live TV layer never plays scheduled library media. It is only a neutral 10-second loading
+/// surface. After a short buffer, the coordinator resolves the schedule/rules and sends one PlayNow
+/// for exactly one concrete episode/movie. At physical EOF it always returns to the Live TV
+/// bootstrap first; only after that bootstrap has started and settled does it resolve the next VOD.
+///
+/// This keeps client state transitions explicit and serial, avoids VOD-to-VOD auto-next races, and
+/// gives webOS/Android TV time to tear down one player before the next request is issued.
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
-    private static readonly TimeSpan InitialHandoffDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DuplicateTuneFallbackWindow = TimeSpan.FromSeconds(2);
@@ -74,15 +76,15 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        if (eventArgs.Item is LiveTvChannel channel
-            && string.Equals(channel.ServiceName, VirtualTvLiveTvService.ServiceName, StringComparison.OrdinalIgnoreCase)
-            && VirtualTvLiveTvService.TryGetConfigurationChannelId(channel.ExternalId, out var configurationChannelId))
+        if (eventArgs.Item is LiveTvChannel liveChannel
+            && string.Equals(liveChannel.ServiceName, VirtualTvLiveTvService.ServiceName, StringComparison.OrdinalIgnoreCase)
+            && VirtualTvLiveTvService.TryGetConfigurationChannelId(liveChannel.ExternalId, out var configurationChannelId))
         {
-            await HandleChannelTuneAsync(eventArgs, channel, configurationChannelId).ConfigureAwait(false);
+            await HandleBootstrapStartAsync(eventArgs, liveChannel, configurationChannelId).ConfigureAwait(false);
             return;
         }
 
-        HandleSourcePlaybackStart(eventArgs);
+        HandleVodStart(eventArgs);
     }
 
     public async Task HandlePlaybackStopAsync(PlaybackStopEventArgs eventArgs)
@@ -98,33 +100,35 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        // The bootstrap LiveTvChannel is expected to stop when PlayNow opens the real item.
         if (eventArgs.Item is LiveTvChannel)
         {
+            HandleBootstrapStop(eventArgs, context);
             return;
         }
 
-        bool isCurrent;
-        bool isReplacementStop;
-
+        Guid? currentItem;
+        string replacingPlaySession;
         lock (context.Gate)
         {
-            isCurrent = context.CurrentSourceItemId == eventArgs.Item.Id;
-            isReplacementStop = !string.IsNullOrWhiteSpace(context.ReplacingPlaySessionId)
-                && string.Equals(context.ReplacingPlaySessionId, eventArgs.PlaySessionId, StringComparison.Ordinal);
-
-            if (isReplacementStop)
-            {
-                context.ReplacingPlaySessionId = string.Empty;
-                return;
-            }
+            currentItem = context.CurrentVodItemId;
+            replacingPlaySession = context.ReplacingPlaySessionId;
         }
 
-        // Old stop events from a superseded tune are harmless. Never let them close the new tune.
-        if (!isCurrent)
+        if (!string.IsNullOrWhiteSpace(replacingPlaySession)
+            && string.Equals(replacingPlaySession, eventArgs.PlaySessionId, StringComparison.Ordinal))
+        {
+            lock (context.Gate)
+            {
+                context.ReplacingPlaySessionId = string.Empty;
+            }
+
+            return;
+        }
+
+        if (!currentItem.HasValue || currentItem.Value != eventArgs.Item.Id)
         {
             _logger.LogDebug(
-                "Virtual TV ignored stale stop for item {ItemId} in session {SessionId}, generation {Generation}.",
+                "Virtual TV ignored stale VOD stop for item {ItemId} in session {SessionId}, generation {Generation}.",
                 eventArgs.Item.Id,
                 sessionId,
                 context.Generation);
@@ -133,7 +137,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         if (!eventArgs.PlayedToCompletion || !IsAtPhysicalEnd(eventArgs))
         {
-            EndSession(sessionId, context.Generation, "manual stop");
+            EndSession(sessionId, context.Generation, "manual VOD stop");
             return;
         }
 
@@ -142,64 +146,71 @@ public sealed class LiveTvPlaybackCoordinator
             context.LastCompletedItemId = eventArgs.Item.Id;
         }
 
-        // Schedule-authoritative EOF. The player never decides what comes next.
-        var nowUtc = DateTime.UtcNow;
-        var liveEntry = FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc);
-        if (liveEntry is null)
+        // Physical EOF never opens another VOD directly. Always return to the neutral Live TV
+        // loading source first, then let that bootstrap start event trigger a fresh resolution.
+        await ReturnToBootstrapAsync(context, "physical VOD EOF").ConfigureAwait(false);
+    }
+
+    private async Task HandleBootstrapStartAsync(
+        PlaybackStartEventArgs eventArgs,
+        LiveTvChannel liveChannel,
+        string configurationChannelId)
+    {
+        var sessionId = eventArgs.Session!.Id;
+
+        if (_sessions.TryGetValue(sessionId, out var existing)
+            && existing.LiveChannelItemId == liveChannel.Id
+            && existing.Phase == PlaybackPhase.AwaitingBootstrap)
         {
-            EndSession(sessionId, context.Generation, "programme completed while channel is off air");
+            lock (existing.Gate)
+            {
+                existing.Phase = PlaybackPhase.Bootstrap;
+                existing.BootstrapPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
+                existing.ReplacingPlaySessionId = string.Empty;
+                existing.CurrentVodItemId = null;
+                existing.PendingVodItemId = null;
+            }
+
+            _logger.LogInformation(
+                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}.",
+                sessionId,
+                existing.Generation,
+                existing.ChannelName);
+
+            await HandoffFromBootstrapAsync(existing, "post-EOF bootstrap").ConfigureAwait(false);
             return;
         }
 
-        await PlayScheduledEntryAsync(
-            context,
-            liveEntry,
-            nowUtc,
-            "physical EOF; re-resolve current schedule").ConfigureAwait(false);
-    }
+        if (_sessions.TryGetValue(sessionId, out existing))
+        {
+            var samePlaySession = !string.IsNullOrWhiteSpace(eventArgs.PlaySessionId)
+                && string.Equals(existing.BootstrapPlaySessionId, eventArgs.PlaySessionId, StringComparison.Ordinal);
 
-    private async Task HandleChannelTuneAsync(
-        PlaybackStartEventArgs eventArgs,
-        LiveTvChannel channel,
-        string configurationChannelId)
-    {
+            var fallbackDuplicate = string.IsNullOrWhiteSpace(eventArgs.PlaySessionId)
+                && existing.LiveChannelItemId == liveChannel.Id
+                && existing.Phase == PlaybackPhase.Bootstrap
+                && DateTime.UtcNow - existing.CreatedUtc < DuplicateTuneFallbackWindow;
+
+            if (samePlaySession || fallbackDuplicate)
+            {
+                _logger.LogDebug(
+                    "Virtual TV ignored duplicate bootstrap start for session {SessionId}, generation {Generation}.",
+                    sessionId,
+                    existing.Generation);
+                return;
+            }
+        }
+
         var channelConfiguration = GetChannelConfiguration(configurationChannelId);
         if (channelConfiguration is null)
         {
             return;
         }
 
-        var session = eventArgs.Session!;
-        var sessionId = session.Id;
-        var nowUtc = DateTime.UtcNow;
-        var activeEntry = FindActiveEntry(LoadSchedule(configurationChannelId), nowUtc);
-
-        if (activeEntry is null)
+        var playbackUserId = ResolvePlaybackUserId(eventArgs);
+        if (playbackUserId != Guid.Empty && !_visibility.IsVisibleToUser(channelConfiguration, playbackUserId))
         {
-            _logger.LogWarning(
-                "Virtual TV cannot hand off session {SessionId}: no active programme for {ChannelName}.",
-                sessionId,
-                channel.Name);
             return;
-        }
-
-        if (_sessions.TryGetValue(sessionId, out var existing))
-        {
-            var samePlaySession = !string.IsNullOrWhiteSpace(eventArgs.PlaySessionId)
-                && string.Equals(existing.ChannelPlaySessionId, eventArgs.PlaySessionId, StringComparison.Ordinal);
-
-            var fallbackDuplicate = string.IsNullOrWhiteSpace(eventArgs.PlaySessionId)
-                && string.Equals(existing.ChannelId, configurationChannelId, StringComparison.OrdinalIgnoreCase)
-                && DateTime.UtcNow - existing.CreatedUtc < DuplicateTuneFallbackWindow;
-
-            if (samePlaySession || fallbackDuplicate)
-            {
-                _logger.LogDebug(
-                    "Virtual TV ignored duplicate channel tune for session {SessionId}, generation {Generation}.",
-                    sessionId,
-                    existing.Generation);
-                return;
-            }
         }
 
         var contentMode = string.Equals(channelConfiguration.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
@@ -208,21 +219,12 @@ public sealed class LiveTvPlaybackCoordinator
                 : VirtualTvModePolicy.Random)
             : VirtualTvModePolicy.NormalizeContentMode(channelConfiguration.ContentMode);
 
-        var playbackUserId = ResolvePlaybackUserId(eventArgs);
-        if (playbackUserId != Guid.Empty && !_visibility.IsVisibleToUser(channelConfiguration, playbackUserId))
-        {
-            return;
-        }
-
         var tracksState = VirtualTvModePolicy.TracksJellyfinState(contentMode);
 
         if (_sessions.TryRemove(sessionId, out var previous))
         {
             previous.Cancel();
 
-            // Traditional channels share one protection envelope while the user surfs between
-            // traditional Virtual TV channels. Switching into a watched-dependent channel closes
-            // that envelope so the new VOD item can update Jellyfin normally.
             if (!previous.TracksJellyfinState && tracksState)
             {
                 _stateProtection.CompleteProtection(sessionId);
@@ -233,27 +235,131 @@ public sealed class LiveTvPlaybackCoordinator
             sessionId,
             configurationChannelId,
             playbackUserId,
-            channel.Name,
+            liveChannel.Name,
             channelConfiguration.ChannelType,
             contentMode,
+            liveChannel.Id,
             eventArgs.PlaySessionId ?? string.Empty,
             Interlocked.Increment(ref _nextGeneration));
 
         _sessions[sessionId] = context;
 
         _logger.LogInformation(
-            "Virtual TV tune {Generation}: session {SessionId}, channel {ChannelName}, mode {Mode}, active entry {EntryId}.",
+            "Virtual TV tune {Generation}: session {SessionId}, channel {ChannelName}, phase Bootstrap, mode {Mode}.",
             context.Generation,
             sessionId,
-            channel.Name,
-            contentMode,
-            activeEntry.Id);
+            context.ChannelName,
+            context.ContentMode);
 
+        await HandoffFromBootstrapAsync(context, "initial channel bootstrap").ConfigureAwait(false);
+    }
+
+    private void HandleBootstrapStop(PlaybackStopEventArgs eventArgs, SessionContext context)
+    {
+        string replacingPlaySession;
+        PlaybackPhase phase;
+
+        lock (context.Gate)
+        {
+            replacingPlaySession = context.ReplacingPlaySessionId;
+            phase = context.Phase;
+        }
+
+        if (!string.IsNullOrWhiteSpace(replacingPlaySession)
+            && string.Equals(replacingPlaySession, eventArgs.PlaySessionId, StringComparison.Ordinal))
+        {
+            lock (context.Gate)
+            {
+                context.ReplacingPlaySessionId = string.Empty;
+            }
+
+            return;
+        }
+
+        // Bootstrap may stop after a VOD PlayNow has already been accepted; that is expected.
+        if (phase is PlaybackPhase.AwaitingVod or PlaybackPhase.Vod or PlaybackPhase.AwaitingBootstrap)
+        {
+            return;
+        }
+
+        // If the user explicitly backs out while the loading clip is the active player, do not
+        // allow the delayed handoff to resurrect playback.
+        EndSession(context.SessionId, context.Generation, "manual bootstrap stop");
+    }
+
+    private void HandleVodStart(PlaybackStartEventArgs eventArgs)
+    {
+        var sessionId = eventArgs.Session!.Id;
+        if (!_sessions.TryGetValue(sessionId, out var context))
+        {
+            return;
+        }
+
+        var startedItemId = eventArgs.Item!.Id;
+        Guid? pendingVod;
+        Guid? currentVod;
+        PlaybackPhase phase;
+
+        lock (context.Gate)
+        {
+            pendingVod = context.PendingVodItemId;
+            currentVod = context.CurrentVodItemId;
+            phase = context.Phase;
+        }
+
+        if (phase == PlaybackPhase.AwaitingVod
+            && pendingVod.HasValue
+            && pendingVod.Value == startedItemId)
+        {
+            lock (context.Gate)
+            {
+                context.Phase = PlaybackPhase.Vod;
+                context.CurrentVodItemId = startedItemId;
+                context.CurrentVodPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
+                context.PendingVodItemId = null;
+                context.ReplacingPlaySessionId = string.Empty;
+            }
+
+            _logger.LogInformation(
+                "Virtual TV VOD accepted: session {SessionId}, generation {Generation}, item {ItemId}.",
+                sessionId,
+                context.Generation,
+                startedItemId);
+            return;
+        }
+
+        if (phase == PlaybackPhase.Vod && currentVod.HasValue && currentVod.Value == startedItemId)
+        {
+            // Normal VOD player restart after subtitle/audio changes or a user seek.
+            lock (context.Gate)
+            {
+                context.CurrentVodPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
+            }
+
+            return;
+        }
+
+        if (pendingVod.HasValue)
+        {
+            _logger.LogDebug(
+                "Virtual TV ignored stale VOD start {ItemId}; session {SessionId} generation {Generation} is waiting for {PendingItemId}.",
+                startedItemId,
+                sessionId,
+                context.Generation,
+                pendingVod.Value);
+            return;
+        }
+
+        EndSession(sessionId, context.Generation, "unrelated playback started");
+    }
+
+    private async Task HandoffFromBootstrapAsync(SessionContext context, string reason)
+    {
         try
         {
-            // One small, cancellable settling delay. No playback command is sent until the
-            // stock client has had a chance to attach its Live TV player. A newer tune cancels it.
-            await Task.Delay(InitialHandoffDelay, context.Token).ConfigureAwait(false);
+            // Deliberate client buffer: let webOS/Android TV fully open the neutral Live TV source
+            // before asking it to tear that player down and open the real VOD item.
+            await Task.Delay(BootstrapBuffer, context.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -265,75 +371,61 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        await PlayScheduledEntryAsync(
-            context,
-            activeEntry,
-            DateTime.UtcNow,
-            "initial channel tune").ConfigureAwait(false);
-    }
-
-    private void HandleSourcePlaybackStart(PlaybackStartEventArgs eventArgs)
-    {
-        var sessionId = eventArgs.Session!.Id;
-        if (!_sessions.TryGetValue(sessionId, out var context))
+        lock (context.Gate)
         {
+            if (context.Phase != PlaybackPhase.Bootstrap)
+            {
+                return;
+            }
+        }
+
+        // Resolve only now, after the loading video is established. This makes the wall clock at
+        // the actual VOD handoff authoritative and avoids carrying stale schedule decisions across
+        // channel switches or EOF transitions.
+        var nowUtc = DateTime.UtcNow;
+        var liveEntry = FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc);
+        if (liveEntry is null)
+        {
+            EndSession(context.SessionId, context.Generation, "no active schedule entry after bootstrap");
             return;
         }
 
-        var startedItemId = eventArgs.Item!.Id;
-        Guid? pendingTarget;
-        Guid? currentItem;
+        await PlayScheduledEntryAsync(
+            context,
+            liveEntry,
+            nowUtc,
+            reason).ConfigureAwait(false);
+    }
+
+    private async Task ReturnToBootstrapAsync(SessionContext context, string reason)
+    {
+        string currentVodPlaySession;
 
         lock (context.Gate)
         {
-            pendingTarget = context.PendingTargetItemId;
-            currentItem = context.CurrentSourceItemId;
-        }
-
-        if (pendingTarget.HasValue && pendingTarget.Value == startedItemId)
-        {
-            lock (context.Gate)
+            if (context.Phase != PlaybackPhase.Vod)
             {
-                context.CurrentSourceItemId = startedItemId;
-                context.CurrentPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
-                context.PendingTargetItemId = null;
-                context.ReplacingPlaySessionId = string.Empty;
+                return;
             }
 
-            _logger.LogDebug(
-                "Virtual TV accepted source item {ItemId} for session {SessionId}, generation {Generation}.",
-                startedItemId,
-                sessionId,
-                context.Generation);
-            return;
+            currentVodPlaySession = context.CurrentVodPlaySessionId;
+            context.Phase = PlaybackPhase.AwaitingBootstrap;
+            context.ReplacingPlaySessionId = currentVodPlaySession;
+            context.PendingVodItemId = null;
         }
 
-        if (currentItem.HasValue && currentItem.Value == startedItemId)
-        {
-            // Normal VOD restart after subtitle/audio track change or a manual seek.
-            lock (context.Gate)
-            {
-                context.CurrentPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
-            }
+        _logger.LogInformation(
+            "Virtual TV returning to bootstrap: session {SessionId}, generation {Generation}, channel {ChannelName}, reason {Reason}.",
+            context.SessionId,
+            context.Generation,
+            context.ChannelName,
+            reason);
 
-            return;
-        }
-
-        if (pendingTarget.HasValue)
-        {
-            // Most important race guard in 1.10.4: a late start from the old channel/item cannot
-            // terminate or overwrite the tune that is currently waiting for its real episode.
-            _logger.LogDebug(
-                "Virtual TV ignored stale source start {ItemId}; session {SessionId} generation {Generation} is waiting for {PendingItemId}.",
-                startedItemId,
-                sessionId,
-                context.Generation,
-                pendingTarget.Value);
-            return;
-        }
-
-        // No handoff is pending and the user opened unrelated media: the Virtual TV session ended.
-        EndSession(sessionId, context.Generation, "unrelated playback started");
+        await SendPlayNowAsync(
+            context,
+            context.LiveChannelItemId,
+            0,
+            reason + "; return to neutral Live TV bootstrap").ConfigureAwait(false);
     }
 
     private Task PlayScheduledEntryAsync(
@@ -388,9 +480,9 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        PreparePendingCommand(context, entry, resolution.ItemId);
+        PrepareVodHandoff(context, entry, resolution.ItemId);
 
-        await SendSinglePlayNowAsync(
+        await SendPlayNowAsync(
             context,
             resolution.ItemId,
             0,
@@ -434,9 +526,9 @@ public sealed class LiveTvPlaybackCoordinator
             return;
         }
 
-        PreparePendingCommand(context, entry, resolution.ItemId);
+        PrepareVodHandoff(context, entry, resolution.ItemId);
 
-        await SendSinglePlayNowAsync(
+        await SendPlayNowAsync(
             context,
             resolution.ItemId,
             resolution.StartPositionTicks,
@@ -476,9 +568,9 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         var targetTicks = CalculateConcreteTargetTicks(entry, sourceItem.RunTimeTicks, nowUtc);
-        PreparePendingCommand(context, entry, sourceItemId);
+        PrepareVodHandoff(context, entry, sourceItemId);
 
-        await SendSinglePlayNowAsync(
+        await SendPlayNowAsync(
             context,
             sourceItemId,
             targetTicks,
@@ -510,29 +602,35 @@ public sealed class LiveTvPlaybackCoordinator
             _stateProtection.BeginProtection(context.SessionId, new[] { fallback.Id }, context.UserId);
         }
 
-        PreparePendingCommand(context, entry, fallback.Id);
+        PrepareVodHandoff(context, entry, fallback.Id);
 
-        await SendSinglePlayNowAsync(
+        await SendPlayNowAsync(
             context,
             fallback.Id,
             0,
             reason + "; local fallback").ConfigureAwait(false);
     }
 
-    private void PreparePendingCommand(
+    private void PrepareVodHandoff(
         SessionContext context,
         VirtualTvScheduleEntry entry,
         Guid targetItemId)
     {
         lock (context.Gate)
         {
-            context.ReplacingPlaySessionId = context.CurrentPlaySessionId;
-            context.PendingTargetItemId = targetItemId;
+            if (context.Phase != PlaybackPhase.Bootstrap)
+            {
+                return;
+            }
+
+            context.Phase = PlaybackPhase.AwaitingVod;
+            context.ReplacingPlaySessionId = context.BootstrapPlaySessionId;
+            context.PendingVodItemId = targetItemId;
             context.CurrentEntryId = entry.Id;
         }
     }
 
-    private async Task SendSinglePlayNowAsync(
+    private async Task SendPlayNowAsync(
         SessionContext context,
         Guid itemId,
         long startPositionTicks,
@@ -565,10 +663,10 @@ public sealed class LiveTvPlaybackCoordinator
             };
 
             _logger.LogInformation(
-                "Virtual TV PlayNow {Generation}: session {SessionId}, channel {ChannelName}, item {ItemId}, start {StartSeconds:F1}s, reason {Reason}.",
+                "Virtual TV PlayNow {Generation}: session {SessionId}, phase {Phase}, item {ItemId}, start {StartSeconds:F1}s, reason {Reason}.",
                 context.Generation,
                 context.SessionId,
-                context.ChannelName,
+                context.Phase,
                 itemId,
                 TimeSpan.FromTicks(Math.Max(0, startPositionTicks)).TotalSeconds,
                 reason);
@@ -587,9 +685,10 @@ public sealed class LiveTvPlaybackCoordinator
         {
             _logger.LogWarning(
                 ex,
-                "Virtual TV PlayNow failed for session {SessionId}, generation {Generation}.",
+                "Virtual TV PlayNow failed for session {SessionId}, generation {Generation}, phase {Phase}.",
                 context.SessionId,
-                context.Generation);
+                context.Generation,
+                context.Phase);
 
             EndSession(context.SessionId, context.Generation, "PlayNow failed");
         }
@@ -696,6 +795,14 @@ public sealed class LiveTvPlaybackCoordinator
             reason);
     }
 
+    private enum PlaybackPhase
+    {
+        Bootstrap,
+        AwaitingVod,
+        Vod,
+        AwaitingBootstrap
+    }
+
     private sealed class SessionContext
     {
         private readonly CancellationTokenSource _lifetime = new();
@@ -707,7 +814,8 @@ public sealed class LiveTvPlaybackCoordinator
             string channelName,
             string channelType,
             string contentMode,
-            string channelPlaySessionId,
+            Guid liveChannelItemId,
+            string bootstrapPlaySessionId,
             long generation)
         {
             SessionId = sessionId;
@@ -716,8 +824,10 @@ public sealed class LiveTvPlaybackCoordinator
             ChannelName = channelName;
             ChannelType = channelType;
             ContentMode = contentMode;
-            ChannelPlaySessionId = channelPlaySessionId;
+            LiveChannelItemId = liveChannelItemId;
+            BootstrapPlaySessionId = bootstrapPlaySessionId;
             Generation = generation;
+            Phase = PlaybackPhase.Bootstrap;
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
             IsDynamicMovie = IsDynamicUnwatched
                 && string.Equals(channelType, "Movies", StringComparison.OrdinalIgnoreCase);
@@ -740,7 +850,7 @@ public sealed class LiveTvPlaybackCoordinator
 
         public string ContentMode { get; }
 
-        public string ChannelPlaySessionId { get; }
+        public Guid LiveChannelItemId { get; }
 
         public long Generation { get; }
 
@@ -750,15 +860,19 @@ public sealed class LiveTvPlaybackCoordinator
 
         public bool TracksJellyfinState { get; }
 
+        public PlaybackPhase Phase { get; set; }
+
+        public string BootstrapPlaySessionId { get; set; }
+
         public string CurrentEntryId { get; set; } = string.Empty;
 
-        public Guid? CurrentSourceItemId { get; set; }
+        public Guid? PendingVodItemId { get; set; }
+
+        public Guid? CurrentVodItemId { get; set; }
 
         public Guid? LastCompletedItemId { get; set; }
 
-        public string CurrentPlaySessionId { get; set; } = string.Empty;
-
-        public Guid? PendingTargetItemId { get; set; }
+        public string CurrentVodPlaySessionId { get; set; } = string.Empty;
 
         public string ReplacingPlaySessionId { get; set; } = string.Empty;
 

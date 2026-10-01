@@ -69,7 +69,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.5.0" or len(set(values.values()))!=1:
+          if version!="1.10.6.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
           PY
 
@@ -89,15 +89,21 @@ jobs:
           b=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvBootstrapMediaProvider.cs").read_text(encoding="utf-8")
 
           required=[
-              'InitialHandoffDelay = TimeSpan.FromMilliseconds(500)',
+              'BootstrapBuffer = TimeSpan.FromSeconds(2)',
               'Interlocked.Increment(ref _nextGeneration)',
               'SemaphoreSlim',
               'context.Token',
               'ItemIds = new[] { itemId }',
               'PlayCommand = PlayCommand.PlayNow',
-              'physical EOF; re-resolve current schedule',
-              'ignored stale source start',
-              'PendingTargetItemId',
+              'PlaybackPhase.AwaitingBootstrap',
+              'PlaybackPhase.Bootstrap',
+              'PlaybackPhase.AwaitingVod',
+              'PlaybackPhase.Vod',
+              'ReturnToBootstrapAsync',
+              'post-EOF bootstrap',
+              'Resolve only now, after the loading video is established',
+              'CurrentVodItemId',
+              'PendingVodItemId',
               'CompleteProtection',
           ]
           missing=[x for x in required if x not in c]
@@ -114,6 +120,8 @@ jobs:
               'SendPlaystateCommand',
               'PendingDeferredSeekTicks',
               'IsLgWebOsSession',
+              'BuildConcreteManagedQueue',
+              'ManagedQueueOrder',
           ]
           present=[x for x in forbidden if x in c]
           if present:
@@ -143,10 +151,18 @@ jobs:
           if missing:
               raise SystemExit(f"Embedded bootstrap invariant missing: {missing}")
 
-          print("Deterministic single-PlayNow playback and neutral bootstrap validation passed.")
+          direct_eof_tokens=[
+              'physical EOF; re-resolve current schedule',
+              'PlayScheduledEntryAsync(\n            context,\n            liveEntry',
+          ]
+          present=[token for token in direct_eof_tokens if token in c]
+          if present:
+              raise SystemExit(f"Direct VOD-to-VOD EOF path returned: {present}")
+
+          print("Explicit Bootstrap -> VOD -> Bootstrap playback validation passed.")
           PY
 
-      - name: Validate 1.10.5 scheduling, editing and coverage
+      - name: Validate 1.10.6 scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -167,7 +183,7 @@ jobs:
               raise SystemExit(f"Smart coverage missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.5.0"',
+              'data-ui-version="1.10.6.0"',
               'Content Coverage',
               'data-filter="unassigned"',
               'Export CSV',
@@ -179,7 +195,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.5 UI missing: {missing}")
+              raise SystemExit(f"1.10.6 UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -200,8 +216,9 @@ jobs:
               'Virtual TV Guide UI START',
               '.guide-channelHeaderCell-tv,',
               '.channelPrograms-tv {',
-              'height: 7.8em !important',
-              'flex: 0 0 7.8em !important',
+              '--vtv-guide-row-height: 8.25rem',
+              'height: var(--vtv-guide-row-height) !important',
+              'flex: 0 0 var(--vtv-guide-row-height) !important',
               'height: 100% !important',
               'align-items: center !important',
               'font-size: 1.18em !important',
@@ -212,8 +229,11 @@ jobs:
           if missing:
               raise SystemExit(f"Guide UI integration missing: {missing}")
 
+          if 'height: 7.8em !important' in v:
+              raise SystemExit("em-based Guide row height unexpectedly remains in 1.10.6")
+
           if 'width: 18vw !important' in v:
-              raise SystemExit("1.10.4 Guide column width unexpectedly remains in 1.10.5")
+              raise SystemExit("Old Guide column width unexpectedly remains in 1.10.6")
 
           print("Scheduling, editable channels, coverage report and Guide UI validation passed.")
           PY
@@ -253,7 +273,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.5.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.6.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -276,7 +296,7 @@ jobs:
                   raise SystemExit(f"Unexpected bootstrap duration for {name}: {duration}")
           PY
 
-          echo "Embedded 1.10.5 UI and 10-second bootstrap media validation passed."
+          echo "Embedded 1.10.6 UI and 10-second bootstrap media validation passed."
 
       - name: Prepare install package
         shell: bash

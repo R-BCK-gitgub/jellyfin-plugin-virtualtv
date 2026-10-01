@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Keeps the simplified deterministic 1.10.4 playback architecture and the enlarged/aligned 1.10.5 Guide UI. Adds two 10-second H.264/AAC bootstrap clips (black and 'Loading Virtual TV...') generated at build time and embedded inside the plugin DLL. The Live TV bootstrap now always plays the neutral 'Loading Virtual TV...' clip instead of scheduled library media; after the client opens it, Virtual TV resolves the schedule-authoritative item and performs the existing single VOD PlayNow handoff. Both clips are extracted automatically to Jellyfin's cache on first use, so no manual Docker file placement is required. Smart coverage, full channel editing, Content Coverage reporting and watched-state behavior are unchanged.",
+  "changelog": "Reworks playback into an explicit, serialized Bootstrap -> VOD -> Bootstrap loop. Every Virtual TV channel immediately opens the embedded 10-second 'Loading Virtual TV...' Live TV source, waits a 2-second client buffer, then resolves the current schedule/rules and sends one PlayNow for exactly one VOD item. At physical EOF the plugin never opens another episode directly: it first returns to the Live TV loading source, waits for that bootstrap to start and settle, then resolves the wall clock again and opens the correct next/current item. This removes direct VOD-to-VOD transition races and gives webOS/Android TV a clean player teardown boundary. Guide alignment is also corrected by replacing em-based row heights with one fixed 8.25rem shared metric for channel cards and programme rows; programme text remains vertically centred and the 27vw channel column is preserved.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.5.0",
+  "version": "1.10.6.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

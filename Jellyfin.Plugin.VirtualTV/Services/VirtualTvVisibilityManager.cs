@@ -188,36 +188,51 @@ public sealed class VirtualTvVisibilityManager
 
             var block = """
 /* Virtual TV Guide UI START */
+/*
+ * 1.10.6 uses a fixed rem row metric. The previous em-based value inherited different
+ * font sizes on the channel and programme sides, causing cumulative vertical drift.
+ */
+:root {
+    --vtv-guide-row-height: 8.25rem;
+}
+
 .guide-channelHeaderCell,
 .guide-channelHeaderCell-tv,
 .channelPrograms,
 .channelPrograms-tv {
-    height: 7.8em !important;
-    min-height: 7.8em !important;
-    max-height: 7.8em !important;
-    flex: 0 0 7.8em !important;
+    height: var(--vtv-guide-row-height) !important;
+    min-height: var(--vtv-guide-row-height) !important;
+    max-height: var(--vtv-guide-row-height) !important;
+    flex: 0 0 var(--vtv-guide-row-height) !important;
     box-sizing: border-box !important;
 }
+
+/* Jellyfin applies the same -1px border overlap to both stacks; keep it exactly symmetric. */
 .channelPrograms + .channelPrograms,
 .guide-channelHeaderCell + .guide-channelHeaderCell {
     margin-top: -1px !important;
 }
+
 .programCell {
     top: 0 !important;
     bottom: 0 !important;
     height: 100% !important;
     min-height: 100% !important;
+    display: flex !important;
     align-items: center !important;
     box-sizing: border-box !important;
 }
-.guideProgramName,
-.guideProgramNameText,
-.guideProgramSecondaryInfo {
+.guideProgramName {
+    height: 100% !important;
+    display: flex !important;
     align-items: center !important;
 }
-.guideProgramName {
-    min-height: 100% !important;
+.guideProgramNameText {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
 }
+
 .guideChannelImage {
     top: 8% !important;
     bottom: 8% !important;
@@ -235,6 +250,7 @@ public sealed class VirtualTvVisibilityManager
     font-size: 1.08em !important;
     font-weight: 650 !important;
 }
+
 @media all and (min-width: 50em) {
     .channelsContainer,
     .guide-channelTimeslotHeader {
