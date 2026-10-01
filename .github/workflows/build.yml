@@ -24,6 +24,19 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Install bootstrap media build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Generate embedded bootstrap videos
+        shell: bash
+        run: |
+          bash scripts/generate-bootstrap-videos.sh
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 Jellyfin.Plugin.VirtualTV/Assets/Bootstrap/virtualtv-loading-10s.mp4
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 Jellyfin.Plugin.VirtualTV/Assets/Bootstrap/virtualtv-bootstrap-black-10s.mp4
+
       - name: Read plugin version
         id: version
         shell: bash
@@ -73,6 +86,7 @@ jobs:
           from pathlib import Path
           c=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
           l=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
+          b=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvBootstrapMediaProvider.cs").read_text(encoding="utf-8")
 
           required=[
               'InitialHandoffDelay = TimeSpan.FromMilliseconds(500)',
@@ -109,11 +123,27 @@ jobs:
               'source.SupportsDirectPlay = false',
               'source.SupportsDirectStream = false',
               'source.RunTimeTicks = null',
+              '_mediaSourceManager.GetStaticMediaSources',
+              'ResolveBootstrapFallback',
           ]:
               if token in l:
-                  raise SystemExit(f"Bootstrap still forces legacy Live TV media behavior: {token}")
+                  raise SystemExit(f"Bootstrap still references scheduled media: {token}")
 
-          print("Deterministic single-PlayNow playback validation passed.")
+          bootstrap_required=[
+              '_bootstrapMedia.CreateLoadingSource(openForPlayback)',
+              'Loading Virtual TV...',
+              'Jellyfin.Plugin.VirtualTV.Assets.Bootstrap.virtualtv-loading-10s.mp4',
+              'Jellyfin.Plugin.VirtualTV.Assets.Bootstrap.virtualtv-bootstrap-black-10s.mp4',
+              'Path.Combine(_applicationPaths.CachePath, "virtualtv", "bootstrap")',
+              'SupportsDirectPlay = true',
+              'SupportsDirectStream = true',
+              'RunTimeTicks = TimeSpan.FromSeconds(10).Ticks',
+          ]
+          missing=[token for token in bootstrap_required if token not in l+b]
+          if missing:
+              raise SystemExit(f"Embedded bootstrap invariant missing: {missing}")
+
+          print("Deterministic single-PlayNow playback and neutral bootstrap validation passed.")
           PY
 
       - name: Validate 1.10.5 scheduling, editing and coverage
@@ -219,7 +249,7 @@ jobs:
           PY
           node --check /tmp/virtualtv-config.js
 
-      - name: Validate embedded UI
+      - name: Validate embedded UI and bootstrap media
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
@@ -227,7 +257,26 @@ jobs:
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
-          echo "Embedded 1.10.5 UI validation passed."
+          grep -a -q 'virtualtv-loading-10s.mp4' "$DLL"
+          grep -a -q 'virtualtv-bootstrap-black-10s.mp4' "$DLL"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          for name in ["virtualtv-loading-10s.mp4", "virtualtv-bootstrap-black-10s.mp4"]:
+              path=Path("Jellyfin.Plugin.VirtualTV/Assets/Bootstrap")/name
+              if not path.exists() or path.stat().st_size < 10000:
+                  raise SystemExit(f"Bootstrap video missing or unexpectedly small: {name}")
+              duration=float(subprocess.check_output([
+                  "ffprobe","-v","error","-show_entries","format=duration",
+                  "-of","default=nw=1:nk=1",str(path)
+              ], text=True).strip())
+              if not 9.9 <= duration <= 10.1:
+                  raise SystemExit(f"Unexpected bootstrap duration for {name}: {duration}")
+          PY
+
+          echo "Embedded 1.10.5 UI and 10-second bootstrap media validation passed."
 
       - name: Prepare install package
         shell: bash

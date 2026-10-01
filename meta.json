@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Keeps the simplified 1.10.4 playback architecture unchanged. Refines the Jellyfin Live TV Guide presentation by enforcing one identical 7.8em row height/flex-basis for both channel cards and programme rows, preventing cumulative vertical drift. Programme-cell content is vertically centred. The channel column is widened by 50% from 18vw to 27vw, channel-number text is larger and bolder, and channel logos are slightly enlarged. All 1.10.4 scheduling, Smart coverage, full channel editing, Content Coverage reporting and playback behavior are preserved.",
+  "changelog": "Keeps the simplified deterministic 1.10.4 playback architecture and the enlarged/aligned 1.10.5 Guide UI. Adds two 10-second H.264/AAC bootstrap clips (black and 'Loading Virtual TV...') generated at build time and embedded inside the plugin DLL. The Live TV bootstrap now always plays the neutral 'Loading Virtual TV...' clip instead of scheduled library media; after the client opens it, Virtual TV resolves the schedule-authoritative item and performs the existing single VOD PlayNow handoff. Both clips are extracted automatically to Jellyfin's cache on first use, so no manual Docker file placement is required. Smart coverage, full channel editing, Content Coverage reporting and watched-state behavior are unchanged.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
