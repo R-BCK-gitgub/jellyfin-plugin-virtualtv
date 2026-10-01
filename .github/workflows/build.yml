@@ -27,8 +27,19 @@ jobs:
       - name: Install bootstrap media build dependencies
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          set -euo pipefail
+
+          # ubuntu-latest normally already carries ffmpeg + DejaVu. Avoid an unnecessary
+          # network-dependent apt transaction when the exact tools we need are present.
+          if command -v ffmpeg >/dev/null 2>&1              && command -v ffprobe >/dev/null 2>&1              && test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
+            ffmpeg -version | head -n 1
+            echo "Using preinstalled ffmpeg and DejaVu font."
+          else
+            # Bound apt operations so a transient runner mirror cannot leave the release
+            # pipeline hanging indefinitely.
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 180s               apt-get update               -o Acquire::Retries=3               -o Acquire::http::Timeout=20               -o Acquire::https::Timeout=20
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 180s               apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+          fi
 
       - name: Generate embedded bootstrap videos
         shell: bash
