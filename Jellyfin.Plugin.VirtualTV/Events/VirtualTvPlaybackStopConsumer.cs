@@ -6,8 +6,8 @@ using MediaBrowser.Controller.Library;
 namespace Jellyfin.Plugin.VirtualTV.Events;
 
 /// <summary>
-/// Restores protected television-style state before the coordinator handles continuity.
-/// Unwatched modes have no protection snapshot, so Jellyfin progress is intentionally retained.
+/// Restores a protected traditional Personalized TV item only after Jellyfin has already
+/// processed PlaybackStop. Watched-dependent modes have no snapshot and keep normal state.
 /// </summary>
 public sealed class VirtualTvPlaybackStopConsumer : IEventConsumer<PlaybackStopEventArgs>
 {
@@ -24,9 +24,12 @@ public sealed class VirtualTvPlaybackStopConsumer : IEventConsumer<PlaybackStopE
 
     public async Task OnEvent(PlaybackStopEventArgs eventArgs)
     {
-        if (eventArgs.Session is not null)
+        if (eventArgs.Session is not null && eventArgs.Item is not null)
         {
-            _stateProtection.RestoreAllIfProtected(eventArgs.Session.Id, eventArgs.PlaySessionId);
+            _stateProtection.RestoreStoppedItem(
+                eventArgs.Session.Id,
+                eventArgs.Item.Id,
+                eventArgs.PlaySessionId);
         }
 
         await _coordinator.HandlePlaybackStopAsync(eventArgs).ConfigureAwait(false);

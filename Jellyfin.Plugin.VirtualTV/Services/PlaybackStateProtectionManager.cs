@@ -12,9 +12,14 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
 /// <summary>
-/// Preserves Jellyfin watched/resume state for playback modes that must behave like television
-/// rather than personal progress tracking. The first snapshot captured for an item in a managed
-/// session is retained for the entire session and is never overwritten by later playback state.
+/// Protects the original Jellyfin user state for television-style Personalized TV playback.
+///
+/// Invariant:
+/// 1. snapshot once before PlayNow;
+/// 2. never write user data while the VOD player is running;
+/// 3. restore the stopped item after Jellyfin has processed PlaybackStop;
+/// 4. perform one delayed final restore when the Virtual TV session closes, so a late Jellyfin
+///    event cannot leak into Continue Watching.
 /// </summary>
 public sealed class PlaybackStateProtectionManager
 {
@@ -39,11 +44,6 @@ public sealed class PlaybackStateProtectionManager
         _logger = logger;
     }
 
-    /// <summary>
-    /// Ensures every supplied root item is protected. Existing snapshots are preserved rather
-    /// than recaptured, which prevents a natural episode transition from replacing the original
-    /// Unwatched/Resume state with a state Jellyfin has already modified during the same session.
-    /// </summary>
     public bool BeginProtection(string sessionId, IEnumerable<Guid> rootItemIds, Guid userId)
     {
         var user = _userManager.GetUserById(userId);
@@ -109,7 +109,7 @@ public sealed class PlaybackStateProtectionManager
             }
 
             _logger.LogDebug(
-                "Virtual TV protects {RootCount} original Jellyfin item state(s) for session {SessionId}.",
+                "Virtual TV captured {RootCount} original Jellyfin item state(s) for session {SessionId}. No user-data restore runs while playback is active.",
                 snapshot.Roots.Count,
                 sessionId);
 
@@ -117,39 +117,29 @@ public sealed class PlaybackStateProtectionManager
         }
     }
 
-    /// <summary>
-    /// Restores the original state for the item that emitted a playback event.
-    /// </summary>
-    public void RestoreIfProtected(PlaybackProgressEventArgs eventArgs, bool clearAfterRestore)
+    public void RestoreStoppedItem(string sessionId, Guid itemId, string? playSessionId)
     {
-        if (eventArgs.Session is null
-            || eventArgs.Item is null
-            || !_active.TryGetValue(eventArgs.Session.Id, out var snapshot))
+        if (!_active.TryGetValue(sessionId, out var snapshot))
         {
             return;
         }
 
         if (DateTime.UtcNow - snapshot.CreatedUtc > MaximumProtectionAge)
         {
-            CancelProtection(eventArgs.Session.Id, restore: true);
+            CancelProtection(sessionId, restore: true);
             return;
         }
 
         lock (snapshot.Gate)
         {
-            if (!string.IsNullOrWhiteSpace(eventArgs.PlaySessionId))
+            if (!string.IsNullOrWhiteSpace(playSessionId))
             {
-                if (snapshot.IsClosing && !snapshot.PlaySessionIds.Contains(eventArgs.PlaySessionId))
-                {
-                    return;
-                }
-
-                snapshot.PlaySessionIds.Add(eventArgs.PlaySessionId);
+                snapshot.PlaySessionIds.Add(playSessionId);
             }
 
             var root = snapshot.Roots.FirstOrDefault(candidate =>
-                candidate.RootItemId == eventArgs.Item.Id
-                || candidate.States.Any(state => state.ItemId == eventArgs.Item.Id));
+                candidate.RootItemId == itemId
+                || candidate.States.Any(state => state.ItemId == itemId));
 
             if (root is null)
             {
@@ -158,45 +148,13 @@ public sealed class PlaybackStateProtectionManager
 
             RestoreRoot(snapshot.UserId, root);
 
-            // The snapshot intentionally stays active through natural queue transitions.
-            // "clearAfterRestore" remains in the signature for compatibility with older
-            // consumers but final cleanup belongs to CancelProtection/EndSession.
-            _ = clearAfterRestore;
+            _logger.LogDebug(
+                "Virtual TV restored stopped item {ItemId} to its original Jellyfin state for session {SessionId}.",
+                itemId,
+                sessionId);
         }
     }
 
-    /// <summary>
-    /// Re-applies every protected state without ending the protection session.
-    /// Used after a stop event because Jellyfin updates watched state before plugins receive it.
-    /// </summary>
-    public void RestoreAllIfProtected(string sessionId, string? playSessionId)
-    {
-        if (!_active.TryGetValue(sessionId, out var snapshot))
-        {
-            return;
-        }
-
-        lock (snapshot.Gate)
-        {
-            if (!string.IsNullOrWhiteSpace(playSessionId))
-            {
-                if (snapshot.IsClosing && !snapshot.PlaySessionIds.Contains(playSessionId))
-                {
-                    return;
-                }
-
-                snapshot.PlaySessionIds.Add(playSessionId);
-            }
-
-            RestoreSnapshot(snapshot);
-        }
-    }
-
-    /// <summary>
-    /// Restores the original state immediately, then keeps the snapshot briefly so late
-    /// progress/stop reports from the same Jellyfin play session cannot leak into
-    /// Continue Watching after the Virtual TV session ends.
-    /// </summary>
     public void CompleteProtection(string sessionId)
     {
         if (!_active.TryGetValue(sessionId, out var snapshot))
@@ -235,9 +193,6 @@ public sealed class PlaybackStateProtectionManager
         }
     }
 
-    /// <summary>
-    /// Restores all original states and removes the session snapshot.
-    /// </summary>
     public void CancelProtection(string sessionId, bool restore)
     {
         if (!_active.TryRemove(sessionId, out var snapshot))
@@ -312,15 +267,10 @@ public sealed class PlaybackStateProtectionManager
         }
 
         public object Gate { get; } = new();
-
         public Guid UserId { get; }
-
         public List<RootItemSnapshot> Roots { get; }
-
         public HashSet<string> PlaySessionIds { get; } = new(StringComparer.Ordinal);
-
         public bool IsClosing { get; set; }
-
         public DateTime CreatedUtc { get; }
     }
 

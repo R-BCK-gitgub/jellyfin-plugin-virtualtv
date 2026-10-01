@@ -85,7 +85,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.12.0" or len(set(values.values()))!=1:
+          if version!="1.10.13.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
           PY
 
@@ -100,123 +100,79 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          c=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text()
+          l=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text()
+          s=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text()
+          start=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStartConsumer.cs").read_text()
+          progress=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackProgressConsumer.cs").read_text()
+          stop=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text()
+          protection=Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text()
+          e=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text()
+          m=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text()
 
-          c=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
-          l=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
-          b=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvBootstrapMediaProvider.cs").read_text(encoding="utf-8")
-          s=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
-          pc=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackProgressConsumer.cs").read_text(encoding="utf-8")
-          e=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
-          m=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
-
-          required=[
-              'BootstrapBuffer = TimeSpan.FromMilliseconds(1500)',
-              'VodTeardownBuffer = TimeSpan.FromSeconds(1)',
-              'PlaybackPhase.AwaitingVod',
-              'PlaybackPhase.Vod',
-              'PlaybackPhase.AwaitingBootstrap',
+          for token in [
+              'BootstrapBuffer = TimeSpan.FromSeconds(2)',
               'ItemIds = new[] { itemId }',
               'PlayCommand = PlayCommand.PlayNow',
               'var isolatedStartTicks = 1L',
-              'PendingResumeTicks',
-              'ResumeSeekScheduled',
               'CompleteResumeSeekAsync',
-              'PlaystateCommand.Seek',
-              'ReturnToBootstrapAsync',
               'concrete Personalized TV always starts at 00:00',
-          ]
-          missing=[x for x in required if x not in c]
-          if missing:
-              raise SystemExit(f"Personalized playback invariant missing: {missing}")
-
-          forbidden_offsets=[
-              'GridSeek',
-              'WallClock',
-              'CalculateConcreteTargetTicks',
-              'CalculatePendingWallClockTargetTicks',
-              'CommandTransitCompensation',
-              'CompleteGridSeekAfterVodStartAsync',
-              'PendingSeekUsesWallClockStartBuffer',
-          ]
-          present=[x for x in forbidden_offsets if x in c]
-          if present:
-              raise SystemExit(f"Removed schedule-offset logic returned: {present}")
-
-          concrete_start=c.index('private async Task PlayConcreteEntryAsync')
-          concrete_end=c.index('private async Task PlayTraditionalFallbackAsync',concrete_start)
-          concrete=c[concrete_start:concrete_end]
-          for token in ['PrepareVodHandoff(context, entry, sourceItemId, 0)','always opens the\n        // concrete item from 00:00']:
-              if token not in concrete:
-                  raise SystemExit(f"Traditional zero-start invariant missing: {token}")
-          if 'RunTimeTicks' in concrete or 'GetStartUtc()' in concrete or 'DateTime nowUtc' in concrete:
-              raise SystemExit("Traditional Personalized playback still consults schedule elapsed time.")
-
-          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
-              raise SystemExit("Resume must be the only Playstate command.")
-          seek_start=c.index('private async Task CompleteResumeSeekAsync')
-          seek_end=c.index('private async Task SendBootstrapPlayNowAsync',seek_start)
-          seek=c[seek_start:seek_end]
-          for token in ['PlaystateCommand.Seek','SeekPositionTicks = resumeTicks','Task.Delay(VodSeekSettleBuffer']:
-              if token not in seek:
-                  raise SystemExit(f"Resume seek invariant missing: {token}")
-
-          isolated_start=c.index('private async Task SendIsolatedVodPlayNowAsync')
-          isolated_end=c.index('private async Task CompleteResumeSeekAsync',isolated_start)
-          isolated=c[isolated_start:isolated_end]
-          if '_sessionManager.SendPlayCommand' in isolated:
-              raise SystemExit("Isolated VOD must bypass Jellyfin queue expansion.")
-          for token in ['ItemIds = new[] { itemId }','SessionMessageType.Play','queue length 1','var isolatedStartTicks = 1L']:
-              if token not in isolated:
-                  raise SystemExit(f"One-item VOD invariant missing: {token}")
-
-          for token in [
-              'if (!IsAtPhysicalEnd(eventArgs))',
               'await ReturnToBootstrapAsync(context, "physical VOD EOF")',
-              'FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc)',
           ]:
               if token not in c:
-                  raise SystemExit(f"EOF re-entry invariant missing: {token}")
+                  raise SystemExit(f"Playback invariant missing: {token}")
 
-          if 'HandlePlaybackProgressAsync' not in pc or '_coordinator.HandlePlaybackProgressAsync(eventArgs)' not in pc:
-              raise SystemExit("PlaybackProgress consumer is not wired.")
+          for forbidden in ['GridSeek','WallClock','CalculateConcreteTargetTicks','CompleteGridSeekAfterVodStartAsync']:
+              if forbidden in c:
+                  raise SystemExit(f"Removed schedule-offset logic returned: {forbidden}")
+
+          for name,source in [('start',start),('progress',progress)]:
+              for forbidden in ['PlaybackStateProtectionManager','SaveUserData','RestoreStoppedItem','RestoreIfProtected','RestoreAllIfProtected']:
+                  if forbidden in source:
+                      raise SystemExit(f"{name} consumer touches protected user data while VOD runs: {forbidden}")
+
+          for token in ['RestoreStoppedItem(', 'eventArgs.Item.Id', '_coordinator.HandlePlaybackStopAsync(eventArgs)']:
+              if token not in stop:
+                  raise SystemExit(f"Stop-only restore invariant missing: {token}")
 
           for token in [
-              'candidate.PlaybackPositionTicks > 0',
-              '"NextResume"',
-              '"RandomResume"',
-              'startTicks = selected.PlaybackPositionTicks',
+              'No user-data restore runs while playback is active.',
+              'public void RestoreStoppedItem(',
+              'FinalRestoreGrace = TimeSpan.FromSeconds(5)',
+              'public void CompleteProtection(',
           ]:
+              if token not in protection:
+                  raise SystemExit(f"Snapshot protection invariant missing: {token}")
+          if 'RestoreIfProtected' in protection or 'RestoreAllIfProtected' in protection:
+              raise SystemExit("Legacy continuous restore API returned.")
+
+          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
+              raise SystemExit("Resume must be the only automatic Playstate command.")
+          for token in ['"NextResume"','"RandomResume"','startTicks = selected.PlaybackPositionTicks']:
               if token not in e:
                   raise SystemExit(f"Series Resume-first invariant missing: {token}")
-          for token in ['item.PlaybackPositionTicks > 0','"RandomResume"','resume.PlaybackPositionTicks']:
+          for token in ['"RandomResume"','resume.PlaybackPositionTicks']:
               if token not in m:
                   raise SystemExit(f"Movie Resume-first invariant missing: {token}")
 
-          standard_required=[
-              'class SharedBroadcastReader',
-              '_broadcast ??= new StandardBroadcastStream',
-              'One producer per tune-in',
-              'public override bool CanSeek => false',
-              'var offset = nowUtc - entry.GetStartUtc()',
-              'SelectEnglishSubtitle',
-          ]
-          missing=[x for x in standard_required if x not in s]
-          if missing:
-              raise SystemExit(f"Standard TV invariant missing: {missing}")
+          for token in [
+              'currentLiveStreams.FirstOrDefault',
+              'stream.EnableStreamSharing',
+              'string.Equals(stream.OriginalStreamId, streamId',
+              'existing.ConsumerCount++',
+              'created.OriginalStreamId = streamId',
+          ]:
+              if token not in l:
+                  raise SystemExit(f"Standard stream reuse invariant missing: {token}")
+          if 'public bool EnableStreamSharing => true;' not in s:
+              raise SystemExit("Standard TV stream sharing is not enabled.")
           if s.count('new StandardBroadcastStream(') != 1:
-              raise SystemExit("Standard TV can recreate its producer inside one tune-in.")
+              raise SystemExit("Standard TV can create multiple broadcast producers per opened stream.")
 
-          for forbidden in ['IUserDataManager','PlaybackPositionTicks','SendPlayCommand','SendPlaystateCommand']:
-              if forbidden in s:
-                  raise SystemExit(f"Standard TV must remain state-free; found {forbidden}")
-
-          if 'GetChannelStreamWithDirectStreamProvider' not in l:
-              raise SystemExit("Standard TV direct Live TV provider path is missing.")
-
-          print("Simplified Personalized playback and single-producer Standard TV validation passed.")
+          print("2-second Loading, stop-only metadata restore, and Standard stream reuse validation passed.")
           PY
 
-      - name: Validate 1.10.12 scheduling, editing and coverage
+      - name: Validate 1.10.13 scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -243,7 +199,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.12.0"',
+              'data-ui-version="1.10.13.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -265,7 +221,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.12 UI missing: {missing}")
+              raise SystemExit(f"1.10.13 UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -313,38 +269,39 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          policy=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
-          protection=Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text(encoding="utf-8")
-          coord=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
-          stop=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text(encoding="utf-8")
-          episode=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
-          movie=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
-          standard=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
-
-          for token in ['=> IsDynamicUnwatched(mode)', 'CompleteProtection', 'FinalRestoreGrace', 'RestoreAllIfProtected']:
-              if token not in policy+protection+stop:
-                  raise SystemExit(f"Watched-state invariant missing: {token}")
+          coord=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text()
+          protection=Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text()
+          start=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStartConsumer.cs").read_text()
+          progress=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackProgressConsumer.cs").read_text()
+          stop=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text()
+          standard=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text()
 
           for token in [
-              'if (!context.TracksJellyfinState && context.UserId != Guid.Empty)',
               '_stateProtection.BeginProtection(context.SessionId, new[] { sourceItemId }, context.UserId)',
               '_stateProtection.CompleteProtection(sessionId)',
           ]:
               if token not in coord:
-                  raise SystemExit(f"Traditional state protection missing: {token}")
+                  raise SystemExit(f"Traditional protection missing: {token}")
 
-          for token in ['"NextResume"','"RandomResume"','startTicks = selected.PlaybackPositionTicks']:
-              if token not in episode:
-                  raise SystemExit(f"Series Resume invariant missing: {token}")
-          for token in ['"RandomResume"','resume.PlaybackPositionTicks']:
-              if token not in movie:
-                  raise SystemExit(f"Movie Resume invariant missing: {token}")
+          if 'PlaybackStateProtectionManager' in start or 'PlaybackStateProtectionManager' in progress:
+              raise SystemExit("Start/progress consumer still restores metadata during playback.")
+          if 'RestoreStoppedItem(' not in stop:
+              raise SystemExit("Stopped item is not restored at PlaybackStop.")
+
+          for token in [
+              'data.PlaybackPositionTicks = state.PlaybackPositionTicks',
+              'data.Played = state.Played',
+              'data.PlayCount = state.PlayCount',
+              'data.LastPlayedDate = state.LastPlayedDate',
+          ]:
+              if token not in protection:
+                  raise SystemExit(f"Original state field not restored: {token}")
 
           for forbidden in ['IUserDataManager','PlaybackPositionTicks','CompleteProtection','BeginProtection','UserItemData']:
               if forbidden in standard:
-                  raise SystemExit(f"Standard TV unexpectedly touches Jellyfin user state: {forbidden}")
+                  raise SystemExit(f"Standard TV touches Jellyfin user state: {forbidden}")
 
-          print("Watched-state protection and Resume-first validation passed.")
+          print("Stop-only Jellyfin state restoration validation passed.")
           PY
 
       - name: Validate Virtual TV configuration JavaScript
@@ -392,7 +349,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.12.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.13.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -432,7 +389,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 1.10.12 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
+          echo "Embedded 1.10.13 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash

@@ -6,24 +6,18 @@ using MediaBrowser.Controller.Library;
 namespace Jellyfin.Plugin.VirtualTV.Events;
 
 /// <summary>
-/// Coordinates the channel-to-source handoff and keeps protected library state unchanged.
+/// Coordinates Virtual TV playback starts only. State protection intentionally performs no
+/// user-data writes here; once VOD starts, Jellyfin and the client own the player.
 /// </summary>
 public sealed class VirtualTvPlaybackStartConsumer : IEventConsumer<PlaybackStartEventArgs>
 {
     private readonly LiveTvPlaybackCoordinator _coordinator;
-    private readonly PlaybackStateProtectionManager _stateProtection;
 
-    public VirtualTvPlaybackStartConsumer(
-        LiveTvPlaybackCoordinator coordinator,
-        PlaybackStateProtectionManager stateProtection)
+    public VirtualTvPlaybackStartConsumer(LiveTvPlaybackCoordinator coordinator)
     {
         _coordinator = coordinator;
-        _stateProtection = stateProtection;
     }
 
-    public async Task OnEvent(PlaybackStartEventArgs eventArgs)
-    {
-        await _coordinator.HandlePlaybackStartAsync(eventArgs).ConfigureAwait(false);
-        _stateProtection.RestoreIfProtected(eventArgs, clearAfterRestore: false);
-    }
+    public Task OnEvent(PlaybackStartEventArgs eventArgs)
+        => _coordinator.HandlePlaybackStartAsync(eventArgs);
 }

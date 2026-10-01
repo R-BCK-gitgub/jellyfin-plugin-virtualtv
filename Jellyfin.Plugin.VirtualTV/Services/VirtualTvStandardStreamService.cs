@@ -180,7 +180,7 @@ public sealed class VirtualTvStandardStreamService
         public int ConsumerCount { get; set; } = 1;
         public string OriginalStreamId { get; set; } = string.Empty;
         public string TunerHostId => string.Empty;
-        public bool EnableStreamSharing => false;
+        public bool EnableStreamSharing => true;
         public MediaSourceInfo MediaSource { get; set; }
         public string UniqueId { get; }
 

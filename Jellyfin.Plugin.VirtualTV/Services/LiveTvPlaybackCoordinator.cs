@@ -22,9 +22,9 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///
 /// The Live TV layer never plays scheduled library media. It is only a neutral loading
 /// surface. PlaybackStart only arms the bootstrap; after the first real PlaybackProgress report,
-/// a fixed 1.5-second buffer runs before the coordinator resolves the schedule/rules and sends one PlayNow
+/// a fixed 2-second buffer runs before the coordinator resolves the schedule/rules and sends one PlayNow
 /// for exactly one concrete episode/movie. At physical EOF it always returns to the Live TV
-/// bootstrap first; only after that bootstrap reports progress and then runs for 1.5 more seconds
+/// bootstrap first; only after that bootstrap reports progress and then runs for 2 more seconds
 /// does it resolve the next VOD.
 ///
 /// This keeps client state transitions explicit and serial, avoids VOD-to-VOD auto-next races, and
@@ -34,7 +34,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
-    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan VodSeekSettleBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
@@ -157,7 +157,7 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         _logger.LogInformation(
-            "Virtual TV loading playback confirmed for session {SessionId}, generation {Generation}, channel {ChannelName} at {PositionSeconds:F2}s. Starting 1.5-second buffer now.",
+            "Virtual TV loading playback confirmed for session {SessionId}, generation {Generation}, channel {ChannelName} at {PositionSeconds:F2}s. Starting 2-second buffer now.",
             sessionId,
             context.Generation,
             context.ChannelName,
@@ -293,7 +293,7 @@ public sealed class LiveTvPlaybackCoordinator
             }
 
             _logger.LogInformation(
-                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the 1.5-second buffer.",
+                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the 2-second buffer.",
                 sessionId,
                 existing.Generation,
                 existing.ChannelName);
@@ -524,7 +524,7 @@ public sealed class LiveTvPlaybackCoordinator
             }
         }
 
-        // Resolve only after the confirmed 1.5-second loading buffer. The wall clock at this
+        // Resolve only after the confirmed 2-second loading buffer. The wall clock at this
         // point is authoritative, so channel changes and EOF transitions cannot carry an old
         // schedule decision into the VOD handoff.
         var nowUtc = DateTime.UtcNow;
@@ -539,7 +539,7 @@ public sealed class LiveTvPlaybackCoordinator
             context,
             liveEntry,
             nowUtc,
-            "1.5 seconds after confirmed loading playback").ConfigureAwait(false);
+            "2 seconds after confirmed loading playback").ConfigureAwait(false);
     }
 
     private async Task ReturnToBootstrapAsync(SessionContext context, string reason)

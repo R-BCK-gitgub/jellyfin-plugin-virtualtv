@@ -142,8 +142,6 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _ = streamId;
-        _ = currentLiveStreams;
 
         var channel = GetChannel(channelId)
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
@@ -154,11 +152,33 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
                 new NotSupportedException("Personalized TV uses the already-materialized neutral bootstrap source."));
         }
 
-        _logger.LogInformation(
-            "Virtual TV opening Standard TV channel {ChannelName} as a true linear live stream.",
-            channel.Name);
+        if (!string.IsNullOrWhiteSpace(streamId))
+        {
+            var existing = currentLiveStreams.FirstOrDefault(stream =>
+                stream.EnableStreamSharing
+                && string.Equals(stream.OriginalStreamId, streamId, StringComparison.OrdinalIgnoreCase));
 
-        return Task.FromResult(_standardTv.CreateLiveStream(channel));
+            if (existing is not null)
+            {
+                existing.ConsumerCount++;
+                _logger.LogInformation(
+                    "Virtual TV reusing Standard TV live stream {StreamId} for channel {ChannelName}; consumer count {ConsumerCount}.",
+                    streamId,
+                    channel.Name,
+                    existing.ConsumerCount);
+                return Task.FromResult(existing);
+            }
+        }
+
+        var created = _standardTv.CreateLiveStream(channel);
+        created.OriginalStreamId = streamId ?? string.Empty;
+
+        _logger.LogInformation(
+            "Virtual TV opening one new Standard TV live stream for channel {ChannelName}, source {StreamId}.",
+            channel.Name,
+            streamId);
+
+        return Task.FromResult(created);
     }
 
     public Task CloseLiveStream(string id, CancellationToken cancellationToken) => Task.CompletedTask;
