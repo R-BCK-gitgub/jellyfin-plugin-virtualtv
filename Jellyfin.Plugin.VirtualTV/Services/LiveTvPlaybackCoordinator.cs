@@ -36,7 +36,7 @@ public sealed class LiveTvPlaybackCoordinator
 {
     private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan VodSeekSettleBuffer = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan GridSeekRequiredClientProgress = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan GridSeekPlaybackStartBuffer = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
@@ -179,9 +179,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         var itemId = eventArgs.Item!.Id;
         long seekTicks;
-        var stableGridSeek = false;
-        var realProgressReports = 0;
-        var realProgressSpanTicks = 0L;
 
         lock (context.Gate)
         {
@@ -192,8 +189,6 @@ public sealed class LiveTvPlaybackCoordinator
                 return Task.CompletedTask;
             }
 
-            // Once the grid seek has been sent, use real client progress only as confirmation.
-            // Never retry automatically: one scheduling decision produces at most one seek.
             if (context.GridSeekAwaitingConfirmation)
             {
                 if (!eventArgs.IsAutomated
@@ -224,111 +219,31 @@ public sealed class LiveTvPlaybackCoordinator
                 return Task.CompletedTask;
             }
 
-            if (context.PendingSeekRequiresStableClientProgress)
+            // Grid offsets are armed from VOD PlaybackStart + 1.5 seconds, not from
+            // Jellyfin Web's 10-second periodic progress timer.
+            if (context.PendingSeekUsesWallClockStartBuffer)
             {
-                // Jellyfin also emits server-generated automatic progress events. Those do NOT
-                // prove the webOS/browser decoder is alive or that its HTML media element is
-                // seekable. A wall-clock/grid offset is therefore armed only by real client
-                // check-ins from the exact VOD play session.
-                if (eventArgs.IsAutomated
-                    || !IsCurrentVodPlaySession(context, eventArgs.PlaySessionId)
-                    || !eventArgs.PlaybackPositionTicks.HasValue)
-                {
-                    return Task.CompletedTask;
-                }
-
-                var currentTicks = Math.Max(0, eventArgs.PlaybackPositionTicks.Value);
-
-                if (context.GridSeekRealProgressReports == 0)
-                {
-                    context.GridSeekFirstClientProgressTicks = currentTicks;
-                    context.GridSeekLastClientProgressTicks = currentTicks;
-                    context.GridSeekRealProgressReports = 1;
-
-                    _logger.LogDebug(
-                        "Virtual TV wall-clock seek readiness started for session {SessionId}, generation {Generation}, item {ItemId} at real client position {PositionSeconds:F2}s.",
-                        sessionId,
-                        context.Generation,
-                        itemId,
-                        TimeSpan.FromTicks(currentTicks).TotalSeconds);
-
-                    return Task.CompletedTask;
-                }
-
-                // A backwards/non-advancing report means the decoder has not demonstrated a
-                // stable forward-playing timeline yet. Restart the observation window rather
-                // than issuing a seek into an uncertain player state.
-                if (currentTicks <= context.GridSeekLastClientProgressTicks)
-                {
-                    context.GridSeekFirstClientProgressTicks = currentTicks;
-                    context.GridSeekLastClientProgressTicks = currentTicks;
-                    context.GridSeekRealProgressReports = 1;
-                    return Task.CompletedTask;
-                }
-
-                context.GridSeekLastClientProgressTicks = currentTicks;
-                context.GridSeekRealProgressReports++;
-
-                realProgressReports = context.GridSeekRealProgressReports;
-                realProgressSpanTicks =
-                    currentTicks - context.GridSeekFirstClientProgressTicks;
-
-                if (realProgressSpanTicks < GridSeekRequiredClientProgress.Ticks)
-                {
-                    return Task.CompletedTask;
-                }
-
-                // The VOD has now proven that the exact client play session is genuinely
-                // advancing. Recalculate the wall-clock target NOW so the readiness wait does
-                // not make the virtual channel late.
-                seekTicks = CalculatePendingWallClockTargetTicks(context, DateTime.UtcNow);
-                context.PendingSeekTicks = seekTicks;
-                context.SeekScheduled = true;
-                stableGridSeek = true;
+                return Task.CompletedTask;
             }
-            else
-            {
-                // Resume behavior already works reliably on the tested clients. Preserve that
-                // path: first VOD progress arms the existing one-second settle delay.
-                context.SeekScheduled = true;
-                seekTicks = context.PendingSeekTicks;
-            }
+
+            // Resume is intentionally unchanged.
+            context.SeekScheduled = true;
+            seekTicks = context.PendingSeekTicks;
         }
 
-        if (stableGridSeek)
-        {
-            _logger.LogInformation(
-                "Virtual TV VOD is confirmed genuinely running for session {SessionId}, generation {Generation}, item {ItemId}: {ReportCount} real client progress reports spanning {ProgressSeconds:F2}s. Sending one wall-clock seek to {SeekSeconds:F1}s now.",
-                sessionId,
-                context.Generation,
-                itemId,
-                realProgressReports,
-                TimeSpan.FromTicks(realProgressSpanTicks).TotalSeconds,
-                TimeSpan.FromTicks(seekTicks).TotalSeconds);
+        _logger.LogInformation(
+            "Virtual TV VOD playback confirmed for session {SessionId}, generation {Generation}, item {ItemId}; arming one Resume seek to {SeekSeconds:F1}s.",
+            sessionId,
+            context.Generation,
+            itemId,
+            TimeSpan.FromTicks(seekTicks).TotalSeconds);
 
-            _ = CompleteVodSeekAsync(
-                context,
-                itemId,
-                seekTicks,
-                applySettleDelay: false,
-                awaitGridConfirmation: true);
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Virtual TV VOD playback confirmed for session {SessionId}, generation {Generation}, item {ItemId}; arming one Resume seek to {SeekSeconds:F1}s.",
-                sessionId,
-                context.Generation,
-                itemId,
-                TimeSpan.FromTicks(seekTicks).TotalSeconds);
-
-            _ = CompleteVodSeekAsync(
-                context,
-                itemId,
-                seekTicks,
-                applySettleDelay: true,
-                awaitGridConfirmation: false);
-        }
+        _ = CompleteVodSeekAsync(
+            context,
+            itemId,
+            seekTicks,
+            applySettleDelay: true,
+            awaitGridConfirmation: false);
 
         return Task.CompletedTask;
     }
@@ -337,9 +252,6 @@ public sealed class LiveTvPlaybackCoordinator
         SessionContext context,
         string? playSessionId)
     {
-        // Normal Jellyfin clients report a PlaySessionId. If one side is blank, do not reject
-        // the event solely for that legacy/client quirk; IsAutomated=false plus item/session
-        // identity still proves this came from the active client playback.
         if (string.IsNullOrWhiteSpace(context.CurrentVodPlaySessionId)
             || string.IsNullOrWhiteSpace(playSessionId))
         {
@@ -436,14 +348,12 @@ public sealed class LiveTvPlaybackCoordinator
                 existing.PendingVodItemId = null;
                 existing.PendingSeekTicks = 0;
                 existing.SeekScheduled = false;
-                existing.PendingSeekRequiresStableClientProgress = false;
+                existing.PendingSeekUsesWallClockStartBuffer = false;
                 existing.PendingWallClockEntryStartUtc = null;
                 existing.PendingWallClockRunTimeTicks = null;
-                existing.GridSeekFirstClientProgressTicks = 0;
-                existing.GridSeekLastClientProgressTicks = 0;
-                existing.GridSeekRealProgressReports = 0;
                 existing.GridSeekAwaitingConfirmation = false;
                 existing.GridSeekConfirmationTargetTicks = 0;
+                existing.GridSeekArmGeneration = 0;
             }
 
             _logger.LogInformation(
@@ -597,6 +507,10 @@ public sealed class LiveTvPlaybackCoordinator
             && pendingVod.HasValue
             && pendingVod.Value == startedItemId)
         {
+            long armGeneration = 0;
+            string playSessionId = string.Empty;
+            var armGridSeek = false;
+
             lock (context.Gate)
             {
                 context.Phase = PlaybackPhase.Vod;
@@ -604,6 +518,15 @@ public sealed class LiveTvPlaybackCoordinator
                 context.CurrentVodPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
                 context.PendingVodItemId = null;
                 context.ReplacingPlaySessionId = string.Empty;
+
+                if (context.PendingSeekUsesWallClockStartBuffer
+                    && context.PendingSeekTicks > 0
+                    && !context.SeekScheduled)
+                {
+                    armGeneration = ++context.GridSeekArmGeneration;
+                    playSessionId = context.CurrentVodPlaySessionId;
+                    armGridSeek = true;
+                }
             }
 
             _logger.LogInformation(
@@ -611,15 +534,53 @@ public sealed class LiveTvPlaybackCoordinator
                 sessionId,
                 context.Generation,
                 startedItemId);
+
+            if (armGridSeek)
+            {
+                _logger.LogInformation(
+                    "Virtual TV wall-clock seek armed from client PlaybackStart for session {SessionId}, generation {Generation}, item {ItemId}. Waiting {BufferMs}ms before issuing the grid offset.",
+                    sessionId,
+                    context.Generation,
+                    startedItemId,
+                    GridSeekPlaybackStartBuffer.TotalMilliseconds);
+
+                _ = CompleteGridSeekAfterVodStartAsync(
+                    context,
+                    startedItemId,
+                    playSessionId,
+                    armGeneration);
+            }
+
             return;
         }
 
         if (phase == PlaybackPhase.Vod && currentVod.HasValue && currentVod.Value == startedItemId)
         {
-            // Normal VOD player restart after subtitle/audio changes or a user seek.
+            long armGeneration = 0;
+            string playSessionId = string.Empty;
+            var armGridSeek = false;
+
             lock (context.Gate)
             {
                 context.CurrentVodPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
+
+                if (context.PendingSeekUsesWallClockStartBuffer
+                    && context.PendingSeekTicks > 0
+                    && !context.SeekScheduled)
+                {
+                    armGeneration = ++context.GridSeekArmGeneration;
+                    playSessionId = context.CurrentVodPlaySessionId;
+                    armGridSeek = true;
+                }
+            }
+
+            if (armGridSeek)
+            {
+                _ = CompleteGridSeekAfterVodStartAsync(
+                    context,
+                    startedItemId,
+                    playSessionId,
+                    armGeneration);
             }
 
             return;
@@ -637,6 +598,64 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         EndSession(sessionId, context.Generation, "unrelated playback started");
+    }
+
+    private async Task CompleteGridSeekAfterVodStartAsync(
+        SessionContext context,
+        Guid itemId,
+        string vodPlaySessionId,
+        long armGeneration)
+    {
+        try
+        {
+            await Task.Delay(GridSeekPlaybackStartBuffer, context.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!IsCurrent(context))
+        {
+            return;
+        }
+
+        long seekTicks;
+
+        lock (context.Gate)
+        {
+            if (context.Phase != PlaybackPhase.Vod
+                || context.CurrentVodItemId != itemId
+                || !context.PendingSeekUsesWallClockStartBuffer
+                || context.PendingSeekTicks <= 0
+                || context.SeekScheduled
+                || context.GridSeekArmGeneration != armGeneration
+                || (!string.IsNullOrWhiteSpace(vodPlaySessionId)
+                    && !string.IsNullOrWhiteSpace(context.CurrentVodPlaySessionId)
+                    && !string.Equals(context.CurrentVodPlaySessionId, vodPlaySessionId, StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            seekTicks = CalculatePendingWallClockTargetTicks(context, DateTime.UtcNow);
+            context.PendingSeekTicks = seekTicks;
+            context.SeekScheduled = true;
+        }
+
+        _logger.LogInformation(
+            "Virtual TV client PlaybackStart remained stable for {BufferMs}ms in session {SessionId}, generation {Generation}, item {ItemId}. Sending one wall-clock seek to {SeekSeconds:F1}s.",
+            GridSeekPlaybackStartBuffer.TotalMilliseconds,
+            context.SessionId,
+            context.Generation,
+            itemId,
+            TimeSpan.FromTicks(seekTicks).TotalSeconds);
+
+        await CompleteVodSeekAsync(
+            context,
+            itemId,
+            seekTicks,
+            applySettleDelay: false,
+            awaitGridConfirmation: true).ConfigureAwait(false);
     }
 
     private async Task CompleteBootstrapBufferAsync(SessionContext context)
@@ -710,14 +729,12 @@ public sealed class LiveTvPlaybackCoordinator
             context.PendingVodItemId = null;
             context.PendingSeekTicks = 0;
             context.SeekScheduled = false;
-            context.PendingSeekRequiresStableClientProgress = false;
+            context.PendingSeekUsesWallClockStartBuffer = false;
             context.PendingWallClockEntryStartUtc = null;
             context.PendingWallClockRunTimeTicks = null;
-            context.GridSeekFirstClientProgressTicks = 0;
-            context.GridSeekLastClientProgressTicks = 0;
-            context.GridSeekRealProgressReports = 0;
             context.GridSeekAwaitingConfirmation = false;
             context.GridSeekConfirmationTargetTicks = 0;
+            context.GridSeekArmGeneration = 0;
         }
 
         _logger.LogInformation(
@@ -891,7 +908,7 @@ public sealed class LiveTvPlaybackCoordinator
             entry,
             sourceItemId,
             targetTicks,
-            requireStableClientProgress: targetTicks > 0,
+            useWallClockStartBuffer: targetTicks > 0,
             wallClockEntryStartUtc: entry.GetStartUtc(),
             wallClockRunTimeTicks: sourceItem.RunTimeTicks);
 
@@ -941,7 +958,7 @@ public sealed class LiveTvPlaybackCoordinator
         VirtualTvScheduleEntry entry,
         Guid targetItemId,
         long requestedStartTicks,
-        bool requireStableClientProgress = false,
+        bool useWallClockStartBuffer = false,
         DateTime? wallClockEntryStartUtc = null,
         long? wallClockRunTimeTicks = null)
     {
@@ -957,15 +974,13 @@ public sealed class LiveTvPlaybackCoordinator
             context.PendingVodItemId = targetItemId;
             context.PendingSeekTicks = Math.Max(0, requestedStartTicks);
             context.SeekScheduled = false;
-            context.PendingSeekRequiresStableClientProgress =
-                requireStableClientProgress && requestedStartTicks > 0;
+            context.PendingSeekUsesWallClockStartBuffer =
+                useWallClockStartBuffer && requestedStartTicks > 0;
             context.PendingWallClockEntryStartUtc = wallClockEntryStartUtc;
             context.PendingWallClockRunTimeTicks = wallClockRunTimeTicks;
-            context.GridSeekFirstClientProgressTicks = 0;
-            context.GridSeekLastClientProgressTicks = 0;
-            context.GridSeekRealProgressReports = 0;
             context.GridSeekAwaitingConfirmation = false;
             context.GridSeekConfirmationTargetTicks = 0;
+            context.GridSeekArmGeneration = 0;
             context.CurrentEntryId = entry.Id;
         }
     }
@@ -1143,7 +1158,7 @@ public sealed class LiveTvPlaybackCoordinator
                 if (context.CurrentVodItemId == itemId)
                 {
                     context.PendingSeekTicks = 0;
-                    context.PendingSeekRequiresStableClientProgress = false;
+                    context.PendingSeekUsesWallClockStartBuffer = false;
                     context.GridSeekAwaitingConfirmation = awaitGridConfirmation;
                     context.GridSeekConfirmationTargetTicks =
                         awaitGridConfirmation ? seekTicks : 0;
@@ -1444,17 +1459,13 @@ public sealed class LiveTvPlaybackCoordinator
 
         public bool SeekScheduled { get; set; }
 
-        public bool PendingSeekRequiresStableClientProgress { get; set; }
+        public bool PendingSeekUsesWallClockStartBuffer { get; set; }
 
         public DateTime? PendingWallClockEntryStartUtc { get; set; }
 
         public long? PendingWallClockRunTimeTicks { get; set; }
 
-        public long GridSeekFirstClientProgressTicks { get; set; }
-
-        public long GridSeekLastClientProgressTicks { get; set; }
-
-        public int GridSeekRealProgressReports { get; set; }
+        public long GridSeekArmGeneration { get; set; }
 
         public bool GridSeekAwaitingConfirmation { get; set; }
 

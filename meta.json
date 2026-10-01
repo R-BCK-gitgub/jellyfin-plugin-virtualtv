@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Fixes Personalized TV wall-clock/grid offsets on webOS without changing the already-working Next Unwatched, Random Unwatched or Resume selection logic. Concrete scheduled episodes still open as one isolated VOD item at 00:00, but the plugin now ignores Jellyfin server-generated automated progress for grid seeks and waits until the exact client PlaySessionId has reported at least two seconds of genuinely increasing playback. Only then is one wall-clock seek sent, with the target recalculated at that moment so the channel remains aligned to the Guide. The seek is never retried automatically; subsequent real client progress is used only to confirm that the target was reached. Loading remains 1.5 seconds, Standard TV and the existing UI are unchanged.",
+  "changelog": "Reduces Personalized TV wall-clock/grid handoff latency from Jellyfin Web's 10-second periodic progress cadence to a 1.5-second post-PlaybackStart readiness buffer. Concrete scheduled VOD still opens at 00:00 first; once the exact client VOD PlaybackStart is accepted, Virtual TV waits 1.5 seconds, recalculates the current Guide offset, and sends one seek. If the client rebuilds/restarts the VOD before that command, the 1.5-second window restarts from the newest PlaybackStart so a stale timer cannot seek too early. Next Unwatched, Random Unwatched and the already-working Resume path are unchanged. Loading remains 1.5 seconds, Standard TV and the UI remain unchanged.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.10.0",
+  "version": "1.10.11.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
