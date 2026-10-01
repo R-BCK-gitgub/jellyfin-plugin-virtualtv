@@ -141,6 +141,8 @@ public sealed class LiveTvPlaybackCoordinator
             return Task.CompletedTask;
         }
 
+        var loadingProgressTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
+
         lock (context.Gate)
         {
             if (context.Phase != PlaybackPhase.BootstrapWaitingForProgress)
@@ -149,8 +151,6 @@ public sealed class LiveTvPlaybackCoordinator
             }
 
             context.Phase = PlaybackPhase.BootstrapBuffering;
-            context.BootstrapFirstProgressUtc = DateTime.UtcNow;
-            context.BootstrapFirstProgressTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
         }
 
         _logger.LogInformation(
@@ -158,7 +158,7 @@ public sealed class LiveTvPlaybackCoordinator
             sessionId,
             context.Generation,
             context.ChannelName,
-            TimeSpan.FromTicks(context.BootstrapFirstProgressTicks).TotalSeconds);
+            TimeSpan.FromTicks(loadingProgressTicks).TotalSeconds);
 
         _ = CompleteBootstrapBufferAsync(context);
         return Task.CompletedTask;
@@ -770,7 +770,6 @@ public sealed class LiveTvPlaybackCoordinator
             context.PendingVodItemId = targetItemId;
             context.PendingResumeTicks = Math.Max(0, resumePositionTicks);
             context.ResumeSeekScheduled = false;
-            context.CurrentEntryId = entry.Id;
         }
     }
 
@@ -1130,7 +1129,6 @@ public sealed class LiveTvPlaybackCoordinator
             ChannelId = channelId;
             UserId = userId;
             ChannelName = channelName;
-            ChannelType = channelType;
             ContentMode = contentMode;
             LiveChannelItemId = liveChannelItemId;
             BootstrapPlaySessionId = bootstrapPlaySessionId;
@@ -1153,8 +1151,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         public string ChannelName { get; }
 
-        public string ChannelType { get; }
-
         public string ContentMode { get; }
 
         public Guid LiveChannelItemId { get; }
@@ -1168,12 +1164,6 @@ public sealed class LiveTvPlaybackCoordinator
         public PlaybackPhase Phase { get; set; }
 
         public string BootstrapPlaySessionId { get; set; }
-
-        public DateTime? BootstrapFirstProgressUtc { get; set; }
-
-        public long BootstrapFirstProgressTicks { get; set; }
-
-        public string CurrentEntryId { get; set; } = string.Empty;
 
         public Guid? PendingVodItemId { get; set; }
 
