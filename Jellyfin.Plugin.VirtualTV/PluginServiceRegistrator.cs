@@ -23,6 +23,7 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<VirtualTvMovieResolver>();
         serviceCollection.AddSingleton<VirtualTvRuntimeFallbackResolver>();
         serviceCollection.AddSingleton<VirtualTvBootstrapMediaProvider>();
+        serviceCollection.AddSingleton<VirtualTvStandardStreamService>();
         serviceCollection.AddSingleton<VirtualTvVisibilityManager>();
         serviceCollection.AddSingleton<PlaybackStateProtectionManager>();
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();

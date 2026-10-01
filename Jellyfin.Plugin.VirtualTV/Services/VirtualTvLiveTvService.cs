@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
-public sealed class VirtualTvLiveTvService : ILiveTvService
+public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStreamProvider
 {
     public const string ServiceName = "Virtual TV";
     private const string ChannelPrefix = "virtualtv-";
@@ -20,17 +20,20 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     private readonly VirtualTvScheduleStore _scheduleStore;
     private readonly VirtualTvContentCatalog _catalog;
     private readonly VirtualTvBootstrapMediaProvider _bootstrapMedia;
+    private readonly VirtualTvStandardStreamService _standardTv;
     private readonly ILogger<VirtualTvLiveTvService> _logger;
 
     public VirtualTvLiveTvService(
         VirtualTvScheduleStore scheduleStore,
         VirtualTvContentCatalog catalog,
         VirtualTvBootstrapMediaProvider bootstrapMedia,
+        VirtualTvStandardStreamService standardTv,
         ILogger<VirtualTvLiveTvService> logger)
     {
         _scheduleStore = scheduleStore;
         _catalog = catalog;
         _bootstrapMedia = bootstrapMedia;
+        _standardTv = standardTv;
         _logger = logger;
     }
 
@@ -103,17 +106,58 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     public Task<List<MediaSourceInfo>> GetChannelStreamMediaSources(string channelId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new List<MediaSourceInfo> { GetSource(channelId) });
+
+        var channel = GetChannel(channelId)
+            ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
+
+        var source = VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)
+            ? _standardTv.CreateMenuSource(channel.Id)
+            : GetPersonalizedBootstrapSource(channel);
+
+        return Task.FromResult(new List<MediaSourceInfo> { source });
     }
 
     public Task<MediaSourceInfo> GetChannelStream(string channelId, string streamId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        // Kept only because ILiveTvService requires it. The universal MPEG-TS loading source is
-        // already materialized with RequiresOpening=false, so normal playback needs no second tuner open.
         _ = streamId;
-        return Task.FromResult(GetSource(channelId));
+
+        var channel = GetChannel(channelId)
+            ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
+
+        if (VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+        {
+            return Task.FromException<MediaSourceInfo>(
+                new NotSupportedException("Standard TV uses Jellyfin's direct live-stream provider path."));
+        }
+
+        return Task.FromResult(GetPersonalizedBootstrapSource(channel));
+    }
+
+    public Task<ILiveStream> GetChannelStreamWithDirectStreamProvider(
+        string channelId,
+        string streamId,
+        List<ILiveStream> currentLiveStreams,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = streamId;
+        _ = currentLiveStreams;
+
+        var channel = GetChannel(channelId)
+            ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
+
+        if (!VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+        {
+            return Task.FromException<ILiveStream>(
+                new NotSupportedException("Personalized TV uses the already-materialized neutral bootstrap source."));
+        }
+
+        _logger.LogInformation(
+            "Virtual TV opening Standard TV channel {ChannelName} as a true linear live stream.",
+            channel.Name);
+
+        return Task.FromResult(_standardTv.CreateLiveStream(channel));
     }
 
     public Task CloseLiveStream(string id, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -142,18 +186,17 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             channel => string.Equals(channel.Id, id, StringComparison.OrdinalIgnoreCase));
     }
 
-    private MediaSourceInfo GetSource(string channelId)
+    private MediaSourceInfo GetPersonalizedBootstrapSource(ChannelConfiguration channel)
     {
-        var channel = GetChannel(channelId)
-            ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
+        if (VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+        {
+            throw new InvalidOperationException("Standard TV must not enter the Personalized TV loading bootstrap.");
+        }
 
-        // The Live TV layer is deliberately content-agnostic. Every Virtual TV channel exposes
-        // exactly the same MPEG-TS loading stream. Schedule/rule resolution happens only after
-        // Jellyfin confirms that this bootstrap is actually playing.
         var source = _bootstrapMedia.CreateLoadingSource();
 
         _logger.LogDebug(
-            "Virtual TV supplied ready neutral bootstrap source for channel {ChannelName}.",
+            "Virtual TV supplied neutral Personalized TV bootstrap source for channel {ChannelName}.",
             channel.Name);
 
         return source;
