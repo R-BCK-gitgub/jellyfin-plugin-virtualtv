@@ -14,6 +14,7 @@ public static class VirtualTvModePolicy
 
     public const string RepeatingOrder = "RepeatingOrder";
     public const string RandomizedRotation = "RandomizedRotation";
+    public const string TrueRandom = "TrueRandom";
     public const string ManualOrder = "ManualOrder";
     public const string SmartSchedule = "SmartSchedule";
 
@@ -44,6 +45,8 @@ public static class VirtualTvModePolicy
         // 1.8 and earlier stored "RepeatingSchedule".
         if (string.Equals(method, RandomizedRotation, StringComparison.OrdinalIgnoreCase))
             return RandomizedRotation;
+        if (string.Equals(method, TrueRandom, StringComparison.OrdinalIgnoreCase))
+            return TrueRandom;
         if (string.Equals(method, ManualOrder, StringComparison.OrdinalIgnoreCase))
             return ManualOrder;
         if (string.Equals(method, SmartSchedule, StringComparison.OrdinalIgnoreCase))
@@ -57,6 +60,9 @@ public static class VirtualTvModePolicy
 
     public static int NormalizeEpisodesPerTurn(int count)
         => count == 2 ? 2 : 1;
+
+    public static int NormalizeSeriesWeight(int weight)
+        => Math.Clamp(weight, 1, 100);
 
     public static int NormalizeSmartRotationMonths(int months)
         => months is 1 or 2 or 3 or 6 ? months : 2;

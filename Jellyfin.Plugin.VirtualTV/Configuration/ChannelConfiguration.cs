@@ -33,7 +33,7 @@ public sealed class ChannelConfiguration
 
     /// <summary>
     /// Series scheduling strategy. Supported values are RepeatingOrder,
-    /// RandomizedRotation, ManualOrder and SmartSchedule.
+    /// RandomizedRotation, TrueRandom, ManualOrder and SmartSchedule.
     /// </summary>
     public string SchedulingMethod { get; set; } = "RepeatingOrder";
 

@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.16.0"
+version: "1.10.17.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Restores the Jellyfin Live TV Guide to the stock/default Jellyfin presentation. All Virtual TV Guide sizing, row-height, spacing, channel-width, logo-size and programme-cell CSS overrides have been removed. On upgrade, Virtual TV removes the legacy CSS block it previously stored in Jellyfin Branding Custom CSS, while preserving any unrelated custom CSS. No playback, scheduling, channel, Standard TV, Personalized TV, Content Coverage or plugin configuration UI behavior is changed.
+  Adds True Random scheduling for Series channels with per-series relative weights. Weight appears only when True Random is selected. Every selected series defaults to Weight 1; Weight 2 is twice as likely as Weight 1, Weight 3 is three times as likely, and so on. Each series turn is an independent weighted draw and consecutive repeats are allowed. Episodes per Turn still controls how many consecutive episodes or blocks the selected series receives. Existing channels remain backward compatible at Weight 1. Randomized Rotation, Repeating Order, Manual Order, Smart Schedule, playback behavior, the 2-second Personalized Loading buffer and the stock Jellyfin Guide are unchanged.

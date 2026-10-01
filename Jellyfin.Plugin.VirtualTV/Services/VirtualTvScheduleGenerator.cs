@@ -847,6 +847,11 @@ public sealed class VirtualTvScheduleGenerator
         channel.SmartRotationMonths = VirtualTvModePolicy.NormalizeSmartRotationMonths(channel.SmartRotationMonths);
 
         channel.SeriesSelections ??= [];
+        foreach (var selection in channel.SeriesSelections)
+        {
+            selection.Weight = VirtualTvModePolicy.NormalizeSeriesWeight(selection.Weight);
+        }
+
         channel.RepeatingSeriesOrder ??= [];
         channel.VisibleUserIds ??= [];
         channel.SelectedItemIds ??= [];
@@ -885,7 +890,9 @@ public sealed class VirtualTvScheduleGenerator
         {
             foreach (var series in _catalog.GetSeries(channel).OrderBy(item => item.Id))
             {
-                parts.Add($"S:{series.Id:N}");
+                var options = VirtualTvContentCatalog.GetSeriesOptions(channel, series.Id);
+                var weight = VirtualTvModePolicy.NormalizeSeriesWeight(options.Weight);
+                parts.Add($"S:{series.Id:N}:W:{weight}");
                 foreach (var episode in series.Episodes.OrderBy(item => item.Id))
                 {
                     parts.Add($"E:{episode.Id:N}:{episode.RunTimeTicks.GetValueOrDefault()}:{episode.ParentIndexNumber}:{episode.IndexNumber}");
@@ -1145,8 +1152,10 @@ public sealed class VirtualTvScheduleGenerator
         private readonly Dictionary<Guid, VirtualTvContentCatalog.SeriesContent> _byId;
         private readonly VirtualTvScheduleGenerator _owner;
         private readonly ShuffleBag<VirtualTvContentCatalog.SeriesContent>? _randomBag;
+        private readonly List<(VirtualTvContentCatalog.SeriesContent Item, int Weight)> _weightedRandom = [];
         private readonly List<VirtualTvContentCatalog.SeriesContent> _fixedOrder;
         private readonly List<VirtualTvContentCatalog.SeriesContent> _smartOrder;
+        private int _totalWeight;
         private int _cursor;
 
         public SeriesPicker(
@@ -1186,6 +1195,20 @@ public sealed class VirtualTvScheduleGenerator
                     item => item.Id,
                     last == Guid.Empty ? null : last,
                     used);
+                _fixedOrder = [];
+                return;
+            }
+
+            if (string.Equals(channel.SchedulingMethod, VirtualTvModePolicy.TrueRandom, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var item in all)
+                {
+                    var options = VirtualTvContentCatalog.GetSeriesOptions(channel, item.Id);
+                    var weight = VirtualTvModePolicy.NormalizeSeriesWeight(options.Weight);
+                    _weightedRandom.Add((item, weight));
+                    _totalWeight += weight;
+                }
+
                 _fixedOrder = [];
                 return;
             }
@@ -1263,6 +1286,11 @@ public sealed class VirtualTvScheduleGenerator
                 return _randomBag.Next();
             }
 
+            if (_weightedRandom.Count > 0)
+            {
+                return PickWeightedRandom();
+            }
+
             if (string.Equals(_channel.SchedulingMethod, VirtualTvModePolicy.SmartSchedule, StringComparison.OrdinalIgnoreCase))
             {
                 return PickSmart(slotStartUtc);
@@ -1271,6 +1299,30 @@ public sealed class VirtualTvScheduleGenerator
             var result = _fixedOrder[_cursor % _fixedOrder.Count];
             _cursor++;
             return result;
+        }
+
+        private VirtualTvContentCatalog.SeriesContent PickWeightedRandom()
+        {
+            if (_totalWeight <= 0 || _weightedRandom.Count == 0)
+            {
+                throw new InvalidOperationException("True Random has no eligible weighted series.");
+            }
+
+            // Semantically identical to putting a series into the draw once per Weight point.
+            // Example: weights 1, 1, 3 create five tickets and give Weight 3 a 60% chance.
+            var ticket = Random.Shared.Next(_totalWeight);
+            var cumulative = 0;
+
+            foreach (var candidate in _weightedRandom)
+            {
+                cumulative += candidate.Weight;
+                if (ticket < cumulative)
+                {
+                    return candidate.Item;
+                }
+            }
+
+            return _weightedRandom[^1].Item;
         }
 
         private VirtualTvContentCatalog.SeriesContent PickSmart(DateTime slotStartUtc)

@@ -6,7 +6,7 @@
 
 </head>
 <body>
-<div id="VirtualTVConfigPage" data-ui-version="1.10.16.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="VirtualTVConfigPage" data-ui-version="1.10.17.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
 <style>
 #VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
 #VirtualTVConfigPage .vtv-muted{opacity:.72}
@@ -90,7 +90,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v1.10.16</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v1.10.17</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -153,7 +153,7 @@
         <input id="channelNumber" type="number" is="emby-input" required min="1" step="1">
       </div>
       <!-- Stock Jellyfin renders Live TV Overview below the full Guide. Until Jellyfin exposes
-           a stable client-independent title-area extension point, v1.10.16 keeps any legacy
+           a stable client-independent title-area extension point, v1.10.17 keeps any legacy
            description value private in plugin configuration and does not offer a misleading
            public-description editor. -->
       <input id="channelDescription" type="hidden">
@@ -220,6 +220,7 @@
           <select id="schedulingMethod" is="emby-select" class="emby-select-withcolor emby-select">
             <option value="RepeatingOrder">Repeating Order</option>
             <option value="RandomizedRotation">Randomized Rotation</option>
+            <option value="TrueRandom">True Random</option>
             <option value="ManualOrder">Manual Order</option>
             <option value="SmartSchedule">Smart Schedule</option>
           </select>
@@ -407,8 +408,12 @@
         if(c.PlaybackExperience==='StandardTV'&&c.ContentMode!=='Random')c.ContentMode='Sequential';
         c.SchedulingMethod=c.SchedulingMethod==='RepeatingSchedule'
           ? 'RepeatingOrder'
-          : (['RepeatingOrder','RandomizedRotation','ManualOrder','SmartSchedule'].indexOf(c.SchedulingMethod)!==-1?c.SchedulingMethod:'RepeatingOrder');
+          : (['RepeatingOrder','RandomizedRotation','TrueRandom','ManualOrder','SmartSchedule'].indexOf(c.SchedulingMethod)!==-1?c.SchedulingMethod:'RepeatingOrder');
       }
+      c.SeriesSelections.forEach(function(selection){
+        var weight=parseInt(selection.Weight,10);
+        selection.Weight=Math.max(1,Math.min(100,isNaN(weight)?1:weight));
+      });
       c.BlockMinutes=[15,20,30,40,45,60,75,90,120].indexOf(Number(c.BlockMinutes))!==-1?Number(c.BlockMinutes):30;
       c.EpisodesPerTurn=Number(c.EpisodesPerTurn)===2?2:1;
       c.SmartRotationMonths=[1,2,3,6].indexOf(Number(c.SmartRotationMonths))!==-1?Number(c.SmartRotationMonths):2;
@@ -457,6 +462,7 @@
 
   function scheduleMethodLabel(value){
     if(value==='RandomizedRotation')return 'Randomized Rotation';
+    if(value==='TrueRandom')return 'True Random';
     if(value==='ManualOrder')return 'Manual Order';
     if(value==='SmartSchedule')return 'Smart Schedule';
     return 'Repeating Order';
@@ -626,6 +632,8 @@
         ? 'Builds a stable Sunday-to-Saturday TV-style template and repeats it until the configured rotation boundary.'
         : method==='RandomizedRotation'
           ? 'Uses a shuffle cycle at series level: every selected series appears once before a new cycle.'
+          : method==='TrueRandom'
+            ? 'Each turn is an independent weighted draw. Weight 2 is twice as likely as Weight 1; Weight 3 is three times as likely. Consecutive repeats are allowed.'
           : method==='ManualOrder'
             ? 'Uses the explicit series order shown below and repeats it.'
             : 'Shuffles the selected series once, persists that base order, and repeats it.';
@@ -635,6 +643,7 @@
     }
     updateVisibilityUi();
     renderManualOrder();
+    renderSeriesOptions();
   }
 
   function updateMovieModeUi(){
@@ -796,11 +805,14 @@
         SeriesId:id,
         AllSeasons:true,
         SelectedSeasonNumbers:[],
-        IncludeSpecials:false
+        IncludeSpecials:false,
+        Weight:1
       };
       option.SelectedSeasonNumbers=Array.isArray(option.SelectedSeasonNumbers)?option.SelectedSeasonNumbers:[];
       option.AllSeasons=option.AllSeasons!==false;
       option.IncludeSpecials=option.IncludeSpecials===true;
+      var weight=parseInt(option.Weight,10);
+      option.Weight=Math.max(1,Math.min(100,isNaN(weight)?1:weight));
       return option;
     });
   }
@@ -839,12 +851,27 @@
     section.style.display='';
     syncSeriesSelections();
 
+    var trueRandom=page.querySelector('#schedulingMethod').value==='TrueRandom';
+    var totalWeight=state.seriesSelections.reduce(function(total,option){
+      return total+(parseInt(option.Weight,10)||1);
+    },0);
+
     box.innerHTML=state.selectedItemIds.map(function(id){
       var option=getSeriesSelection(id);
       var item=state.availableItems.find(function(x){return x.Id===id;});
       var seasons=state.seasonCache[id]||[];
       var selectedSet={};
       (option.SelectedSeasonNumbers||[]).forEach(function(value){selectedSet[Number(value)]=true;});
+
+      var weight=Math.max(1,Math.min(100,parseInt(option.Weight,10)||1));
+      var probability=totalWeight>0?(weight/totalWeight)*100:0;
+      var weightHtml=trueRandom
+        ? '<div class="inputContainer" style="max-width:20em;margin-top:.75em;">'+
+            '<label class="inputLabel inputLabelUnfocused">True Random weight</label>'+
+            '<input type="number" is="emby-input" class="seriesWeightInput" data-series="'+esc(id)+'" min="1" max="100" step="1" value="'+weight+'">'+
+            '<div class="fieldDescription seriesWeightProbability" data-series="'+esc(id)+'">Weight '+weight+' = '+probability.toFixed(1)+'% chance per turn. Weight 2 is twice as likely as Weight 1.</div>'+
+          '</div>'
+        : '';
 
       var seasonHtml=option.AllSeasons
         ? '<div class="vtv-muted">All current and future seasons are eligible.</div>'
@@ -860,6 +887,7 @@
           '<label class="emby-checkbox-label"><input type="checkbox" is="emby-checkbox" class="allSeasonsCheckbox" data-series="'+esc(id)+'"'+(option.AllSeasons?' checked':'')+'><span>All Seasons</span></label>'+
           '<label class="emby-checkbox-label"><input type="checkbox" is="emby-checkbox" class="specialsCheckbox" data-series="'+esc(id)+'"'+(option.IncludeSpecials?' checked':'')+'><span>Include Specials</span></label>'+
         '</div>'+
+        weightHtml+
         '<div class="seasonChooser" data-series="'+esc(id)+'">'+seasonHtml+'</div>'+
       '</div>';
     }).join('');
@@ -877,6 +905,35 @@
         getSeriesSelection(input.getAttribute('data-series')).IncludeSpecials=input.checked;
       });
     });
+    Array.prototype.forEach.call(box.querySelectorAll('.seriesWeightInput'),function(input){
+      input.addEventListener('input',function(){
+        var option=getSeriesSelection(input.getAttribute('data-series'));
+        var value=parseInt(input.value,10);
+        option.Weight=Math.max(1,Math.min(100,isNaN(value)?1:value));
+
+        var total=state.seriesSelections.reduce(function(sum,item){
+          return sum+(parseInt(item.Weight,10)||1);
+        },0);
+
+        Array.prototype.forEach.call(box.querySelectorAll('.seriesWeightInput'),function(weightInput){
+          var id=weightInput.getAttribute('data-series');
+          var seriesOption=getSeriesSelection(id);
+          var weight=seriesOption.Weight||1;
+          var description=box.querySelector('.seriesWeightProbability[data-series="'+id+'"]');
+          if(description){
+            description.textContent='Weight '+weight+' = '+((weight/total)*100).toFixed(1)+'% chance per turn. Weight 2 is twice as likely as Weight 1.';
+          }
+        });
+      });
+
+      input.addEventListener('change',function(){
+        var value=parseInt(input.value,10);
+        value=Math.max(1,Math.min(100,isNaN(value)?1:value));
+        input.value=String(value);
+        getSeriesSelection(input.getAttribute('data-series')).Weight=value;
+      });
+    });
+
     Array.prototype.forEach.call(box.querySelectorAll('.seasonCheckbox'),function(input){
       input.addEventListener('change',function(){
         var option=getSeriesSelection(input.getAttribute('data-series'));
@@ -1108,7 +1165,8 @@
           SeriesId:x.SeriesId,
           AllSeasons:x.AllSeasons!==false,
           SelectedSeasonNumbers:Array.isArray(x.SelectedSeasonNumbers)?x.SelectedSeasonNumbers.slice():[],
-          IncludeSpecials:x.IncludeSpecials===true
+          IncludeSpecials:x.IncludeSpecials===true,
+          Weight:Math.max(1,Math.min(100,parseInt(x.Weight,10)||1))
         };
       });
       state.selectedVisibleUserIds=(c.VisibleUserIds||[]).slice();
@@ -1263,7 +1321,8 @@
         SeriesId:x.SeriesId,
         AllSeasons:x.AllSeasons!==false,
         SelectedSeasonNumbers:(x.SelectedSeasonNumbers||[]).map(Number).filter(function(value){return value>0;}).sort(function(a,b){return a-b;}),
-        IncludeSpecials:x.IncludeSpecials===true
+        IncludeSpecials:x.IncludeSpecials===true,
+        Weight:Math.max(1,Math.min(100,parseInt(x.Weight,10)||1))
       };
     });
   }
