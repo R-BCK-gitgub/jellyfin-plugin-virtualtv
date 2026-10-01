@@ -151,13 +151,13 @@ jobs:
           if missing:
               raise SystemExit(f"Embedded bootstrap invariant missing: {missing}")
 
-          direct_eof_tokens=[
-              'physical EOF; re-resolve current schedule',
-              'PlayScheduledEntryAsync(\n            context,\n            liveEntry',
-          ]
-          present=[token for token in direct_eof_tokens if token in c]
-          if present:
-              raise SystemExit(f"Direct VOD-to-VOD EOF path returned: {present}")
+          stop_start=c.index('public async Task HandlePlaybackStopAsync')
+          stop_end=c.index('private async Task HandleBootstrapStartAsync', stop_start)
+          stop_handler=c[stop_start:stop_end]
+          if 'PlayScheduledEntryAsync' in stop_handler:
+              raise SystemExit("HandlePlaybackStopAsync must not perform a direct VOD-to-VOD handoff.")
+          if 'ReturnToBootstrapAsync(context, "physical VOD EOF")' not in stop_handler:
+              raise SystemExit("Physical EOF is not routed through the neutral Live TV bootstrap.")
 
           print("Explicit Bootstrap -> VOD -> Bootstrap playback validation passed.")
           PY
