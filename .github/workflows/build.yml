@@ -74,7 +74,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.8.0" or len(set(values.values()))!=1:
+          if version!="1.10.9.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
           PY
 
@@ -89,169 +89,196 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           c=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
           l=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
           b=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvBootstrapMediaProvider.cs").read_text(encoding="utf-8")
+          s=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
           pc=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackProgressConsumer.cs").read_text(encoding="utf-8")
+          e=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
+          m=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
+          mode=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
+          cfg=Path("Jellyfin.Plugin.VirtualTV/Configuration/ChannelConfiguration.cs").read_text(encoding="utf-8")
 
-          required=[
-              'BootstrapBuffer = TimeSpan.FromSeconds(5)',
-              'Interlocked.Increment(ref _nextGeneration)',
-              'SemaphoreSlim',
-              'context.Token',
+          personalized_required=[
+              'BootstrapBuffer = TimeSpan.FromMilliseconds(1500)',
+              'VodSeekSettleBuffer = TimeSpan.FromSeconds(1)',
               'VodTeardownBuffer = TimeSpan.FromSeconds(1)',
+              'Interlocked.Increment(ref _nextGeneration)',
+              'PlaybackPhase.BootstrapWaitingForProgress',
+              'PlaybackPhase.BootstrapBuffering',
+              'PlaybackPhase.AwaitingVod',
+              'PlaybackPhase.Vod',
+              'PlaybackPhase.AwaitingBootstrap',
               'SendIsolatedVodPlayNowAsync',
               'SessionMessageType.Play',
               'targetSession.SessionControllers',
               'ItemIds = new[] { itemId }',
               'PlayCommand = PlayCommand.PlayNow',
-              'PlaybackPhase.AwaitingBootstrap',
-              'PlaybackPhase.BootstrapWaitingForProgress',
-              'PlaybackPhase.BootstrapBuffering',
-              'PlaybackPhase.AwaitingVod',
-              'PlaybackPhase.Vod',
+              'var isolatedStartTicks = 1L',
+              'PendingSeekTicks',
+              'SeekScheduled',
+              'HandleVodProgress',
+              'CompleteVodSeekAsync',
+              'PlaystateCommand.Seek',
+              'Task.Delay(VodSeekSettleBuffer',
               'ReturnToBootstrapAsync',
-              'HandlePlaybackProgressAsync',
-              'Starting full five-second buffer now',
-              'CompleteBootstrapBufferAsync',
-              'five seconds after confirmed loading playback',
-              'CurrentVodItemId',
-              'PendingVodItemId',
               'CompleteProtection',
+              'VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)',
           ]
-          missing=[x for x in required if x not in c]
+          missing=[x for x in personalized_required if x not in c]
           if missing:
-              raise SystemExit(f"Playback invariant missing: {missing}")
+              raise SystemExit(f"Personalized playback invariant missing: {missing}")
 
-          forbidden=[
+          legacy_forbidden=[
               'ManagedStaticQueueLength',
               'BuildConcreteManagedQueue',
               'ScheduleContinuationFallback',
               'ContinuationFallbackDelay',
               'LgDeferredSeekDelay',
               'SeekLgAfterVodStartAsync',
-              'SendPlaystateCommand',
               'PendingDeferredSeekTicks',
               'IsLgWebOsSession',
-              'BuildConcreteManagedQueue',
               'ManagedQueueOrder',
               'PlayCommand.PlayNext',
               'PlayCommand.PlayLast',
           ]
-          present=[x for x in forbidden if x in c]
+          present=[x for x in legacy_forbidden if x in c]
           if present:
               raise SystemExit(f"Legacy multi-command playback returned: {present}")
 
-          for token in [
-              '_mediaSourceManager.GetStaticMediaSources',
-              'ResolveBootstrapFallback',
-          ]:
-              if token in l:
-                  raise SystemExit(f"Bootstrap unexpectedly references scheduled media: {token}")
+          # The only playstate command is the one guarded, post-progress seek used for
+          # Resume/live offsets. Zero-start VOD never receives it.
+          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
+              raise SystemExit("Safe seek must be the only SendPlaystateCommand in Personalized playback.")
+          seek_start=c.index('private async Task CompleteVodSeekAsync')
+          seek_end=c.index('private async Task SendBootstrapPlayNowAsync',seek_start)
+          seek=c[seek_start:seek_end]
+          for token in ['PlaystateCommand.Seek','SeekPositionTicks = seekTicks','Task.Delay(VodSeekSettleBuffer','context.Phase != PlaybackPhase.Vod']:
+              if token not in seek:
+                  raise SystemExit(f"Safe VOD seek guard missing: {token}")
 
+          isolated_start=c.index('private async Task SendIsolatedVodPlayNowAsync')
+          isolated_end=c.index('private async Task CompleteVodSeekAsync',isolated_start)
+          isolated=c[isolated_start:isolated_end]
+          if '_sessionManager.SendPlayCommand' in isolated:
+              raise SystemExit("Isolated VOD must bypass Jellyfin episode queue expansion.")
+          for token in ['ItemIds = new[] { itemId }','SessionMessageType.Play','queue length 1','var isolatedStartTicks = 1L']:
+              if token not in isolated:
+                  raise SystemExit(f"Isolated one-item VOD invariant missing: {token}")
+
+          # PlaybackStart only arms Loading. The 1.5-second clock starts after real progress.
+          start_start=c.index('private Task HandleBootstrapStartAsync')
+          start_end=c.index('private void HandleBootstrapStop',start_start)
+          start_handler=c[start_start:start_end]
+          if 'CompleteBootstrapBufferAsync' in start_handler or 'Task.Delay(BootstrapBuffer' in start_handler:
+              raise SystemExit("PlaybackStart must not start the Loading timer.")
+          progress_start=c.index('private Task HandleBootstrapProgress')
+          progress_end=c.index('private Task HandleVodProgress',progress_start)
+          progress=c[progress_start:progress_end]
+          for token in ['PlaybackPhase.BootstrapWaitingForProgress','PlaybackPhase.BootstrapBuffering','_ = CompleteBootstrapBufferAsync(context)']:
+              if token not in progress:
+                  raise SystemExit(f"Loading progress gate missing: {token}")
+          if 'HandlePlaybackProgressAsync' not in pc or '_coordinator.HandlePlaybackProgressAsync(eventArgs)' not in pc:
+              raise SystemExit("PlaybackProgress consumer is not wired.")
+
+          # Universal Personalized loading source stays conventional MPEG-TS.
           bootstrap_required=[
-              '_bootstrapMedia.CreateLoadingSource()',
-              'Loading Virtual TV...',
-              'Jellyfin.Plugin.VirtualTV.Assets.Bootstrap.virtualtv-loading-10s.mp4',
-              'Jellyfin.Plugin.VirtualTV.Assets.Bootstrap.virtualtv-bootstrap-black-10s.mp4',
               'Jellyfin.Plugin.VirtualTV.Assets.Bootstrap.virtualtv-loading-live-60s.ts',
-              'Path.Combine(_applicationPaths.CachePath, "virtualtv", "bootstrap")',
               'Container = "mpegts"',
               'SupportsDirectPlay = false',
               'SupportsDirectStream = true',
               'SupportsTranscoding = true',
-              'UseMostCompatibleTranscodingProfile = true',
               'RequiresOpening = false',
-              'RequiresClosing = false',
               'IsInfiniteStream = true',
               'RunTimeTicks = null',
-              'RequiresLooping = false',
               'ReadAtNativeFramerate = true',
-              'SupportsProbing = false',
-              'Type = MediaStreamType.Video',
-              'Codec = "h264"',
-              'Width = 1280',
-              'Height = 720',
-              'Type = MediaStreamType.Audio',
-              'Codec = "aac"',
-              'Channels = 2',
-              'SampleRate = 48000',
           ]
-          missing=[token for token in bootstrap_required if token not in l+b]
+          missing=[x for x in bootstrap_required if x not in b]
           if missing:
-              raise SystemExit(f"Live bootstrap invariant missing: {missing}")
+              raise SystemExit(f"Personalized Loading source invariant missing: {missing}")
 
-          if 'RequiresLooping = true' in b:
-              raise SystemExit("Local-file Live TV bootstrap must not use Jellyfin RequiresLooping; use the 60-second MPEG-TS runway instead.")
-          if 'Container = "mp4"' in b[b.index('public MediaSourceInfo CreateLoadingSource'):b.index('public MediaSourceInfo CreateBlackSource')]:
-              raise SystemExit("Universal Live TV bootstrap unexpectedly regressed to MP4.")
+          # Resume is a strict first tier for watched-dependent modes.
+          episode_required=[
+              'candidate.PlaybackPositionTicks > 0',
+              'candidate.PlaybackPositionTicks <= 0',
+              'selected = PickRandom(resumable, lastItemId)',
+              'selectionReason = "RandomResume"',
+              'selected = resumable[0]',
+              'selectionReason = "NextResume"',
+              'startTicks = selected.PlaybackPositionTicks',
+              'selected = PickRandom(neverStarted, lastItemId)',
+              'selected = neverStarted[0]',
+          ]
+          missing=[x for x in episode_required if x not in e]
+          if missing:
+              raise SystemExit(f"Series Resume-first invariant missing: {missing}")
+          movie_required=[
+              'item.PlaybackPositionTicks > 0',
+              'item.PlaybackPositionTicks <= 0',
+              'var resume = PickRandom(resumable, lastItemId)',
+              '"RandomResume"',
+              'resume.PlaybackPositionTicks',
+          ]
+          missing=[x for x in movie_required if x not in m]
+          if missing:
+              raise SystemExit(f"Movie Resume-first invariant missing: {missing}")
 
-          isolated_start=c.index('private async Task SendIsolatedVodPlayNowAsync')
-          isolated_end=c.index('private async Task SendBootstrapPlayNowAsync', isolated_start)
-          isolated_sender=c[isolated_start:isolated_end]
-          if '_sessionManager.SendPlayCommand' in isolated_sender:
-              raise SystemExit("Isolated VOD playback must bypass Jellyfin SendPlayCommand episode auto-expansion.")
+          # Channel experience is explicit and backward-compatible.
           for token in [
-              'ItemIds = new[] { itemId }',
-              'SessionMessageType.Play',
-              'targetSession.SessionControllers',
-              'queue length 1',
-              'Math.Max(1, startPositionTicks)',
-              'item.GetPlayAccess(user) != PlayAccess.Full',
+              'PlaybackExperience { get; set; } = "PersonalizedTV"',
+              'public const string PersonalizedTV = "PersonalizedTV"',
+              'public const string StandardTV = "StandardTV"',
+              'NormalizePlaybackExperience',
           ]:
-              if token not in isolated_sender:
-                  raise SystemExit(f"Isolated one-item VOD invariant missing: {token}")
+              if token not in cfg+mode:
+                  raise SystemExit(f"Channel experience invariant missing: {token}")
 
-          bootstrap_sender=c[c.index('private async Task SendBootstrapPlayNowAsync'):c.index('private bool IsCurrent')]
-          if '_sessionManager.SendPlayCommand' not in bootstrap_sender:
-              raise SystemExit("Live TV bootstrap must use Jellyfin's normal channel PlayNow path.")
+          # Standard TV is a separate true Live TV path, never the Personalized coordinator.
+          standard_required=[
+              'class VirtualTvStandardStreamService',
+              'ISupportsDirectStreamProvider',
+              'IDirectStreamProvider',
+              '/LiveTv/LiveStreamFiles/',
+              'Container = "mpegts"',
+              'IsInfiniteStream = true',
+              'RequiresOpening = true',
+              'public override bool CanSeek => false',
+              'var offset = nowUtc - entry.GetStartUtc()',
+              '_mediaEncoder.EncoderPath',
+              '"-ss", FormatSeconds(offset), "-re", "-i", path',
+              '"-c:v", "libx264"',
+              '"-c:a", "aac"',
+              '"-f", "mpegts"',
+              'SelectEnglishSubtitle',
+              'subtitles=filename=',
+              'IsEnglish',
+              'normalized == "eng"',
+              'normalized == "en"',
+              'English subtitles {SubtitleState}',
+          ]
+          missing=[x for x in standard_required if x not in s]
+          if missing:
+              raise SystemExit(f"Standard TV invariant missing: {missing}")
 
-          stop_start=c.index('public async Task HandlePlaybackStopAsync')
-          stop_end=c.index('private Task HandleBootstrapStartAsync', stop_start)
-          stop_handler=c[stop_start:stop_end]
-          if '!eventArgs.PlayedToCompletion || !IsAtPhysicalEnd' in stop_handler:
-              raise SystemExit("Near-physical EOF must return to bootstrap even when the client does not set PlayedToCompletion.")
+          for forbidden in ['IUserDataManager','PlaybackPositionTicks','SendPlayCommand','SendPlaystateCommand','VirtualTvEpisodeResolver','VirtualTvMovieResolver']:
+              if forbidden in s:
+                  raise SystemExit(f"Standard TV must be state-free; found {forbidden}")
 
-          if '_scheduleStore.Load(channel.Id)' in l[l.index('private MediaSourceInfo GetSource'):]:
-              raise SystemExit("Live TV bootstrap source must not read the schedule.")
-          if '_catalog.Get' in l[l.index('private MediaSourceInfo GetSource'):]:
-              raise SystemExit("Live TV bootstrap source must not query content.")
-          if 'GetSource(channelId, null, false)' in l or 'GetSource(channelId, streamId, true)' in l:
-              raise SystemExit("Live TV bootstrap unexpectedly uses the legacy source-selection signature.")
+          if 'VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)' not in l:
+              raise SystemExit("Live TV service does not split Standard and Personalized pipelines.")
+          if 'GetChannelStreamWithDirectStreamProvider' not in l:
+              raise SystemExit("Standard TV does not use Jellyfin direct Live TV stream provider.")
 
-          start_start=c.index('private Task HandleBootstrapStartAsync')
-          start_end=c.index('private void HandleBootstrapStop', start_start)
-          start_handler=c[start_start:start_end]
-          if 'CompleteBootstrapBufferAsync' in start_handler or 'Task.Delay(BootstrapBuffer' in start_handler:
-              raise SystemExit("PlaybackStart must only arm the loading phase; it must not start the five-second timer.")
-
-          if 'HandlePlaybackProgressAsync' not in pc or '_coordinator.HandlePlaybackProgressAsync(eventArgs)' not in pc:
-              raise SystemExit("PlaybackProgress consumer is not wired to the bootstrap coordinator.")
-
-          progress_start=c.index('public Task HandlePlaybackProgressAsync')
-          progress_end=c.index('public async Task HandlePlaybackStopAsync', progress_start)
-          progress_handler=c[progress_start:progress_end]
-          if 'PlaybackPhase.BootstrapWaitingForProgress' not in progress_handler or 'PlaybackPhase.BootstrapBuffering' not in progress_handler:
-              raise SystemExit("PlaybackProgress does not own the BootstrapWaitingForProgress -> BootstrapBuffering transition.")
-          if '_ = CompleteBootstrapBufferAsync(context);' not in progress_handler:
-              raise SystemExit("Confirmed progress must start the non-blocking five-second buffer.")
-
-          stop_start=c.index('public async Task HandlePlaybackStopAsync')
-          stop_end=c.index('private Task HandleBootstrapStartAsync', stop_start)
-          stop_handler=c[stop_start:stop_end]
-          if 'PlayScheduledEntryAsync' in stop_handler:
-              raise SystemExit("HandlePlaybackStopAsync must not perform a direct VOD-to-VOD handoff.")
-          if 'ReturnToBootstrapAsync(context, "physical VOD EOF")' not in stop_handler:
-              raise SystemExit("Physical EOF is not routed through the neutral Live TV bootstrap.")
-
-          print("Explicit Bootstrap -> VOD -> Bootstrap playback validation passed.")
+          print("Personalized/Standard playback architecture validation passed.")
           PY
 
-      - name: Validate 1.10.8 scheduling, editing and coverage
+      - name: Validate 1.10.9 scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           g=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvScheduleGenerator.cs").read_text(encoding="utf-8")
           p=Path("Jellyfin.Plugin.VirtualTV/Configuration/configPage.html").read_text(encoding="utf-8")
           a=Path("Jellyfin.Plugin.VirtualTV/Api/ChannelController.cs").read_text(encoding="utf-8")
@@ -262,36 +289,50 @@ jobs:
               'Coverage-first weekly template',
               '_smartOrder[_cursor % _smartOrder.Count]',
               'earlierProgrammeCount / Math.Max(1, channel.EpisodesPerTurn)',
+              'channel.PlaybackExperience = VirtualTvModePolicy.NormalizePlaybackExperience(channel.PlaybackExperience)',
+              'var standardTv = VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)',
+              '? VirtualTvModePolicy.Random',
+              '? (string.Equals(channel.ContentMode, VirtualTvModePolicy.Random',
+              'VirtualTvModePolicy.NormalizePlaybackExperience(channel.PlaybackExperience)',
           ]
           missing=[x for x in required_generator if x not in g]
           if missing:
-              raise SystemExit(f"Smart coverage missing: {missing}")
+              raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.8.0"',
+              'data-ui-version="1.10.9.0"',
+              'id="channelExperience"',
+              '<option value="PersonalizedTV">Personalized TV</option>',
+              '<option value="StandardTV">Standard TV</option>',
+              'function updateExperienceModeOptions()',
+              "standard\n          ? [['Sequential','Sequential'],['Random','Random']]",
+              "standard\n          ? [['Random','Random / Shuffle Cycle']]",
+              "c.PlaybackExperience=c.PlaybackExperience==='StandardTV'?'StandardTV':'PersonalizedTV'",
+              "existing.PlaybackExperience=experience",
+              "String(existing.PlaybackExperience||'PersonalizedTV')!==String(experience)",
+              "isWatchedDependentMode(experience,type,contentMode)",
+              'Resume-first: resumes the earliest chronologically eligible partial episode',
+              'Resume-first: randomly chooses among partially watched episodes',
+              '<option value="15">15 minutes</option>',
               'Content Coverage',
               'data-filter="unassigned"',
               'Export CSV',
               'loadCoverage(true)',
-              'String(existing.ChannelType',
-              'String(existing.ContentMode',
-              'String(existing.SchedulingMethod',
               'Channel settings saved. Generate a new schedule',
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.8 UI missing: {missing}")
+              raise SystemExit(f"1.10.9 UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
               "page.querySelector('#contentMode').disabled=true",
               "page.querySelector('#schedulingMethod').disabled=true",
               "page.querySelector('#movieContentMode').disabled=true",
-              'Channel type, playback mode and schedule strategy are structural',
           ]
           present=[x for x in forbidden_ui if x in p]
           if present:
-              raise SystemExit(f"Immutable channel UI returned: {present}")
+              raise SystemExit(f"Unexpected immutable channel UI: {present}")
 
           for token in ['[HttpGet("ContentCoverage")]', 'CoverageItem(', 'CoverageChannel(']:
               if token not in a:
@@ -299,30 +340,18 @@ jobs:
 
           guide_tokens=[
               'Virtual TV Guide UI START',
-              '.guide-channelHeaderCell-tv,',
-              '.channelPrograms-tv {',
               '--vtv-guide-row-height: 8.25rem',
               '--vtv-guide-row-gap: .45rem',
               'height: var(--vtv-guide-row-height) !important',
-              'flex: 0 0 var(--vtv-guide-row-height) !important',
-              'height: 100% !important',
-              'align-items: center !important',
-              'font-size: 1.18em !important',
+              'margin-top: var(--vtv-guide-row-gap) !important',
               'width: 27vw !important',
               'SaveConfiguration("branding", branding)',
-              'margin-bottom: 0 !important',
-              'margin-right: 1px !important',
-              'margin-top: var(--vtv-guide-row-gap) !important',
           ]
-          missing=[token for token in guide_tokens if token not in v]
+          missing=[x for x in guide_tokens if x not in v]
           if missing:
               raise SystemExit(f"Guide UI integration missing: {missing}")
-
-          if 'height: 7.8em !important' in v:
-              raise SystemExit("em-based Guide row height unexpectedly remains in 1.10.8")
-
-          if 'width: 18vw !important' in v:
-              raise SystemExit("Old Guide column width unexpectedly remains in 1.10.8")
+          if 'margin-top: -1px !important' in v:
+              raise SystemExit("Old overlapping Guide row hack returned.")
 
           for token in [
               'vtv-coverage-launcher{display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap;margin-top:1.5em}',
@@ -331,9 +360,9 @@ jobs:
               'vtv-coverage-label{margin-top:.25em;opacity:.78;color:#fff!important',
           ]:
               if token not in p:
-                  raise SystemExit(f"Content Coverage dark-mode/spacing invariant missing: {token}")
+                  raise SystemExit(f"Content Coverage UI invariant missing: {token}")
 
-          print("Scheduling, editable channels, coverage report and Guide UI validation passed.")
+          print("Scheduling, channel experiences, Guide and Coverage validation passed.")
           PY
 
       - name: Validate watched-state rules
@@ -341,18 +370,37 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           policy=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
           protection=Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text(encoding="utf-8")
           stop=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text(encoding="utf-8")
-          resolver=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
+          episode=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
+          movie=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
+          standard=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
 
           for token in ['=> IsDynamicUnwatched(mode)', 'CompleteProtection', 'FinalRestoreGrace', 'RestoreAllIfProtected']:
               if token not in policy+protection+stop:
                   raise SystemExit(f"Watched-state invariant missing: {token}")
-          for token in ['Where(candidate => !candidate.Played)', 'selected = PickRandom(unwatched, lastItemId)', 'var next = candidates.FirstOrDefault(candidate => !candidate.Played)']:
-              if token not in resolver:
-                  raise SystemExit(f"Unwatched resolver invariant missing: {token}")
-          print("Watched-state validation passed.")
+
+          for token in [
+              'candidate.PlaybackPositionTicks > 0',
+              'candidate.PlaybackPositionTicks <= 0',
+              '"NextResume"',
+              '"RandomResume"',
+              'startTicks = selected.PlaybackPositionTicks',
+          ]:
+              if token not in episode:
+                  raise SystemExit(f"Series Resume invariant missing: {token}")
+
+          for token in ['item.PlaybackPositionTicks > 0','"RandomResume"','resume.PlaybackPositionTicks']:
+              if token not in movie:
+                  raise SystemExit(f"Movie Resume invariant missing: {token}")
+
+          for forbidden in ['IUserDataManager','PlaybackPositionTicks','CompleteProtection','BeginProtection','UserItemData']:
+              if forbidden in standard:
+                  raise SystemExit(f"Standard TV unexpectedly touches Jellyfin user state: {forbidden}")
+
+          print("Watched-state and Resume-first validation passed.")
           PY
 
       - name: Validate Virtual TV configuration JavaScript
@@ -367,11 +415,40 @@ jobs:
           PY
           node --check /tmp/virtualtv-config.js
 
+      - name: Smoke-test Standard TV ffmpeg profile
+        shell: bash
+        run: |
+          cat > /tmp/virtualtv-en.srt <<'EOF'
+          1
+          00:00:00,000 --> 00:00:05,000
+          Virtual TV English subtitle smoke test
+          EOF
+
+          ffmpeg -hide_banner -loglevel error -nostdin -y             -ss 1 -i Jellyfin.Plugin.VirtualTV/Assets/Bootstrap/virtualtv-loading-10s.mp4             -t 1             -vf "subtitles=filename='/tmp/virtualtv-en.srt',scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30,format=yuv420p"             -map 0:v:0 -map 0:a:0             -c:v libx264 -preset ultrafast -profile:v main -pix_fmt yuv420p             -g 60 -keyint_min 60 -sc_threshold 0             -c:a aac -b:a 160k -ac 2 -ar 48000             -mpegts_flags +resend_headers -muxdelay 0 -muxpreload 0             -f mpegts /tmp/virtualtv-standard-smoke.ts
+
+          python3 - <<'PY'
+          import json, subprocess
+          data=json.loads(subprocess.check_output([
+              "ffprobe","-v","error","-show_streams","-of","json",
+              "/tmp/virtualtv-standard-smoke.ts"
+          ], text=True))
+          streams=data.get("streams",[])
+          video=next((x for x in streams if x.get("codec_type")=="video"),None)
+          audio=next((x for x in streams if x.get("codec_type")=="audio"),None)
+          if not video or video.get("codec_name")!="h264":
+              raise SystemExit(f"Standard TV smoke output has no H.264 video: {video}")
+          if video.get("width")!=1280 or video.get("height")!=720:
+              raise SystemExit(f"Standard TV smoke output is not 1280x720: {video.get('width')}x{video.get('height')}")
+          if not audio or audio.get("codec_name")!="aac":
+              raise SystemExit(f"Standard TV smoke output has no AAC audio: {audio}")
+          print("Standard TV H.264/AAC MPEG-TS + English subtitle burn-in smoke test passed.")
+          PY
+
       - name: Validate embedded UI and bootstrap media
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.8.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.9.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -411,7 +488,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 1.10.8 UI, MP4 fallbacks and 60-second MPEG-TS live bootstrap validation passed."
+          echo "Embedded 1.10.9 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash

@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Replaces the failing finite-MP4 Live TV bootstrap with a stream-oriented 60-second MPEG-TS loading runway while keeping the same universal Loading Virtual TV experience. The source is read at native frame rate, DirectPlay is disabled, DirectStream/remux and compatible transcoding remain available, and the plugin still waits for real PlaybackProgress plus five seconds before opening exactly one isolated VOD item. This avoids presenting a 10-second MP4 DirectPlay source as Jellyfin's infinite Live TV stream and gives browser/webOS clients a conventional Live TV delivery path. The Guide keeps its corrected row alignment and now adds a synchronized 0.45rem vertical gutter between every channel row and the matching programme row. All scheduling, watched-state, Content Coverage and single-item VOD/No-Next-Up behavior are otherwise unchanged.",
+  "changelog": "Adds two explicit channel experiences while preserving the established UI and scheduling model. Personalized TV now waits 1.5 seconds after confirmed Loading playback, resolves Resume before never-started content for Next Unwatched and Random Unwatched, and opens VOD at 00:00 before issuing one guarded post-progress seek for Resume or wall-clock offsets to avoid webOS non-zero-start freezes. Standard TV is a separate true linear Live TV pipeline with only concrete schedules, no Loading/VOD handoff, no seek/restart/resume/Next Up, no Jellyfin watched-state impact, wall-clock-aligned programme entry, continuous H.264/AAC MPEG-TS output, and automatic English subtitle burn-in when a supported English track is available. Existing channels remain Personalized TV by default. Guide spacing, Content Coverage, Smart Schedule, visibility and single-item VOD queue protection are retained.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.8.0",
+  "version": "1.10.9.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

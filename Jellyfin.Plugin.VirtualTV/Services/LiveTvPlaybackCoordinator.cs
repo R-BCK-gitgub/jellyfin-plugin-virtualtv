@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///
 ///   Live TV bootstrap ("Loading Virtual TV...") -> one resolved VOD item -> Live TV bootstrap -> ...
 ///
-/// The Live TV layer never plays scheduled library media. It is only a neutral 10-second loading
+/// The Live TV layer never plays scheduled library media. It is only a neutral loading
 /// surface. PlaybackStart only arms the bootstrap; after the first real PlaybackProgress report,
 /// a fixed 1.5-second buffer runs before the coordinator resolves the schedule/rules and sends one PlayNow
 /// for exactly one concrete episode/movie. At physical EOF it always returns to the Live TV
