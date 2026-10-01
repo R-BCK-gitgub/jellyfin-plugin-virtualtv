@@ -74,7 +74,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.9.0" or len(set(values.values()))!=1:
+          if version!="1.10.10.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
           PY
 
@@ -103,6 +103,7 @@ jobs:
           personalized_required=[
               'BootstrapBuffer = TimeSpan.FromMilliseconds(1500)',
               'VodSeekSettleBuffer = TimeSpan.FromSeconds(1)',
+              'GridSeekRequiredClientProgress = TimeSpan.FromSeconds(2)',
               'VodTeardownBuffer = TimeSpan.FromSeconds(1)',
               'Interlocked.Increment(ref _nextGeneration)',
               'PlaybackPhase.BootstrapWaitingForProgress',
@@ -118,6 +119,9 @@ jobs:
               'var isolatedStartTicks = 1L',
               'PendingSeekTicks',
               'SeekScheduled',
+              'PendingSeekRequiresStableClientProgress',
+              'GridSeekRealProgressReports',
+              'GridSeekAwaitingConfirmation',
               'HandleVodProgress',
               'CompleteVodSeekAsync',
               'PlaystateCommand.Seek',
@@ -147,14 +151,54 @@ jobs:
           if present:
               raise SystemExit(f"Legacy multi-command playback returned: {present}")
 
-          # The only playstate command is the one guarded, post-progress seek used for
-          # Resume/live offsets. Zero-start VOD never receives it.
+          # The only playstate command remains the guarded one-shot seek. Grid/wall-clock
+          # offsets have a stricter readiness gate than already-working Resume seeks.
           if c.count('_sessionManager.SendPlaystateCommand(') != 1:
               raise SystemExit("Safe seek must be the only SendPlaystateCommand in Personalized playback.")
+
+          progress_start=c.index('private Task HandleVodProgress')
+          progress_end=c.index('public async Task HandlePlaybackStopAsync',progress_start)
+          vod_progress=c[progress_start:progress_end]
+          grid_tokens=[
+              'if (eventArgs.IsAutomated',
+              'IsCurrentVodPlaySession(context, eventArgs.PlaySessionId)',
+              'GridSeekRealProgressReports',
+              'realProgressSpanTicks < GridSeekRequiredClientProgress.Ticks',
+              'CalculatePendingWallClockTargetTicks(context, DateTime.UtcNow)',
+              'applySettleDelay: false',
+              'awaitGridConfirmation: true',
+          ]
+          missing=[x for x in grid_tokens if x not in vod_progress]
+          if missing:
+              raise SystemExit(f"Stable real-client grid seek gate missing: {missing}")
+
+          concrete_start=c.index('private async Task PlayConcreteEntryAsync')
+          concrete_end=c.index('private async Task PlayTraditionalFallbackAsync',concrete_start)
+          concrete=c[concrete_start:concrete_end]
+          for token in [
+              'requireStableClientProgress: targetTicks > 0',
+              'wallClockEntryStartUtc: entry.GetStartUtc()',
+              'wallClockRunTimeTicks: sourceItem.RunTimeTicks',
+          ]:
+              if token not in concrete:
+                  raise SystemExit(f"Concrete wall-clock seek metadata missing: {token}")
+
+          dynamic_start=c.index('private async Task PlayDynamicSeriesEntryAsync')
+          dynamic_end=c.index('private async Task PlayConcreteEntryAsync',dynamic_start)
+          dynamic=c[dynamic_start:dynamic_end]
+          if 'requireStableClientProgress' in dynamic:
+              raise SystemExit("Working dynamic Resume path must not inherit the stricter wall-clock grid gate.")
+
           seek_start=c.index('private async Task CompleteVodSeekAsync')
           seek_end=c.index('private async Task SendBootstrapPlayNowAsync',seek_start)
           seek=c[seek_start:seek_end]
-          for token in ['PlaystateCommand.Seek','SeekPositionTicks = seekTicks','Task.Delay(VodSeekSettleBuffer','context.Phase != PlaybackPhase.Vod']:
+          for token in [
+              'PlaystateCommand.Seek',
+              'SeekPositionTicks = seekTicks',
+              'if (applySettleDelay)',
+              'Task.Delay(VodSeekSettleBuffer',
+              'GridSeekAwaitingConfirmation = awaitGridConfirmation',
+          ]:
               if token not in seek:
                   raise SystemExit(f"Safe VOD seek guard missing: {token}")
 
@@ -269,10 +313,13 @@ jobs:
           if 'ISupportsDirectStreamProvider' not in l or 'GetChannelStreamWithDirectStreamProvider' not in l:
               raise SystemExit("Standard TV does not use Jellyfin direct Live TV stream provider.")
 
+          if 'eventArgs.IsAutomated' not in vod_progress:
+              raise SystemExit("Grid seek could again be armed by Jellyfin automated server progress.")
+
           print("Personalized/Standard playback architecture validation passed.")
           PY
 
-      - name: Validate 1.10.9 scheduling, editing and coverage
+      - name: Validate 1.10.10 scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -299,7 +346,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.9.0"',
+              'data-ui-version="1.10.10.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -321,7 +368,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.9 UI missing: {missing}")
+              raise SystemExit(f"1.10.10 UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -447,7 +494,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.9.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.10.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -487,7 +534,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 1.10.9 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
+          echo "Embedded 1.10.10 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash

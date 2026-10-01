@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Adds two explicit channel experiences while preserving the established UI and scheduling model. Personalized TV now waits 1.5 seconds after confirmed Loading playback, resolves Resume before never-started content for Next Unwatched and Random Unwatched, and opens VOD at 00:00 before issuing one guarded post-progress seek for Resume or wall-clock offsets to avoid webOS non-zero-start freezes. Standard TV is a separate true linear Live TV pipeline with only concrete schedules, no Loading/VOD handoff, no seek/restart/resume/Next Up, no Jellyfin watched-state impact, wall-clock-aligned programme entry, continuous H.264/AAC MPEG-TS output, and automatic English subtitle burn-in when a supported English track is available. Existing channels remain Personalized TV by default. Guide spacing, Content Coverage, Smart Schedule, visibility and single-item VOD queue protection are retained.",
+  "changelog": "Fixes Personalized TV wall-clock/grid offsets on webOS without changing the already-working Next Unwatched, Random Unwatched or Resume selection logic. Concrete scheduled episodes still open as one isolated VOD item at 00:00, but the plugin now ignores Jellyfin server-generated automated progress for grid seeks and waits until the exact client PlaySessionId has reported at least two seconds of genuinely increasing playback. Only then is one wall-clock seek sent, with the target recalculated at that moment so the channel remains aligned to the Guide. The seek is never retried automatically; subsequent real client progress is used only to confirm that the target was reached. Loading remains 1.5 seconds, Standard TV and the existing UI are unchanged.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.9.0",
+  "version": "1.10.10.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
