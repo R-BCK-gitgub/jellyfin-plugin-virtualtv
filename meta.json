@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Unifies Personalized TV VOD startup on the exact playback path already proven stable by Next Unwatched and Random Unwatched. Sequential, Random and other traditional Personalized modes now send the same isolated one-item PlayNow with StartPositionTicks=1 and no special null/start-position branch. Their pending Resume is always zero, so no follow-up seek or playback command occurs after PlayNow. Next Unwatched and Random Unwatched keep their existing selection and Resume-first behavior unchanged. Standard TV is unchanged. Obsolete omitStartPosition/start-mode branching and related temporary variables have been removed. The 2-second Loading handoff, one-item queue, no-Next-Up behavior, normal Jellyfin metadata handling and EOF-to-Loading Guide re-resolution remain intact.",
+  "changelog": "Restores the Jellyfin Live TV Guide to the stock/default Jellyfin presentation. All Virtual TV Guide sizing, row-height, spacing, channel-width, logo-size and programme-cell CSS overrides have been removed. On upgrade, Virtual TV removes the legacy CSS block it previously stored in Jellyfin Branding Custom CSS, while preserving any unrelated custom CSS. No playback, scheduling, channel, Standard TV, Personalized TV, Content Coverage or plugin configuration UI behavior is changed.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.15.0",
+  "version": "1.10.16.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

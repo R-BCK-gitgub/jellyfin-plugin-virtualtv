@@ -52,7 +52,7 @@ public sealed class VirtualTvVisibilityManager
             return;
         }
 
-        EnsureGuidePresentation();
+        RemoveLegacyGuidePresentation();
 
         var internalChannels = _liveTvManager.GetInternalChannels(
             new LiveTvChannelQuery(),
@@ -171,7 +171,7 @@ public sealed class VirtualTvVisibilityManager
         plugin.SaveConfiguration();
     }
 
-    private void EnsureGuidePresentation()
+    private void RemoveLegacyGuidePresentation()
     {
         try
         {
@@ -180,128 +180,31 @@ public sealed class VirtualTvVisibilityManager
 
             var start = existing.IndexOf(GuideCssStart, StringComparison.Ordinal);
             var end = existing.IndexOf(GuideCssEnd, StringComparison.Ordinal);
-            if (start >= 0 && end >= start)
+            if (start < 0 || end < start)
             {
-                end += GuideCssEnd.Length;
-                existing = (existing[..start] + existing[end..]).TrimEnd();
+                return;
             }
 
-            var block = """
-/* Virtual TV Guide UI START */
-/*
- * 1.10.6 uses a fixed rem row metric. The previous em-based value inherited different
- * font sizes on the channel and programme sides, causing cumulative vertical drift.
- */
-:root {
-    --vtv-guide-row-height: 8.25rem;
-    --vtv-guide-row-gap: .45rem;
-}
+            end += GuideCssEnd.Length;
+            var restored = (existing[..start] + existing[end..]).Trim();
 
-.guide-channelHeaderCell,
-.guide-channelHeaderCell-tv,
-.channelPrograms,
-.channelPrograms-tv {
-    height: var(--vtv-guide-row-height) !important;
-    min-height: var(--vtv-guide-row-height) !important;
-    max-height: var(--vtv-guide-row-height) !important;
-    flex: 0 0 var(--vtv-guide-row-height) !important;
-    box-sizing: border-box !important;
-}
-
-/*
- * Keep the two vertical stacks on exactly the same pitch. A small synchronized
- * gutter separates channels visually without reintroducing cumulative drift.
- */
-.guide-channelHeaderCell,
-.guide-channelHeaderCell-tv,
-.channelPrograms,
-.channelPrograms-tv {
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-}
-.guide-channelHeaderCell {
-    margin-left: 0 !important;
-    margin-right: 1px !important;
-}
-.channelPrograms {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-}
-.channelPrograms + .channelPrograms,
-.channelPrograms-tv + .channelPrograms-tv,
-.guide-channelHeaderCell + .guide-channelHeaderCell,
-.guide-channelHeaderCell-tv + .guide-channelHeaderCell-tv {
-    margin-top: var(--vtv-guide-row-gap) !important;
-}
-
-.programCell {
-    top: 0 !important;
-    bottom: 0 !important;
-    height: 100% !important;
-    min-height: 100% !important;
-    display: flex !important;
-    align-items: center !important;
-    box-sizing: border-box !important;
-}
-.guideProgramName {
-    height: 100% !important;
-    display: flex !important;
-    align-items: center !important;
-}
-.guideProgramNameText {
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-}
-
-.guideChannelImage {
-    top: 8% !important;
-    bottom: 8% !important;
-    width: 50% !important;
-}
-.guideChannelNumber {
-    max-width: 38% !important;
-    padding-left: .75em !important;
-    font-size: 1.18em !important;
-    line-height: 1.15 !important;
-    font-weight: 700 !important;
-}
-.guideChannelName {
-    max-width: 60% !important;
-    font-size: 1.08em !important;
-    font-weight: 650 !important;
-}
-
-@media all and (min-width: 50em) {
-    .channelsContainer,
-    .guide-channelTimeslotHeader {
-        width: 27vw !important;
-    }
-}
-@media all and (min-width: 80em) {
-    .channelsContainer,
-    .guide-channelTimeslotHeader {
-        width: 27vw !important;
-    }
-}
-/* Virtual TV Guide UI END */
-""";
-
-            var desired = string.IsNullOrWhiteSpace(existing)
-                ? block
-                : existing + Environment.NewLine + Environment.NewLine + block;
-
-            if (!string.Equals(branding.CustomCss ?? string.Empty, desired, StringComparison.Ordinal))
+            if (string.Equals(existing, restored, StringComparison.Ordinal))
             {
-                branding.CustomCss = desired;
-                _serverConfigurationManager.SaveConfiguration("branding", branding);
-                _logger.LogInformation("Virtual TV installed the enlarged Live TV Guide presentation CSS.");
+                return;
             }
+
+            branding.CustomCss = restored;
+            _serverConfigurationManager.SaveConfiguration("branding", branding);
+
+            _logger.LogInformation(
+                "Virtual TV removed its legacy Live TV Guide CSS so Jellyfin can use the default Guide presentation.");
         }
         catch (Exception ex)
         {
-            // Presentation is best-effort and must never block channel/visibility maintenance.
-            _logger.LogWarning(ex, "Virtual TV could not install the optional Live TV Guide presentation CSS.");
+            // Cleanup is best-effort and must never block channel/visibility maintenance.
+            _logger.LogWarning(
+                ex,
+                "Virtual TV could not remove its legacy Live TV Guide CSS.");
         }
     }
 
