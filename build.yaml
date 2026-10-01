@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.6.0"
+version: "1.10.7.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Reworks playback into an explicit, serialized Bootstrap -> VOD -> Bootstrap loop. Every Virtual TV channel immediately opens the embedded 10-second 'Loading Virtual TV...' Live TV source, waits a 2-second client buffer, then resolves the current schedule/rules and sends one PlayNow for exactly one VOD item. At physical EOF the plugin never opens another episode directly: it first returns to the Live TV loading source, waits for that bootstrap to start and settle, then resolves the wall clock again and opens the correct next/current item. This removes direct VOD-to-VOD transition races and gives webOS/Android TV a clean player teardown boundary. Guide alignment is also corrected by replacing em-based row heights with one fixed 8.25rem shared metric for channel cards and programme rows; programme text remains vertically centred and the 27vw channel column is preserved.
+  Simplifies Live TV bootstrap startup and finalizes the requested five-second handoff buffer. Every Virtual TV channel now exposes the same already-materialized embedded 'Loading Virtual TV...' MP4 as a ready media source with RequiresOpening=false, removing the extra Jellyfin live-stream open handshake and all schedule/content lookups from the channel stream-open path. The five-second timer starts only after Jellyfin reports the loading channel as actually playing; then Virtual TV resolves the current schedule/rules and sends one PlayNow for one VOD item. Physical EOF still returns to the loading channel first and repeats the same five-second cycle. Guide alignment now explicitly removes client/theme-added vertical margins from both channel and programme row stacks to prevent cumulative drift. Content Coverage gains visual separation from the channel table and white summary-card text for Jellyfin dark mode.

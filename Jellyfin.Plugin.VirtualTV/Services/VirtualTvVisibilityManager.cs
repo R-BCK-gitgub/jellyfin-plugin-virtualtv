@@ -207,7 +207,26 @@ public sealed class VirtualTvVisibilityManager
     box-sizing: border-box !important;
 }
 
-/* Jellyfin applies the same -1px border overlap to both stacks; keep it exactly symmetric. */
+/*
+ * Some Jellyfin themes/clients add button margins to channel headers but not to programme rows.
+ * That changes the outer flex-item height and makes the two stacks drift further apart per row.
+ * Neutralise vertical margins explicitly on both stacks, then apply the same one-pixel border overlap.
+ */
+.guide-channelHeaderCell,
+.guide-channelHeaderCell-tv,
+.channelPrograms,
+.channelPrograms-tv {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+.guide-channelHeaderCell {
+    margin-left: 0 !important;
+    margin-right: 1px !important;
+}
+.channelPrograms {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
 .channelPrograms + .channelPrograms,
 .guide-channelHeaderCell + .guide-channelHeaderCell {
     margin-top: -1px !important;

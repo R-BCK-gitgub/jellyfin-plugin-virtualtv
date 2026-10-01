@@ -6,7 +6,7 @@
 
 </head>
 <body>
-<div id="VirtualTVConfigPage" data-ui-version="1.10.6.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="VirtualTVConfigPage" data-ui-version="1.10.7.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
 <style>
 #VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
 #VirtualTVConfigPage .vtv-muted{opacity:.72}
@@ -35,12 +35,12 @@
 #VirtualTVConfigPage .vtv-actions{display:flex;align-items:center;justify-content:flex-end;gap:.45em;white-space:nowrap}
 #VirtualTVConfigPage .vtv-actions button{margin:0}
 #VirtualTVConfigPage .vtv-delete-button{opacity:.82}
-#VirtualTVConfigPage .vtv-coverage-launcher{display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap}
+#VirtualTVConfigPage .vtv-coverage-launcher{display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap;margin-top:1.5em}
 #VirtualTVConfigPage .vtv-coverage-cards{display:grid;grid-template-columns:repeat(4,minmax(9em,1fr));gap:.7em;margin:1em 0}
-#VirtualTVConfigPage .vtv-coverage-card{border:1px solid rgba(255,255,255,.13);border-radius:.7em;padding:1em;background:#202020;cursor:pointer;text-align:left}
+#VirtualTVConfigPage .vtv-coverage-card{border:1px solid rgba(255,255,255,.13);border-radius:.7em;padding:1em;background:#202020;color:#fff!important;cursor:pointer;text-align:left}
 #VirtualTVConfigPage .vtv-coverage-card.active{border-color:#00A4DC;box-shadow:inset 0 0 0 1px #00A4DC;background:#153d4b}
-#VirtualTVConfigPage .vtv-coverage-value{font-size:1.65em;font-weight:800;line-height:1.1}
-#VirtualTVConfigPage .vtv-coverage-label{margin-top:.25em;opacity:.72}
+#VirtualTVConfigPage .vtv-coverage-value{font-size:1.65em;font-weight:800;line-height:1.1;color:#fff!important}
+#VirtualTVConfigPage .vtv-coverage-label{margin-top:.25em;opacity:.78;color:#fff!important}
 #VirtualTVConfigPage .vtv-coverage-toolbar{display:grid;grid-template-columns:2fr 1fr 1fr;gap:.75em;margin:.8em 0}
 #VirtualTVConfigPage .vtv-coverage-table{width:100%;border-collapse:collapse}
 #VirtualTVConfigPage .vtv-coverage-table th,#VirtualTVConfigPage .vtv-coverage-table td{padding:.7em .6em;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}
@@ -90,7 +90,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v1.10.6</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v1.10.7</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -153,7 +153,7 @@
         <input id="channelNumber" type="number" is="emby-input" required min="1" step="1">
       </div>
       <!-- Stock Jellyfin renders Live TV Overview below the full Guide. Until Jellyfin exposes
-           a stable client-independent title-area extension point, v1.10.6 keeps any legacy
+           a stable client-independent title-area extension point, v1.10.7 keeps any legacy
            description value private in plugin configuration and does not offer a misleading
            public-description editor. -->
       <input id="channelDescription" type="hidden">

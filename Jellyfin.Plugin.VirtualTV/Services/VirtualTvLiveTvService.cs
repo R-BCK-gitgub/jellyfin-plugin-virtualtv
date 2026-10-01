@@ -103,13 +103,17 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
     public Task<List<MediaSourceInfo>> GetChannelStreamMediaSources(string channelId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new List<MediaSourceInfo> { GetSource(channelId, null, false) });
+        return Task.FromResult(new List<MediaSourceInfo> { GetSource(channelId) });
     }
 
     public Task<MediaSourceInfo> GetChannelStream(string channelId, string streamId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(GetSource(channelId, streamId, true));
+
+        // Kept only because ILiveTvService requires it. The loading MP4 is already returned with
+        // RequiresOpening=false, so normal playback should not need a second live-stream open.
+        _ = streamId;
+        return Task.FromResult(GetSource(channelId));
     }
 
     public Task CloseLiveStream(string id, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -138,52 +142,19 @@ public sealed class VirtualTvLiveTvService : ILiveTvService
             channel => string.Equals(channel.Id, id, StringComparison.OrdinalIgnoreCase));
     }
 
-    private MediaSourceInfo GetSource(string channelId, string? streamId, bool openForPlayback)
+    private MediaSourceInfo GetSource(string channelId)
     {
         var channel = GetChannel(channelId)
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
 
-        var now = DateTime.UtcNow;
-        var schedule = _scheduleStore.Load(channel.Id);
-        var entry = schedule
-            .FirstOrDefault(item => item.GetStartUtc() <= now && item.GetEndUtc() > now);
+        // The Live TV layer is deliberately content-agnostic. Every Virtual TV channel exposes
+        // exactly the same ready-to-play loading clip. Schedule/rule resolution happens only
+        // after Jellyfin confirms that this bootstrap is actually playing.
+        var source = _bootstrapMedia.CreateLoadingSource();
 
-        if (entry is null)
-        {
-            var hasContent = string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase)
-                ? _catalog.GetMovies(channel).Count > 0
-                : _catalog.GetSeries(channel).Count > 0;
-
-            throw new InvalidOperationException(hasContent
-                ? "Schedule needs to be generated."
-                : "Content Not Available.");
-        }
-
-        if (entry.IsOffAir)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(entry.Overview)
-                ? "This Virtual TV channel is Off Air."
-                : entry.Overview);
-
-        if (entry.IsContentUnavailable)
-            throw new InvalidOperationException("Content Not Available.");
-
-        if (entry.IsScheduleUnavailable)
-            throw new InvalidOperationException("Schedule needs to be generated.");
-
-        _ = streamId;
-
-        // The Live TV source is deliberately neutral. Jellyfin opens this short embedded
-        // "Loading Virtual TV..." clip first; the playback coordinator then resolves the
-        // schedule-authoritative episode and sends exactly one VOD PlayNow request.
-        // This prevents users from briefly seeing the wrong/scheduled media before handoff.
-        var source = _bootstrapMedia.CreateLoadingSource(openForPlayback);
-
-        if (openForPlayback)
-        {
-            _logger.LogInformation(
-                "Virtual TV opened neutral loading bootstrap for channel {ChannelName}; VOD handoff will follow.",
-                channel.Name);
-        }
+        _logger.LogDebug(
+            "Virtual TV supplied ready neutral bootstrap source for channel {ChannelName}.",
+            channel.Name);
 
         return source;
     }

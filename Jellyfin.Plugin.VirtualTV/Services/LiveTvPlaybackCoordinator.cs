@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///   Live TV bootstrap ("Loading Virtual TV...") -> one resolved VOD item -> Live TV bootstrap -> ...
 ///
 /// The Live TV layer never plays scheduled library media. It is only a neutral 10-second loading
-/// surface. After a short buffer, the coordinator resolves the schedule/rules and sends one PlayNow
+/// surface. After a fixed five-second buffer, the coordinator resolves the schedule/rules and sends one PlayNow
 /// for exactly one concrete episode/movie. At physical EOF it always returns to the Live TV
 /// bootstrap first; only after that bootstrap has started and settled does it resolve the next VOD.
 ///
@@ -29,7 +29,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
-    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DuplicateTuneFallbackWindow = TimeSpan.FromSeconds(2);

@@ -40,19 +40,17 @@ public sealed class VirtualTvBootstrapMediaProvider
         _logger = logger;
     }
 
-    public MediaSourceInfo CreateLoadingSource(bool openForPlayback)
+    public MediaSourceInfo CreateLoadingSource()
         => CreateSource(
             ResolveLoadingPath(),
             "virtualtv-bootstrap-loading",
-            "Loading Virtual TV...",
-            openForPlayback);
+            "Loading Virtual TV...");
 
-    public MediaSourceInfo CreateBlackSource(bool openForPlayback)
+    public MediaSourceInfo CreateBlackSource()
         => CreateSource(
             ResolveBlackPath(),
             "virtualtv-bootstrap-black",
-            "Virtual TV",
-            openForPlayback);
+            "Virtual TV");
 
     public string ResolveLoadingPath()
     {
@@ -122,8 +120,7 @@ public sealed class VirtualTvBootstrapMediaProvider
     private static MediaSourceInfo CreateSource(
         string path,
         string id,
-        string name,
-        bool openForPlayback)
+        string name)
         => new()
         {
             Id = id,
@@ -135,7 +132,11 @@ public sealed class VirtualTvBootstrapMediaProvider
             SupportsDirectPlay = true,
             SupportsDirectStream = true,
             SupportsTranscoding = true,
-            RequiresOpening = !openForPlayback,
+
+            // This is an already-materialized local MP4, not a tuner resource. Returning it as a
+            // ready media source avoids Jellyfin's additional OpenMediaSource/GetChannelStream
+            // live-stream handshake before playback can begin.
+            RequiresOpening = false,
             RequiresClosing = false,
             RunTimeTicks = TimeSpan.FromSeconds(10).Ticks,
             MediaStreams = new List<MediaStream>()
