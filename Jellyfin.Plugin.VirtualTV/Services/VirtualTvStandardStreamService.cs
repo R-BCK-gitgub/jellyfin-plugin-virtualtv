@@ -151,6 +151,9 @@ public sealed class VirtualTvStandardStreamService
         private readonly IMediaEncoder _mediaEncoder;
         private readonly ILogger _logger;
         private readonly CancellationTokenSource _lifetime = new();
+        private readonly object _streamGate = new();
+        private readonly SemaphoreSlim _readGate = new(1, 1);
+        private StandardBroadcastStream? _broadcast;
         private int _closed;
 
         public StandardLiveStream(
@@ -192,6 +195,13 @@ public sealed class VirtualTvStandardStreamService
             if (Interlocked.Exchange(ref _closed, 1) == 0)
             {
                 _lifetime.Cancel();
+
+                lock (_streamGate)
+                {
+                    _broadcast?.Dispose();
+                    _broadcast = null;
+                }
+
                 _logger.LogInformation(
                     "Virtual TV Standard TV stream closed for channel {ChannelName}.",
                     _channelName);
@@ -207,26 +217,107 @@ public sealed class VirtualTvStandardStreamService
                 throw new ObjectDisposedException(nameof(StandardLiveStream));
             }
 
+            StandardBroadcastStream broadcast;
+            lock (_streamGate)
+            {
+                if (_lifetime.IsCancellationRequested)
+                {
+                    throw new ObjectDisposedException(nameof(StandardLiveStream));
+                }
+
+                // Jellyfin can read the direct stream once while probing and again for the
+                // actual player. Recreating the producer on each GetStream caused the first
+                // ~1-2 seconds to replay. One producer per tune-in keeps the timeline continuous.
+                _broadcast ??= new StandardBroadcastStream(
+                    _channelId,
+                    _channelName,
+                    _scheduleStore,
+                    _libraryManager,
+                    _mediaSourceManager,
+                    _mediaEncoder,
+                    _logger,
+                    _lifetime.Token);
+
+                broadcast = _broadcast;
+            }
+
             _logger.LogInformation(
-                "Virtual TV Standard TV reader opened for channel {ChannelName}; playback is wall-clock aligned and state-free.",
+                "Virtual TV Standard TV reader attached to the existing tune-in stream for channel {ChannelName}.",
                 _channelName);
 
-            return new StandardBroadcastStream(
-                _channelId,
-                _channelName,
-                _scheduleStore,
-                _libraryManager,
-                _mediaSourceManager,
-                _mediaEncoder,
-                _logger,
-                _lifetime.Token);
+            return new SharedBroadcastReader(broadcast, _readGate);
         }
 
         public void Dispose()
         {
             _ = Close();
+            _readGate.Dispose();
             _lifetime.Dispose();
         }
+    }
+
+    private sealed class SharedBroadcastReader : Stream
+    {
+        private readonly Stream _inner;
+        private readonly SemaphoreSlim _readGate;
+
+        public SharedBroadcastReader(Stream inner, SemaphoreSlim readGate)
+        {
+            _inner = inner;
+            _readGate = readGate;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            _readGate.Wait();
+            try
+            {
+                return _inner.Read(buffer, offset, count);
+            }
+            finally
+            {
+                _readGate.Release();
+            }
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await _readGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await _inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _readGate.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            // Non-owning: the parent ILiveStream owns the shared producer lifetime.
+            base.Dispose(disposing);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class StandardBroadcastStream : Stream

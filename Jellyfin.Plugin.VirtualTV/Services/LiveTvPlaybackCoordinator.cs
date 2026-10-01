@@ -36,9 +36,7 @@ public sealed class LiveTvPlaybackCoordinator
 {
     private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan VodSeekSettleBuffer = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan GridSeekPlaybackStartBuffer = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan CommandTransitCompensation = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DuplicateTuneFallbackWindow = TimeSpan.FromSeconds(2);
 
@@ -178,90 +176,34 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         var itemId = eventArgs.Item!.Id;
-        long seekTicks;
+        long resumeTicks;
 
         lock (context.Gate)
         {
             if (context.Phase != PlaybackPhase.Vod
-                || !context.CurrentVodItemId.HasValue
-                || context.CurrentVodItemId.Value != itemId)
+                || context.CurrentVodItemId != itemId
+                || context.PendingResumeTicks <= 0
+                || context.ResumeSeekScheduled)
             {
                 return Task.CompletedTask;
             }
 
-            if (context.GridSeekAwaitingConfirmation)
-            {
-                if (!eventArgs.IsAutomated
-                    && IsCurrentVodPlaySession(context, eventArgs.PlaySessionId)
-                    && eventArgs.PlaybackPositionTicks.HasValue)
-                {
-                    var positionTicks = Math.Max(0, eventArgs.PlaybackPositionTicks.Value);
-                    var tolerance = TimeSpan.FromSeconds(8).Ticks;
-
-                    if (Math.Abs(positionTicks - context.GridSeekConfirmationTargetTicks) <= tolerance)
-                    {
-                        context.GridSeekAwaitingConfirmation = false;
-                        _logger.LogInformation(
-                            "Virtual TV wall-clock seek confirmed by real client progress for session {SessionId}, generation {Generation}, item {ItemId}: target {TargetSeconds:F1}s, reported {ReportedSeconds:F1}s.",
-                            sessionId,
-                            context.Generation,
-                            itemId,
-                            TimeSpan.FromTicks(context.GridSeekConfirmationTargetTicks).TotalSeconds,
-                            TimeSpan.FromTicks(positionTicks).TotalSeconds);
-                    }
-                }
-
-                return Task.CompletedTask;
-            }
-
-            if (context.PendingSeekTicks <= 0 || context.SeekScheduled)
-            {
-                return Task.CompletedTask;
-            }
-
-            // Grid offsets are armed from VOD PlaybackStart + 1.5 seconds, not from
-            // Jellyfin Web's 10-second periodic progress timer.
-            if (context.PendingSeekUsesWallClockStartBuffer)
-            {
-                return Task.CompletedTask;
-            }
-
-            // Resume is intentionally unchanged.
-            context.SeekScheduled = true;
-            seekTicks = context.PendingSeekTicks;
+            // Only Next Unwatched / Random Unwatched can carry a Resume position.
+            // Traditional Personalized TV never sets PendingResumeTicks and therefore
+            // never sends a seek after opening.
+            context.ResumeSeekScheduled = true;
+            resumeTicks = context.PendingResumeTicks;
         }
 
         _logger.LogInformation(
-            "Virtual TV VOD playback confirmed for session {SessionId}, generation {Generation}, item {ItemId}; arming one Resume seek to {SeekSeconds:F1}s.",
+            "Virtual TV Resume playback confirmed for session {SessionId}, generation {Generation}, item {ItemId}; arming one Resume seek to {SeekSeconds:F1}s.",
             sessionId,
             context.Generation,
             itemId,
-            TimeSpan.FromTicks(seekTicks).TotalSeconds);
+            TimeSpan.FromTicks(resumeTicks).TotalSeconds);
 
-        _ = CompleteVodSeekAsync(
-            context,
-            itemId,
-            seekTicks,
-            applySettleDelay: true,
-            awaitGridConfirmation: false);
-
+        _ = CompleteResumeSeekAsync(context, itemId, resumeTicks);
         return Task.CompletedTask;
-    }
-
-    private static bool IsCurrentVodPlaySession(
-        SessionContext context,
-        string? playSessionId)
-    {
-        if (string.IsNullOrWhiteSpace(context.CurrentVodPlaySessionId)
-            || string.IsNullOrWhiteSpace(playSessionId))
-        {
-            return true;
-        }
-
-        return string.Equals(
-            context.CurrentVodPlaySessionId,
-            playSessionId,
-            StringComparison.Ordinal);
     }
 
     public async Task HandlePlaybackStopAsync(PlaybackStopEventArgs eventArgs)
@@ -346,14 +288,8 @@ public sealed class LiveTvPlaybackCoordinator
                 existing.ReplacingPlaySessionId = string.Empty;
                 existing.CurrentVodItemId = null;
                 existing.PendingVodItemId = null;
-                existing.PendingSeekTicks = 0;
-                existing.SeekScheduled = false;
-                existing.PendingSeekUsesWallClockStartBuffer = false;
-                existing.PendingWallClockEntryStartUtc = null;
-                existing.PendingWallClockRunTimeTicks = null;
-                existing.GridSeekAwaitingConfirmation = false;
-                existing.GridSeekConfirmationTargetTicks = 0;
-                existing.GridSeekArmGeneration = 0;
+                existing.PendingResumeTicks = 0;
+                existing.ResumeSeekScheduled = false;
             }
 
             _logger.LogInformation(
@@ -507,10 +443,6 @@ public sealed class LiveTvPlaybackCoordinator
             && pendingVod.HasValue
             && pendingVod.Value == startedItemId)
         {
-            long armGeneration = 0;
-            string playSessionId = string.Empty;
-            var armGridSeek = false;
-
             lock (context.Gate)
             {
                 context.Phase = PlaybackPhase.Vod;
@@ -518,69 +450,25 @@ public sealed class LiveTvPlaybackCoordinator
                 context.CurrentVodPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
                 context.PendingVodItemId = null;
                 context.ReplacingPlaySessionId = string.Empty;
-
-                if (context.PendingSeekUsesWallClockStartBuffer
-                    && context.PendingSeekTicks > 0
-                    && !context.SeekScheduled)
-                {
-                    armGeneration = ++context.GridSeekArmGeneration;
-                    playSessionId = context.CurrentVodPlaySessionId;
-                    armGridSeek = true;
-                }
             }
 
             _logger.LogInformation(
-                "Virtual TV VOD accepted: session {SessionId}, generation {Generation}, item {ItemId}.",
+                "Virtual TV VOD accepted: session {SessionId}, generation {Generation}, item {ItemId}. No schedule-offset command will be sent.",
                 sessionId,
                 context.Generation,
                 startedItemId);
-
-            if (armGridSeek)
-            {
-                _logger.LogInformation(
-                    "Virtual TV wall-clock seek armed from client PlaybackStart for session {SessionId}, generation {Generation}, item {ItemId}. Waiting {BufferMs}ms before issuing the grid offset.",
-                    sessionId,
-                    context.Generation,
-                    startedItemId,
-                    GridSeekPlaybackStartBuffer.TotalMilliseconds);
-
-                _ = CompleteGridSeekAfterVodStartAsync(
-                    context,
-                    startedItemId,
-                    playSessionId,
-                    armGeneration);
-            }
-
             return;
         }
 
-        if (phase == PlaybackPhase.Vod && currentVod.HasValue && currentVod.Value == startedItemId)
+        if (phase == PlaybackPhase.Vod
+            && currentVod.HasValue
+            && currentVod.Value == startedItemId)
         {
-            long armGeneration = 0;
-            string playSessionId = string.Empty;
-            var armGridSeek = false;
-
+            // Normal player restart after a user seek or subtitle/audio change.
+            // Do not react to it: once the VOD is open the user owns the player.
             lock (context.Gate)
             {
                 context.CurrentVodPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
-
-                if (context.PendingSeekUsesWallClockStartBuffer
-                    && context.PendingSeekTicks > 0
-                    && !context.SeekScheduled)
-                {
-                    armGeneration = ++context.GridSeekArmGeneration;
-                    playSessionId = context.CurrentVodPlaySessionId;
-                    armGridSeek = true;
-                }
-            }
-
-            if (armGridSeek)
-            {
-                _ = CompleteGridSeekAfterVodStartAsync(
-                    context,
-                    startedItemId,
-                    playSessionId,
-                    armGeneration);
             }
 
             return;
@@ -598,64 +486,6 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         EndSession(sessionId, context.Generation, "unrelated playback started");
-    }
-
-    private async Task CompleteGridSeekAfterVodStartAsync(
-        SessionContext context,
-        Guid itemId,
-        string vodPlaySessionId,
-        long armGeneration)
-    {
-        try
-        {
-            await Task.Delay(GridSeekPlaybackStartBuffer, context.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        if (!IsCurrent(context))
-        {
-            return;
-        }
-
-        long seekTicks;
-
-        lock (context.Gate)
-        {
-            if (context.Phase != PlaybackPhase.Vod
-                || context.CurrentVodItemId != itemId
-                || !context.PendingSeekUsesWallClockStartBuffer
-                || context.PendingSeekTicks <= 0
-                || context.SeekScheduled
-                || context.GridSeekArmGeneration != armGeneration
-                || (!string.IsNullOrWhiteSpace(vodPlaySessionId)
-                    && !string.IsNullOrWhiteSpace(context.CurrentVodPlaySessionId)
-                    && !string.Equals(context.CurrentVodPlaySessionId, vodPlaySessionId, StringComparison.Ordinal)))
-            {
-                return;
-            }
-
-            seekTicks = CalculatePendingWallClockTargetTicks(context, DateTime.UtcNow);
-            context.PendingSeekTicks = seekTicks;
-            context.SeekScheduled = true;
-        }
-
-        _logger.LogInformation(
-            "Virtual TV client PlaybackStart remained stable for {BufferMs}ms in session {SessionId}, generation {Generation}, item {ItemId}. Sending one wall-clock seek to {SeekSeconds:F1}s.",
-            GridSeekPlaybackStartBuffer.TotalMilliseconds,
-            context.SessionId,
-            context.Generation,
-            itemId,
-            TimeSpan.FromTicks(seekTicks).TotalSeconds);
-
-        await CompleteVodSeekAsync(
-            context,
-            itemId,
-            seekTicks,
-            applySettleDelay: false,
-            awaitGridConfirmation: true).ConfigureAwait(false);
     }
 
     private async Task CompleteBootstrapBufferAsync(SessionContext context)
@@ -727,14 +557,8 @@ public sealed class LiveTvPlaybackCoordinator
             context.Phase = PlaybackPhase.AwaitingBootstrap;
             context.ReplacingPlaySessionId = currentVodPlaySession;
             context.PendingVodItemId = null;
-            context.PendingSeekTicks = 0;
-            context.SeekScheduled = false;
-            context.PendingSeekUsesWallClockStartBuffer = false;
-            context.PendingWallClockEntryStartUtc = null;
-            context.PendingWallClockRunTimeTicks = null;
-            context.GridSeekAwaitingConfirmation = false;
-            context.GridSeekConfirmationTargetTicks = 0;
-            context.GridSeekArmGeneration = 0;
+            context.PendingResumeTicks = 0;
+            context.ResumeSeekScheduled = false;
         }
 
         _logger.LogInformation(
@@ -771,7 +595,7 @@ public sealed class LiveTvPlaybackCoordinator
     {
         if (!context.IsDynamicUnwatched)
         {
-            return PlayConcreteEntryAsync(context, entry, nowUtc, reason);
+            return PlayConcreteEntryAsync(context, entry, reason);
         }
 
         return context.IsDynamicMovie
@@ -873,7 +697,6 @@ public sealed class LiveTvPlaybackCoordinator
     private async Task PlayConcreteEntryAsync(
         SessionContext context,
         VirtualTvScheduleEntry entry,
-        DateTime nowUtc,
         string reason)
     {
         if (!Guid.TryParse(entry.SourceItemId, out var sourceItemId))
@@ -902,21 +725,16 @@ public sealed class LiveTvPlaybackCoordinator
             _stateProtection.BeginProtection(context.SessionId, new[] { sourceItemId }, context.UserId);
         }
 
-        var targetTicks = CalculateConcreteTargetTicks(entry, sourceItem.RunTimeTicks, nowUtc);
-        PrepareVodHandoff(
-            context,
-            entry,
-            sourceItemId,
-            targetTicks,
-            useWallClockStartBuffer: targetTicks > 0,
-            wallClockEntryStartUtc: entry.GetStartUtc(),
-            wallClockRunTimeTicks: sourceItem.RunTimeTicks);
+        // Traditional Personalized TV uses the Guide only to choose WHAT is on.
+        // It deliberately ignores the Guide's elapsed time and always opens the
+        // concrete item from 00:00. No Resume and no schedule offset are applied.
+        PrepareVodHandoff(context, entry, sourceItemId, 0);
 
         await SendIsolatedVodPlayNowAsync(
             context,
             sourceItemId,
-            targetTicks,
-            reason).ConfigureAwait(false);
+            0,
+            reason + "; concrete Personalized TV always starts at 00:00").ConfigureAwait(false);
     }
 
     private async Task PlayTraditionalFallbackAsync(
@@ -957,10 +775,7 @@ public sealed class LiveTvPlaybackCoordinator
         SessionContext context,
         VirtualTvScheduleEntry entry,
         Guid targetItemId,
-        long requestedStartTicks,
-        bool useWallClockStartBuffer = false,
-        DateTime? wallClockEntryStartUtc = null,
-        long? wallClockRunTimeTicks = null)
+        long requestedStartTicks)
     {
         lock (context.Gate)
         {
@@ -972,15 +787,8 @@ public sealed class LiveTvPlaybackCoordinator
             context.Phase = PlaybackPhase.AwaitingVod;
             context.ReplacingPlaySessionId = context.BootstrapPlaySessionId;
             context.PendingVodItemId = targetItemId;
-            context.PendingSeekTicks = Math.Max(0, requestedStartTicks);
-            context.SeekScheduled = false;
-            context.PendingSeekUsesWallClockStartBuffer =
-                useWallClockStartBuffer && requestedStartTicks > 0;
-            context.PendingWallClockEntryStartUtc = wallClockEntryStartUtc;
-            context.PendingWallClockRunTimeTicks = wallClockRunTimeTicks;
-            context.GridSeekAwaitingConfirmation = false;
-            context.GridSeekConfirmationTargetTicks = 0;
-            context.GridSeekArmGeneration = 0;
+            context.PendingResumeTicks = Math.Max(0, requestedStartTicks);
+            context.ResumeSeekScheduled = false;
             context.CurrentEntryId = entry.Id;
         }
     }
@@ -1047,10 +855,9 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
-            // Always establish the VOD player at 00:00. Direct non-zero StartPositionTicks can
-            // leave webOS with working audio/subtitles but a frozen video frame. If a scheduler
-            // offset or Resume is required, a single guarded seek is sent only after real VOD
-            // PlaybackProgress confirms the decoder is alive.
+            // Always establish the VOD player at 00:00. Traditional Personalized TV stays
+            // there. Only watched-dependent Next/Random Unwatched may later issue one guarded
+            // Resume seek after VOD PlaybackProgress confirms the decoder is alive.
             var requestedStartTicks = Math.Max(0, startPositionTicks);
             var isolatedStartTicks = 1L;
 
@@ -1064,7 +871,7 @@ public sealed class LiveTvPlaybackCoordinator
             };
 
             _logger.LogInformation(
-                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, requested target {StartSeconds:F1}s; player opens at 00:00, reason {Reason}.",
+                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, requested Resume {StartSeconds:F1}s; player opens at 00:00, reason {Reason}.",
                 context.Generation,
                 context.SessionId,
                 itemId,
@@ -1106,23 +913,18 @@ public sealed class LiveTvPlaybackCoordinator
     /// normal SendPlayCommand path because a LiveTvChannel cannot trigger episode auto-expansion.
     /// The channel always resolves to the universal embedded Loading Virtual TV source.
     /// </summary>
-    private async Task CompleteVodSeekAsync(
+    private async Task CompleteResumeSeekAsync(
         SessionContext context,
         Guid itemId,
-        long seekTicks,
-        bool applySettleDelay,
-        bool awaitGridConfirmation)
+        long resumeTicks)
     {
-        if (applySettleDelay)
+        try
         {
-            try
-            {
-                await Task.Delay(VodSeekSettleBuffer, context.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
+            await Task.Delay(VodSeekSettleBuffer, context.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
 
         if (!IsCurrent(context))
@@ -1134,8 +936,8 @@ public sealed class LiveTvPlaybackCoordinator
         {
             if (context.Phase != PlaybackPhase.Vod
                 || context.CurrentVodItemId != itemId
-                || context.PendingSeekTicks != seekTicks
-                || !context.SeekScheduled)
+                || context.PendingResumeTicks != resumeTicks
+                || !context.ResumeSeekScheduled)
             {
                 return;
             }
@@ -1149,7 +951,7 @@ public sealed class LiveTvPlaybackCoordinator
                 new PlaystateRequest
                 {
                     Command = PlaystateCommand.Seek,
-                    SeekPositionTicks = seekTicks
+                    SeekPositionTicks = resumeTicks
                 },
                 context.Token).ConfigureAwait(false);
 
@@ -1157,21 +959,16 @@ public sealed class LiveTvPlaybackCoordinator
             {
                 if (context.CurrentVodItemId == itemId)
                 {
-                    context.PendingSeekTicks = 0;
-                    context.PendingSeekUsesWallClockStartBuffer = false;
-                    context.GridSeekAwaitingConfirmation = awaitGridConfirmation;
-                    context.GridSeekConfirmationTargetTicks =
-                        awaitGridConfirmation ? seekTicks : 0;
+                    context.PendingResumeTicks = 0;
                 }
             }
 
             _logger.LogInformation(
-                "Virtual TV completed {SeekType} seek command for session {SessionId}, generation {Generation}, item {ItemId} to {SeekSeconds:F1}s.",
-                awaitGridConfirmation ? "wall-clock" : "Resume",
+                "Virtual TV completed Resume seek for session {SessionId}, generation {Generation}, item {ItemId} to {SeekSeconds:F1}s.",
                 context.SessionId,
                 context.Generation,
                 itemId,
-                TimeSpan.FromTicks(seekTicks).TotalSeconds);
+                TimeSpan.FromTicks(resumeTicks).TotalSeconds);
         }
         catch (OperationCanceledException) when (context.Token.IsCancellationRequested)
         {
@@ -1180,8 +977,7 @@ public sealed class LiveTvPlaybackCoordinator
         {
             _logger.LogWarning(
                 ex,
-                "Virtual TV {SeekType} seek failed for session {SessionId}, generation {Generation}, item {ItemId}. Playback remains at its current position.",
-                awaitGridConfirmation ? "wall-clock" : "Resume",
+                "Virtual TV Resume seek failed for session {SessionId}, generation {Generation}, item {ItemId}. Playback remains at 00:00.",
                 context.SessionId,
                 context.Generation,
                 itemId);
@@ -1285,51 +1081,6 @@ public sealed class LiveTvPlaybackCoordinator
 
         var positionTicks = Math.Max(0, eventArgs.PlaybackPositionTicks ?? 0);
         return eventArgs.Item.RunTimeTicks.Value - positionTicks <= PhysicalEndTolerance.Ticks;
-    }
-
-    private static long CalculatePendingWallClockTargetTicks(
-        SessionContext context,
-        DateTime nowUtc)
-    {
-        if (!context.PendingWallClockEntryStartUtc.HasValue)
-        {
-            return context.PendingSeekTicks;
-        }
-
-        var rawTicks = Math.Max(
-            0,
-            (nowUtc.Add(CommandTransitCompensation)
-                - context.PendingWallClockEntryStartUtc.Value).Ticks);
-
-        if (!context.PendingWallClockRunTimeTicks.HasValue
-            || context.PendingWallClockRunTimeTicks.Value <= 0)
-        {
-            return rawTicks;
-        }
-
-        var latestSafeTick = Math.Max(
-            0,
-            context.PendingWallClockRunTimeTicks.Value - TimeSpan.TicksPerSecond);
-
-        return Math.Min(rawTicks, latestSafeTick);
-    }
-
-    private static long CalculateConcreteTargetTicks(
-        VirtualTvScheduleEntry entry,
-        long? runTimeTicks,
-        DateTime nowUtc)
-    {
-        var rawTicks = Math.Max(
-            0,
-            (nowUtc.Add(CommandTransitCompensation) - entry.GetStartUtc()).Ticks);
-
-        if (!runTimeTicks.HasValue || runTimeTicks.Value <= 0)
-        {
-            return rawTicks;
-        }
-
-        var latestSafeTick = Math.Max(0, runTimeTicks.Value - TimeSpan.TicksPerSecond);
-        return Math.Min(rawTicks, latestSafeTick);
     }
 
     private static Guid ResolvePlaybackUserId(PlaybackStartEventArgs eventArgs)
@@ -1455,21 +1206,9 @@ public sealed class LiveTvPlaybackCoordinator
 
         public Guid? CurrentVodItemId { get; set; }
 
-        public long PendingSeekTicks { get; set; }
+        public long PendingResumeTicks { get; set; }
 
-        public bool SeekScheduled { get; set; }
-
-        public bool PendingSeekUsesWallClockStartBuffer { get; set; }
-
-        public DateTime? PendingWallClockEntryStartUtc { get; set; }
-
-        public long? PendingWallClockRunTimeTicks { get; set; }
-
-        public long GridSeekArmGeneration { get; set; }
-
-        public bool GridSeekAwaitingConfirmation { get; set; }
-
-        public long GridSeekConfirmationTargetTicks { get; set; }
+        public bool ResumeSeekScheduled { get; set; }
 
         public Guid? LastCompletedItemId { get; set; }
 

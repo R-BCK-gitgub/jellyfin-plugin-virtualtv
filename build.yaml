@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "1.10.11.0"
+version: "1.10.12.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Reduces Personalized TV wall-clock/grid handoff latency from Jellyfin Web's 10-second periodic progress cadence to a 1.5-second post-PlaybackStart readiness buffer. Concrete scheduled VOD still opens at 00:00 first; once the exact client VOD PlaybackStart is accepted, Virtual TV waits 1.5 seconds, recalculates the current Guide offset, and sends one seek. If the client rebuilds/restarts the VOD before that command, the 1.5-second window restarts from the newest PlaybackStart so a stale timer cannot seek too early. Next Unwatched, Random Unwatched and the already-working Resume path are unchanged. Loading remains 1.5 seconds, Standard TV and the UI remain unchanged.
+  Simplifies Personalized TV playback. Next Unwatched and Random Unwatched retain their existing Resume-first rules. Every other Personalized TV mode now uses the Guide only to select the concrete episode or movie and always opens that item at 00:00; all wall-clock/grid offset calculations, delayed grid seeks and seek-confirmation state have been removed. The one-item isolated VOD queue remains, so Jellyfin Next Up cannot auto-expand the series. At physical EOF Virtual TV returns to Loading, resolves the current Guide again and opens the resulting item from 00:00, including the same item again when the user fast-forwards to EOF before the Guide slot changes. Watched/Resume protection for non-watched-dependent Personalized modes is retained. Standard TV now keeps one continuous broadcast producer per tune-in across Jellyfin probe/player reads to prevent the initial 1-2 second replay.

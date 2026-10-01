@@ -85,7 +85,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.11.0" or len(set(values.values()))!=1:
+          if version!="1.10.12.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
           PY
 
@@ -108,235 +108,115 @@ jobs:
           pc=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackProgressConsumer.cs").read_text(encoding="utf-8")
           e=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
           m=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
-          mode=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
-          cfg=Path("Jellyfin.Plugin.VirtualTV/Configuration/ChannelConfiguration.cs").read_text(encoding="utf-8")
 
-          personalized_required=[
+          required=[
               'BootstrapBuffer = TimeSpan.FromMilliseconds(1500)',
-              'VodSeekSettleBuffer = TimeSpan.FromSeconds(1)',
-              'GridSeekPlaybackStartBuffer = TimeSpan.FromMilliseconds(1500)',
               'VodTeardownBuffer = TimeSpan.FromSeconds(1)',
-              'Interlocked.Increment(ref _nextGeneration)',
-              'PlaybackPhase.BootstrapWaitingForProgress',
-              'PlaybackPhase.BootstrapBuffering',
               'PlaybackPhase.AwaitingVod',
               'PlaybackPhase.Vod',
               'PlaybackPhase.AwaitingBootstrap',
-              'SendIsolatedVodPlayNowAsync',
-              'SessionMessageType.Play',
-              'targetSession.SessionControllers',
               'ItemIds = new[] { itemId }',
               'PlayCommand = PlayCommand.PlayNow',
               'var isolatedStartTicks = 1L',
-              'PendingSeekTicks',
-              'SeekScheduled',
-              'PendingSeekUsesWallClockStartBuffer',
-              'GridSeekArmGeneration',
-              'GridSeekAwaitingConfirmation',
-              'HandleVodProgress',
-              'CompleteVodSeekAsync',
+              'PendingResumeTicks',
+              'ResumeSeekScheduled',
+              'CompleteResumeSeekAsync',
               'PlaystateCommand.Seek',
-              'Task.Delay(VodSeekSettleBuffer',
               'ReturnToBootstrapAsync',
-              'CompleteProtection',
-              'VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)',
+              'concrete Personalized TV always starts at 00:00',
           ]
-          missing=[x for x in personalized_required if x not in c]
+          missing=[x for x in required if x not in c]
           if missing:
               raise SystemExit(f"Personalized playback invariant missing: {missing}")
 
-          legacy_forbidden=[
-              'ManagedStaticQueueLength',
-              'BuildConcreteManagedQueue',
-              'ScheduleContinuationFallback',
-              'ContinuationFallbackDelay',
-              'LgDeferredSeekDelay',
-              'SeekLgAfterVodStartAsync',
-              'PendingDeferredSeekTicks',
-              'IsLgWebOsSession',
-              'ManagedQueueOrder',
-              'PlayCommand.PlayNext',
-              'PlayCommand.PlayLast',
-          ]
-          present=[x for x in legacy_forbidden if x in c]
-          if present:
-              raise SystemExit(f"Legacy multi-command playback returned: {present}")
-
-          # The only playstate command remains the guarded one-shot seek. Grid/wall-clock
-          # offsets arm from the exact VOD PlaybackStart and a 1.5-second decoder buffer,
-          # not Jellyfin Web's 10-second periodic PlaybackProgress cadence.
-          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
-              raise SystemExit("Safe seek must be the only SendPlaystateCommand in Personalized playback.")
-
-          start_start=c.index('private void HandleVodStart')
-          start_end=c.index('private async Task CompleteBootstrapBufferAsync',start_start)
-          vod_start=c[start_start:start_end]
-          for token in [
-              'GridSeekPlaybackStartBuffer',
-              '++context.GridSeekArmGeneration',
+          forbidden_offsets=[
+              'GridSeek',
+              'WallClock',
+              'CalculateConcreteTargetTicks',
+              'CalculatePendingWallClockTargetTicks',
+              'CommandTransitCompensation',
               'CompleteGridSeekAfterVodStartAsync',
-              'context.GridSeekArmGeneration != armGeneration',
-              'CalculatePendingWallClockTargetTicks(context, DateTime.UtcNow)',
-              'applySettleDelay: false',
-              'awaitGridConfirmation: true',
-          ]:
-              if token not in vod_start:
-                  raise SystemExit(f"1.5-second PlaybackStart grid seek gate missing: {token}")
+              'PendingSeekUsesWallClockStartBuffer',
+          ]
+          present=[x for x in forbidden_offsets if x in c]
+          if present:
+              raise SystemExit(f"Removed schedule-offset logic returned: {present}")
 
           concrete_start=c.index('private async Task PlayConcreteEntryAsync')
           concrete_end=c.index('private async Task PlayTraditionalFallbackAsync',concrete_start)
           concrete=c[concrete_start:concrete_end]
-          for token in [
-              'useWallClockStartBuffer: targetTicks > 0',
-              'wallClockEntryStartUtc: entry.GetStartUtc()',
-              'wallClockRunTimeTicks: sourceItem.RunTimeTicks',
-          ]:
+          for token in ['PrepareVodHandoff(context, entry, sourceItemId, 0)','always opens the\n        // concrete item from 00:00']:
               if token not in concrete:
-                  raise SystemExit(f"Concrete wall-clock seek metadata missing: {token}")
+                  raise SystemExit(f"Traditional zero-start invariant missing: {token}")
+          if 'RunTimeTicks' in concrete or 'GetStartUtc()' in concrete or 'DateTime nowUtc' in concrete:
+              raise SystemExit("Traditional Personalized playback still consults schedule elapsed time.")
 
-          dynamic_start=c.index('private async Task PlayDynamicSeriesEntryAsync')
-          dynamic_end=c.index('private async Task PlayConcreteEntryAsync',dynamic_start)
-          dynamic=c[dynamic_start:dynamic_end]
-          if 'useWallClockStartBuffer' in dynamic:
-              raise SystemExit("Working dynamic Resume path must not inherit the wall-clock start buffer.")
-
-          progress_start=c.index('private Task HandleVodProgress')
-          progress_end=c.index('public async Task HandlePlaybackStopAsync',progress_start)
-          vod_progress=c[progress_start:progress_end]
-          if 'PendingSeekUsesWallClockStartBuffer' not in vod_progress:
-              raise SystemExit("PlaybackProgress no longer distinguishes wall-clock offsets from Resume.")
-          for forbidden in ['GridSeekRequiredClientProgress','GridSeekRealProgressReports','GridSeekFirstClientProgressTicks','GridSeekLastClientProgressTicks']:
-              if forbidden in c:
-                  raise SystemExit(f"Old 10-second progress-based readiness logic returned: {forbidden}")
-
-          seek_start=c.index('private async Task CompleteVodSeekAsync')
+          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
+              raise SystemExit("Resume must be the only Playstate command.")
+          seek_start=c.index('private async Task CompleteResumeSeekAsync')
           seek_end=c.index('private async Task SendBootstrapPlayNowAsync',seek_start)
           seek=c[seek_start:seek_end]
-          for token in [
-              'PlaystateCommand.Seek',
-              'SeekPositionTicks = seekTicks',
-              'if (applySettleDelay)',
-              'Task.Delay(VodSeekSettleBuffer',
-              'GridSeekAwaitingConfirmation = awaitGridConfirmation',
-          ]:
+          for token in ['PlaystateCommand.Seek','SeekPositionTicks = resumeTicks','Task.Delay(VodSeekSettleBuffer']:
               if token not in seek:
-                  raise SystemExit(f"Safe VOD seek guard missing: {token}")
+                  raise SystemExit(f"Resume seek invariant missing: {token}")
 
           isolated_start=c.index('private async Task SendIsolatedVodPlayNowAsync')
-          isolated_end=c.index('private async Task CompleteVodSeekAsync',isolated_start)
+          isolated_end=c.index('private async Task CompleteResumeSeekAsync',isolated_start)
           isolated=c[isolated_start:isolated_end]
           if '_sessionManager.SendPlayCommand' in isolated:
-              raise SystemExit("Isolated VOD must bypass Jellyfin episode queue expansion.")
+              raise SystemExit("Isolated VOD must bypass Jellyfin queue expansion.")
           for token in ['ItemIds = new[] { itemId }','SessionMessageType.Play','queue length 1','var isolatedStartTicks = 1L']:
               if token not in isolated:
-                  raise SystemExit(f"Isolated one-item VOD invariant missing: {token}")
+                  raise SystemExit(f"One-item VOD invariant missing: {token}")
 
-          # PlaybackStart only arms Loading. The 1.5-second clock starts after real progress.
-          start_start=c.index('private Task HandleBootstrapStartAsync')
-          start_end=c.index('private void HandleBootstrapStop',start_start)
-          start_handler=c[start_start:start_end]
-          if 'CompleteBootstrapBufferAsync' in start_handler or 'Task.Delay(BootstrapBuffer' in start_handler:
-              raise SystemExit("PlaybackStart must not start the Loading timer.")
-          progress_start=c.index('private Task HandleBootstrapProgress')
-          progress_end=c.index('private Task HandleVodProgress',progress_start)
-          progress=c[progress_start:progress_end]
-          for token in ['PlaybackPhase.BootstrapWaitingForProgress','PlaybackPhase.BootstrapBuffering','_ = CompleteBootstrapBufferAsync(context)']:
-              if token not in progress:
-                  raise SystemExit(f"Loading progress gate missing: {token}")
+          for token in [
+              'if (!IsAtPhysicalEnd(eventArgs))',
+              'await ReturnToBootstrapAsync(context, "physical VOD EOF")',
+              'FindActiveEntry(LoadSchedule(context.ChannelId), nowUtc)',
+          ]:
+              if token not in c:
+                  raise SystemExit(f"EOF re-entry invariant missing: {token}")
+
           if 'HandlePlaybackProgressAsync' not in pc or '_coordinator.HandlePlaybackProgressAsync(eventArgs)' not in pc:
               raise SystemExit("PlaybackProgress consumer is not wired.")
 
-          # Universal Personalized loading source stays conventional MPEG-TS.
-          bootstrap_required=[
-              'Jellyfin.Plugin.VirtualTV.Assets.Bootstrap.virtualtv-loading-live-60s.ts',
-              'Container = "mpegts"',
-              'SupportsDirectPlay = false',
-              'SupportsDirectStream = true',
-              'SupportsTranscoding = true',
-              'RequiresOpening = false',
-              'IsInfiniteStream = true',
-              'RunTimeTicks = null',
-              'ReadAtNativeFramerate = true',
-          ]
-          missing=[x for x in bootstrap_required if x not in b]
-          if missing:
-              raise SystemExit(f"Personalized Loading source invariant missing: {missing}")
-
-          # Resume is a strict first tier for watched-dependent modes.
-          episode_required=[
-              'candidate.PlaybackPositionTicks > 0',
-              'candidate.PlaybackPositionTicks <= 0',
-              'selected = PickRandom(resumable, lastItemId)',
-              'selectionReason = "RandomResume"',
-              'selected = resumable[0]',
-              'selectionReason = "NextResume"',
-              'startTicks = selected.PlaybackPositionTicks',
-              'selected = PickRandom(neverStarted, lastItemId)',
-              'selected = neverStarted[0]',
-          ]
-          missing=[x for x in episode_required if x not in e]
-          if missing:
-              raise SystemExit(f"Series Resume-first invariant missing: {missing}")
-          movie_required=[
-              'item.PlaybackPositionTicks > 0',
-              'item.PlaybackPositionTicks <= 0',
-              'var resume = PickRandom(resumable, lastItemId)',
-              '"RandomResume"',
-              'resume.PlaybackPositionTicks',
-          ]
-          missing=[x for x in movie_required if x not in m]
-          if missing:
-              raise SystemExit(f"Movie Resume-first invariant missing: {missing}")
-
-          # Channel experience is explicit and backward-compatible.
           for token in [
-              'PlaybackExperience { get; set; } = "PersonalizedTV"',
-              'public const string PersonalizedTV = "PersonalizedTV"',
-              'public const string StandardTV = "StandardTV"',
-              'NormalizePlaybackExperience',
+              'candidate.PlaybackPositionTicks > 0',
+              '"NextResume"',
+              '"RandomResume"',
+              'startTicks = selected.PlaybackPositionTicks',
           ]:
-              if token not in cfg+mode:
-                  raise SystemExit(f"Channel experience invariant missing: {token}")
+              if token not in e:
+                  raise SystemExit(f"Series Resume-first invariant missing: {token}")
+          for token in ['item.PlaybackPositionTicks > 0','"RandomResume"','resume.PlaybackPositionTicks']:
+              if token not in m:
+                  raise SystemExit(f"Movie Resume-first invariant missing: {token}")
 
-          # Standard TV is a separate true Live TV path, never the Personalized coordinator.
           standard_required=[
-              'class VirtualTvStandardStreamService',
-              'IDirectStreamProvider',
-              '/LiveTv/LiveStreamFiles/',
-              'Container = "mpegts"',
-              'IsInfiniteStream = true',
-              'RequiresOpening = true',
+              'class SharedBroadcastReader',
+              '_broadcast ??= new StandardBroadcastStream',
+              'One producer per tune-in',
               'public override bool CanSeek => false',
               'var offset = nowUtc - entry.GetStartUtc()',
-              '_mediaEncoder.EncoderPath',
-              '"-ss", FormatSeconds(offset), "-re", "-i", path',
-              '"-c:v", "libx264"',
-              '"-c:a", "aac"',
-              '"-f", "mpegts"',
               'SelectEnglishSubtitle',
-              'subtitles=filename=',
-              'IsEnglish',
-              'normalized == "eng"',
-              'normalized == "en"',
-              'English subtitles {SubtitleState}',
           ]
           missing=[x for x in standard_required if x not in s]
           if missing:
               raise SystemExit(f"Standard TV invariant missing: {missing}")
+          if s.count('new StandardBroadcastStream(') != 1:
+              raise SystemExit("Standard TV can recreate its producer inside one tune-in.")
 
-          for forbidden in ['IUserDataManager','PlaybackPositionTicks','SendPlayCommand','SendPlaystateCommand','VirtualTvEpisodeResolver','VirtualTvMovieResolver']:
+          for forbidden in ['IUserDataManager','PlaybackPositionTicks','SendPlayCommand','SendPlaystateCommand']:
               if forbidden in s:
-                  raise SystemExit(f"Standard TV must be state-free; found {forbidden}")
+                  raise SystemExit(f"Standard TV must remain state-free; found {forbidden}")
 
-          if 'VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)' not in l:
-              raise SystemExit("Live TV service does not split Standard and Personalized pipelines.")
-          if 'ISupportsDirectStreamProvider' not in l or 'GetChannelStreamWithDirectStreamProvider' not in l:
-              raise SystemExit("Standard TV does not use Jellyfin direct Live TV stream provider.")
+          if 'GetChannelStreamWithDirectStreamProvider' not in l:
+              raise SystemExit("Standard TV direct Live TV provider path is missing.")
 
-          print("Personalized/Standard playback architecture validation passed.")
+          print("Simplified Personalized playback and single-producer Standard TV validation passed.")
           PY
 
-      - name: Validate 1.10.11 scheduling, editing and coverage
+      - name: Validate 1.10.12 scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -363,7 +243,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.11.0"',
+              'data-ui-version="1.10.12.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -385,7 +265,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.11 UI missing: {missing}")
+              raise SystemExit(f"1.10.12 UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -433,9 +313,9 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           policy=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvModePolicy.cs").read_text(encoding="utf-8")
           protection=Path("Jellyfin.Plugin.VirtualTV/Services/PlaybackStateProtectionManager.cs").read_text(encoding="utf-8")
+          coord=Path("Jellyfin.Plugin.VirtualTV/Services/LiveTvPlaybackCoordinator.cs").read_text(encoding="utf-8")
           stop=Path("Jellyfin.Plugin.VirtualTV/Events/VirtualTvPlaybackStopConsumer.cs").read_text(encoding="utf-8")
           episode=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvEpisodeResolver.cs").read_text(encoding="utf-8")
           movie=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvMovieResolver.cs").read_text(encoding="utf-8")
@@ -446,16 +326,17 @@ jobs:
                   raise SystemExit(f"Watched-state invariant missing: {token}")
 
           for token in [
-              'candidate.PlaybackPositionTicks > 0',
-              'candidate.PlaybackPositionTicks <= 0',
-              '"NextResume"',
-              '"RandomResume"',
-              'startTicks = selected.PlaybackPositionTicks',
+              'if (!context.TracksJellyfinState && context.UserId != Guid.Empty)',
+              '_stateProtection.BeginProtection(context.SessionId, new[] { sourceItemId }, context.UserId)',
+              '_stateProtection.CompleteProtection(sessionId)',
           ]:
+              if token not in coord:
+                  raise SystemExit(f"Traditional state protection missing: {token}")
+
+          for token in ['"NextResume"','"RandomResume"','startTicks = selected.PlaybackPositionTicks']:
               if token not in episode:
                   raise SystemExit(f"Series Resume invariant missing: {token}")
-
-          for token in ['item.PlaybackPositionTicks > 0','"RandomResume"','resume.PlaybackPositionTicks']:
+          for token in ['"RandomResume"','resume.PlaybackPositionTicks']:
               if token not in movie:
                   raise SystemExit(f"Movie Resume invariant missing: {token}")
 
@@ -463,7 +344,7 @@ jobs:
               if forbidden in standard:
                   raise SystemExit(f"Standard TV unexpectedly touches Jellyfin user state: {forbidden}")
 
-          print("Watched-state and Resume-first validation passed.")
+          print("Watched-state protection and Resume-first validation passed.")
           PY
 
       - name: Validate Virtual TV configuration JavaScript
@@ -511,7 +392,7 @@ jobs:
         shell: bash
         run: |
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.11.0"' "$DLL"
+          grep -a -q 'data-ui-version="1.10.12.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -551,7 +432,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 1.10.11 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
+          echo "Embedded 1.10.12 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash
