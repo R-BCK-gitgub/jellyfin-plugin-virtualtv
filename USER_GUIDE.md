@@ -166,7 +166,7 @@ If the red icon remains visible, refreshing the Guide normally clears it.
 
 ---
 
-# 4. Creating a channel — step by step
+# 4. Creating a channel — every field explained
 
 Open:
 
@@ -174,24 +174,137 @@ Open:
 
 Then select **Create channel**.
 
+The editor is designed so that some options appear or disappear depending on earlier choices. That is intentional: Virtual TV only shows settings that can actually affect the type of channel you are creating.
+
 ## Channel name
 
-This is the name that appears in Jellyfin Live TV.
+This is the name shown in Jellyfin Live TV and in the Guide.
 
-Examples:
+Generic examples:
 
 - Action Movies
 - Comedy Movies
 - Comedy Series
 - Detective Series
 
+Changing the name changes the label users see. It does not change which content is scheduled and does not, by itself, require a new schedule.
+
 ## Channel number
 
-This controls the order of the channel in the Live TV lineup.
+This controls where the channel appears in the Live TV lineup.
 
-If you assign a number that is already being used, Virtual TV moves the existing channel — and, if necessary, following channels — up to make room.
+Channel numbers must be **1 or higher**.
 
----
+If you enter a number already used by another Virtual TV channel, Virtual TV makes room automatically by moving the existing channel to the next number. If that number is also occupied, the shift continues until a free number is found.
+
+Changing only the channel number does not change the programming.
+
+## Channel experience
+
+Choose:
+
+- **Personalized TV**
+- **Standard TV**
+
+This is the most important field because it changes the playback architecture of the channel.
+
+### Personalized TV
+
+Choose this when the viewer's own Jellyfin state should matter, or when you want normal VOD controls.
+
+Expected behaviour:
+
+- the channel first opens the neutral **Loading Virtual TV** source;
+- after the loading handoff, Virtual TV resolves exactly one library episode or movie;
+- that item opens in Jellyfin's normal player;
+- pause, seek, audio/subtitle selection and normal watched/resume behaviour are available;
+- when the item physically ends, Virtual TV returns to the loading source and resolves the next item from the schedule/rules;
+- only one VOD item is sent at a time, so Jellyfin's normal automatic next-episode queue does not take over the Virtual TV schedule.
+
+Personalized TV allows:
+
+- Sequential;
+- Random;
+- Next Unwatched;
+- Random Unwatched.
+
+Movie channels allow Random / Shuffle Cycle and Random Unwatched.
+
+### Standard TV
+
+Choose this when the channel should behave like a shared traditional broadcast.
+
+Expected behaviour:
+
+- the schedule is materialized in advance with real episodes or movies;
+- everyone tuning to the channel sees the programme scheduled for that wall-clock time;
+- joining halfway through a programme starts at the matching live offset;
+- playback continues as one Live TV stream into later programmes;
+- the source library item's watched status, resume position and Continue Watching state are not updated by normal live viewing;
+- normal VOD seek/restart controls are not available on the live stream;
+- eligible English subtitles are burned into the live picture automatically.
+
+Standard TV deliberately does **not** offer watched-dependent modes because "next unwatched" is different for every user and therefore cannot represent one shared broadcast.
+
+For Series channels, Standard TV offers only:
+
+- Sequential;
+- Random.
+
+For Movie channels, Standard TV uses:
+
+- Random / Shuffle Cycle.
+
+## Channel type
+
+Choose:
+
+- **Series**
+- **Movies**
+
+This determines which Jellyfin libraries, titles and playback options are available.
+
+### Series
+
+Only Jellyfin libraries configured as TV Shows are shown.
+
+You select whole series, then optionally restrict each selected series by season and Specials.
+
+Series channels also have a **Schedule strategy**, because Virtual TV must decide which series receives each turn.
+
+### Movies
+
+Only Jellyfin libraries configured as Movies are shown.
+
+You select individual movies.
+
+Movie channels do not show the Series schedule-strategy field because the movie pool itself is shuffled directly.
+
+### What happens if you change Channel type while editing?
+
+The editor clears the current library/content selection because Series IDs and Movie IDs are not interchangeable.
+
+You then select compatible source libraries and content again.
+
+## Playback / scheduling
+
+This is a **read-only summary field**.
+
+You do not edit it directly.
+
+Virtual TV updates it as you change the Channel experience, Playback mode, Schedule strategy and, when relevant, Block duration.
+
+Its purpose is simply to show the effective combination you are building before you save.
+
+## Save channel
+
+Saves the current configuration.
+
+If the change affects programming, the channel is marked as needing schedule regeneration/reconciliation. The existing current programme is not immediately destroyed simply because you pressed Save.
+
+## Cancel
+
+Closes the editor without saving the changes made in that editing session.
 
 # 5. Channel experience
 
@@ -232,274 +345,458 @@ Changing the channel type changes the available playback options because episode
 
 # 7. Source libraries
 
-Select one or more compatible Jellyfin libraries.
+This section answers:
 
-Only titles from those libraries will be available for the channel.
+> "Where is Virtual TV allowed to look for content for this channel?"
 
-For example, you could create:
+Only compatible Jellyfin libraries are shown:
 
-- a Series channel using only your **Kids TV** library;
-- a Movie channel using only your **Movies** library;
-- a Series channel combining two different TV-show libraries.
+- **Series channel** → TV Show libraries;
+- **Movie channel** → Movie libraries.
 
-Selecting a library does **not** automatically put every title on the channel. It defines where Virtual TV is allowed to look. You still choose the actual titles in the next section.
+You can select one or several compatible libraries.
 
----
+### What selecting a library does
+
+Selecting a library makes its compatible titles available in the **Content** section below.
+
+It does **not** automatically add every title in that library to the channel.
+
+A title is scheduled only when you explicitly select that title in the Content section.
+
+### Example using generic libraries
+
+If a server has:
+
+- Main TV
+- Archive TV
+- Main Movies
+
+then a Series channel can use Main TV and Archive TV, while a Movie channel can use Main Movies.
+
+The actual channel can still contain only a small subset of the titles in those libraries.
+
+### Expected behaviour when libraries change
+
+When you add or remove a source library:
+
+- the available Content cards are reloaded;
+- previously selected titles that no longer belong to one of the selected libraries are removed from the channel selection;
+- titles still available in the remaining libraries stay selected;
+- changing the source-library set is a programming change and the future schedule should be regenerated/reconciled.
 
 # 8. Content selection
 
-Select the series or movies that should be available to the channel.
+This section answers:
 
-You can:
+> "Which exact series or movies may this channel use?"
 
-- click individual titles;
-- filter by name;
-- use **Select visible** after filtering;
-- clear the selection and start again.
+After selecting source libraries, Virtual TV loads the compatible titles from those libraries and shows them as selectable cards.
 
-For Series channels, selecting a series also unlocks individual **Series options**.
+## Selecting and deselecting titles
 
----
+Click a title card to select it.
+
+Click it again to deselect it.
+
+Only explicitly selected titles are part of the channel's eligible content pool.
+
+For a Series channel, the selected item is the **series**. Virtual TV later resolves eligible episodes from that series according to the Series options and Playback mode.
+
+For a Movie channel, the selected item is the **movie** itself.
+
+## Filter titles
+
+Typing in **Filter titles** only changes what is currently shown on screen.
+
+It does not remove hidden titles from the channel and it does not change any schedule by itself.
+
+The filter matches the visible title list and library information.
+
+## Select visible
+
+**Select visible** selects every title currently shown by the active filter.
+
+This is useful for building a genre/category channel when the Jellyfin titles you want can be found with the same search text.
+
+Important: it selects the **currently visible filtered results**, not every title in every selected library.
+
+## Clear selection
+
+**Clear selection** removes all currently selected titles from the channel editor.
+
+It does not delete anything from Jellyfin.
+
+## What happens after adding or removing titles?
+
+The channel configuration changes immediately when you save, but the already-published Guide is protected.
+
+Use **Generate New Schedule** when you want the new selection reflected in future programming immediately.
+
+Automatic reconciliation can also apply changes later, but Generate New Schedule is the explicit "apply my programming change now" action.
+
+## Manual Order and selection order
+
+For Series channels using **Manual Order**, the selected series become the starting list for the manual sequence.
+
+You can then use the up/down controls in the Manual Order section to define the exact repeating order.
 
 # 9. Series options
 
-Each selected series has its own options.
+Series options appear once at least one Series title is selected.
+
+Each selected series has its own independent settings.
 
 ## All Seasons
 
 Enabled by default.
 
-When enabled, all current seasons are eligible.
+When **All Seasons** is enabled:
 
-Future seasons added to Jellyfin are also automatically eligible.
+- all currently available normal seasons are eligible;
+- future normal seasons added to that series in Jellyfin also become eligible automatically;
+- you do not have to edit the channel just because a new season is added.
+
+Specials are still controlled separately by **Include Specials**.
 
 ## Specific seasons
 
-Disable **All Seasons** if you only want certain seasons.
+Disable **All Seasons** to choose individual season numbers.
 
-Example:
+Expected behaviour:
 
-**Comedy Series — Seasons 1 to 12 only**
+- only checked normal seasons are eligible;
+- unchecked normal seasons are ignored by every playback mode;
+- adding a new season to Jellyfin does not automatically make it eligible while All Seasons is disabled;
+- Season 0 / Specials is not controlled by these checkboxes — use Include Specials.
 
-This is useful for channels built around a specific era of a long-running show.
+This is useful for generic concepts such as:
+
+- Early Seasons;
+- Classic Era;
+- Recent Seasons.
 
 ## Include Specials
 
 Disabled by default.
 
-Enable it if Season 0 / Specials should also be part of the eligible episode pool.
+Enable it when Season 0 / Specials should be eligible.
 
-If Specials are included, Virtual TV treats them as eligible content alongside the selected normal seasons.
+There is an important difference between ordered and random playback:
+
+### Sequential / Next Unwatched
+
+These modes need a reliable chronological position.
+
+A Special is included only when Jellyfin metadata gives Virtual TV enough information to place it in chronology, for example:
+
+- airs before a season;
+- airs after a season;
+- airs before a specific episode;
+- or a usable premiere date.
+
+A Special with no reliable chronological metadata may therefore be skipped in ordered modes.
+
+### Random / Random Unwatched
+
+Chronological placement is not required for random selection.
+
+Eligible Specials can therefore participate even when they do not have enough metadata to place them precisely in episode order.
 
 ## True Random weight
 
-This option appears only when the schedule strategy is **True Random**.
+This field appears only when **Schedule strategy = True Random**.
 
-The weight controls how likely that series is to receive the next turn.
+Allowed range:
 
-Examples:
+**1 to 100**
 
-- Weight 1 vs Weight 1 → both are equally likely.
-- Weight 2 vs Weight 1 → the first is twice as likely.
-- Weights 1, 1 and 3 → the probabilities are approximately 20%, 20% and 60%.
+The weight changes the probability that the series receives the next **series turn**.
 
-A weight does **not** guarantee a fixed number of appearances. Every turn is a fresh random draw.
+It does not directly change which episode is chosen inside that series.
 
-Consecutive appearances are therefore possible in True Random.
+Example with generic series:
 
----
+- Comedy Series — Weight 1
+- Detective Series — Weight 1
+- Action Series — Weight 3
+
+Total weight = 5.
+
+Approximate probability per series turn:
+
+- Comedy Series: 20%
+- Detective Series: 20%
+- Action Series: 60%
+
+Each turn is an independent draw.
+
+Therefore:
+
+- a Weight 3 series is three times as likely as a Weight 1 series;
+- consecutive repeats are allowed;
+- a weight does not guarantee a fixed number of appearances over a short period;
+- the displayed percentage updates as weights change.
 
 # 10. Series playback modes
 
-The **Playback mode** answers this question:
+The **Playback mode** answers:
 
-> Once Virtual TV has chosen a series, which episode should it play?
+> "Once the schedule has chosen a series, which episode should Virtual TV play?"
 
-The available options depend on the Channel experience.
+This is different from Schedule strategy, which decides **which series** gets the turn.
 
 ## Sequential
 
 Available in Personalized TV and Standard TV.
 
-Episodes are used in chronological order.
+Virtual TV uses eligible episodes in chronological order.
 
-After the last eligible episode, the series cycles back to the beginning.
+Expected behaviour:
 
-In Personalized TV, the concrete scheduled episode opens as a normal Jellyfin item.
+- watched status is **not** used to skip episodes;
+- if an episode was already watched, it can still be scheduled;
+- the next concrete episode follows the previous concrete episode for that series;
+- after the final eligible episode, the sequence cycles back to the beginning.
 
-In Standard TV, the concrete episode is part of the fixed linear broadcast schedule.
+With Specials enabled, only Specials that can be positioned reliably are used in the chronological sequence.
+
+### Personalized TV + Sequential
+
+The concrete scheduled episode opens as a normal Jellyfin VOD item from the beginning.
+
+Jellyfin can then update watched/resume data normally.
+
+### Standard TV + Sequential
+
+The episode is materialized into the shared Guide and broadcast at its scheduled wall-clock time.
+
+Tuning in midway joins that episode midway.
+
+Normal live viewing does not alter the source episode's watched/resume state.
+
+---
 
 ## Random
 
 Available in Personalized TV and Standard TV.
 
-Virtual TV uses a shuffle cycle for episodes.
+Random uses a **shuffle cycle**, not a completely independent random draw for every episode.
 
-That means every eligible episode in a series is used once before a new shuffle cycle begins.
+For each selected series:
 
-This avoids repeatedly picking the same few episodes while others never appear.
+1. Virtual TV creates a shuffled pool of all eligible episodes.
+2. Each eligible episode is used once before that pool is refilled.
+3. A new shuffled cycle then begins.
+4. When possible, the first item of the new cycle is prevented from being the same item that just played.
 
-## Next Unwatched
+Expected behaviour:
 
-Personalized TV only.
+- watched status does not decide eligibility;
+- watched and unwatched episodes can both be used;
+- every eligible episode gets coverage before repeats within that series' shuffle cycle.
 
-This mode uses the active user's Jellyfin watch history.
-
-For the series chosen by the schedule:
-
-1. If there is a partially watched episode, Virtual TV resumes the **earliest chronological** partially watched episode.
-2. Otherwise it plays the earliest episode that has never been started.
-3. If everything is already watched, it falls back to a random episode.
-
-Example:
-
-- S01E01 — watched
-- S01E02 — 12 minutes watched, unfinished
-- S01E03 — never started
-
-Virtual TV resumes **S01E02** before moving to S01E03.
-
-## Random Unwatched
-
-Personalized TV only.
-
-For the series chosen by the schedule:
-
-1. If there are partially watched episodes, Virtual TV randomly chooses one of those and resumes it.
-2. Otherwise it randomly chooses an episode that has never been started.
-3. If everything is already watched, it falls back to a random episode.
-
-This gives you variety while still prioritizing unfinished and unwatched content.
+This is different from **True Random**, which applies to selecting the series, not the episode.
 
 ---
 
+## Next Unwatched
+
+**Personalized TV only.**
+
+Next Unwatched does not preselect the final episode when the Guide is generated.
+
+Instead, the Guide reserves a fixed block for a **series**. When playback reaches that block, Virtual TV checks the active user's Jellyfin data at that moment.
+
+For the scheduled series, the exact order of priority is:
+
+1. Find episodes that are **not marked Played** and have a saved playback position greater than zero.
+2. If one or more exist, resume the **earliest chronological** partially watched episode.
+3. If none are partially watched, choose the **earliest chronological never-started** episode.
+4. If every eligible episode is already watched, fall back to a random eligible episode.
+
+### What "earliest chronological" means
+
+Regular episodes are ordered by season and episode number, with metadata such as premiere date used as a tie-breaker.
+
+Eligible Specials are inserted only when they have enough chronology metadata to be positioned reliably.
+
+### Example with generic episode state
+
+Suppose the selected series has:
+
+- Episode 1 — Watched
+- Episode 2 — Started but unfinished
+- Episode 3 — Never started
+
+Next Unwatched resumes **Episode 2** first.
+
+It does not jump to Episode 3 just because Episode 3 has never been opened.
+
+### Resume behaviour
+
+Virtual TV opens the real library episode and applies the user's saved Jellyfin resume position.
+
+The episode then behaves like normal Jellyfin VOD.
+
+---
+
+## Random Unwatched
+
+**Personalized TV only.**
+
+Random Unwatched also resolves the final episode at playback time, but uses random choice within each priority group.
+
+Exact priority:
+
+1. Find eligible episodes that are not Played and have a saved resume position.
+2. If any exist, randomly choose one of those partially watched episodes and resume it.
+3. If there are no partial episodes, randomly choose among never-started episodes.
+4. If everything is already watched, randomly choose from all eligible episodes.
+
+When there is more than one valid candidate, Virtual TV tries to avoid immediately replaying the item that just completed in the same Virtual TV session.
+
+### Important distinction
+
+**Random Unwatched does not mix partial and never-started items into one equal pool.**
+
+Partially watched episodes have priority.
+
+Only when there are no resumable episodes does Virtual TV choose from never-started episodes.
+
+---
+
+## Why the Guide may show only the series name
+
+Next Unwatched and Random Unwatched are dynamic.
+
+The exact episode can change between schedule generation and playback because the user's watched/resume state can change.
+
+For that reason, the Guide stores a **series block** rather than pretending it already knows the final episode.
+
 # 11. Series schedule strategies
 
-The **Schedule strategy** answers a different question:
+The **Schedule strategy** answers:
 
-> Which series gets the next turn on the channel?
+> "Which selected series gets the next turn?"
 
-This is separate from Playback mode.
+It does not decide the episode. After a series is selected, the Playback mode decides which episode that series supplies.
 
-For example:
-
-- Schedule strategy may choose **Comedy Series**;
-- Playback mode then decides which Comedy Series episode to use.
-
-That distinction is important.
+All five strategies can be used with Personalized TV Series channels. Standard TV Series channels also use these strategies, but only with Sequential or Random episode playback.
 
 ## Repeating Order
 
-Virtual TV shuffles the selected series once and saves that order.
+Virtual TV shuffles the selected series once, stores that base order, and repeats it.
 
-It then repeats that order.
-
-Example:
+Generic example:
 
 1. Comedy Series
-2. Science Fiction Series
-3. Family Comedy Series
+2. Detective Series
+3. Action Series
 4. Comedy Series
-5. Science Fiction Series
-6. Family Comedy Series
+5. Detective Series
+6. Action Series
 
-The order remains stable until the eligible series set changes or you explicitly generate a new schedule.
+Expected behaviour:
 
-**Generate New Schedule** creates a fresh repeating order.
+- the order is stable after it has been created;
+- it repeats continuously;
+- adding/removing eligible series causes the stored order to be rebuilt;
+- pressing **Generate New Schedule** explicitly clears the previous repeating order so a new shuffled base order is created.
 
-### Good for
-
-A predictable channel that still starts from a randomized lineup.
+Choose this when you want a predictable repeating lineup with a randomized starting arrangement.
 
 ---
 
 ## Randomized Rotation
 
-Virtual TV uses a shuffle cycle at the **series level**.
+This is a shuffle cycle at the **series level**.
 
-Every selected series gets a turn before a new cycle begins.
+Expected behaviour:
 
-With four series, Virtual TV will try to use all four before any series starts the next cycle.
+1. Virtual TV shuffles the eligible series.
+2. Every selected series gets a turn once before the cycle refills.
+3. A new shuffled series cycle begins.
+4. When there is more than one series, Virtual TV tries to avoid the last series of the old cycle immediately becoming the first series of the new cycle.
 
-It also avoids an immediate repeat at the boundary between cycles when possible.
+This gives every selected series regular coverage without fixing one permanent order.
 
-### Good for
-
-Fair rotation with variety.
+Choose this when fairness/coverage matters more than probability.
 
 ---
 
 ## True Random
 
-Every series turn is an independent random draw.
+Each series turn is an independent weighted draw.
 
-Weights can make some series more likely than others.
+Expected behaviour:
 
-Unlike Randomized Rotation:
+- there is no "must use every series first" rule;
+- the same series can be selected twice in a row;
+- the **Weight** configured on each selected series controls its relative chance;
+- after a series is selected, Consecutive turns is applied before the next weighted draw.
 
-- a series can appear again immediately;
-- there is no requirement to use every series before repeating.
+Generic example:
 
-### Good for
+- Action Series — Weight 4
+- Comedy Series — Weight 2
+- Detective Series — Weight 1
 
-Channels where some shows should dominate the schedule.
+For each new series draw, Action Series is four times as likely as Detective Series.
 
-Example:
-
-- Comedy Series — Weight 4
-- Science Fiction Series — Weight 2
-- Sitcom Series — Weight 1
-
-Comedy Series is four times as likely per turn as Sitcom Series.
+Choose this when some selected series should intentionally appear more often than others.
 
 ---
 
 ## Manual Order
 
-You decide the exact repeating series order.
+You define the exact repeating order.
 
-Use the arrows in the configuration page to move titles up or down.
+The **Manual series order** section appears only when Manual Order is selected.
 
-Example:
+Use the up/down buttons to arrange the selected series.
 
-1. Action Series
-2. Adventure Series
-3. Martial Arts Series
-4. Superhero Series
+Expected behaviour:
 
-Then the pattern starts again from Action Series.
+- the list repeats from top to bottom;
+- newly selected series are appended to the list;
+- removing a series removes it from the effective order;
+- the list order is deterministic until you change it.
 
-### Good for
-
-A curated schedule where order matters.
+Choose this when you want direct editorial control.
 
 ---
 
 ## Smart Schedule
 
-Smart Schedule creates a stable **Sunday-to-Saturday** weekly pattern.
+Smart Schedule creates a stable weekly pattern based on a Sunday-to-Saturday week.
 
-The important ideas are:
+Expected behaviour:
 
-- the series order is stable for the week;
-- it is coverage-first, so every selected series gets a turn before a series receives a second turn, provided there are enough programme turns;
-- the weekly pattern repeats;
-- after the configured Smart Schedule refresh period, Virtual TV generates a new template.
+- Virtual TV creates a seeded shuffled series order;
+- the order is **coverage-first** — every selected series gets a turn before any selected series receives a second turn, provided the week contains enough turns;
+- the same weekly pattern begins again each Sunday while the current template is active;
+- the template remains stable until its configured refresh boundary;
+- when the refresh boundary is reached, a new template seed/order is generated.
 
-Refresh options are:
+### Smart Schedule refresh
 
-- every 1 month;
-- every 2 months;
-- every 3 months;
-- every 6 months.
+Available choices:
 
-If you make programming changes to a Smart Schedule channel, the current week is preserved and the changed schedule begins at the next Sunday boundary.
+- Every 1 month
+- Every 2 months
+- Every 3 months
+- Every 6 months
 
-### Good for
+This setting controls how long the current weekly template remains in use before Virtual TV creates a new one.
 
-A channel that should feel like a real recurring television schedule rather than a continuously changing shuffle.
+### What happens when you edit or regenerate a Smart Schedule?
 
----
+Virtual TV protects the current Sunday-to-Saturday week.
+
+Programming changes are applied from the next Sunday boundary rather than rewriting the current week underneath viewers.
+
+Choose Smart Schedule when you want a recurring TV-like weekly structure rather than a constantly changing rotation.
 
 # 12. Playback mode + schedule strategy combinations
 
@@ -529,190 +826,341 @@ Standard TV only offers **Sequential** and **Random**, because watched-state dec
 
 # 13. Consecutive turns
 
-Series channels can give a series:
+Available on Series channels.
+
+Choices:
 
 - **1 episode / block**
 - **2 episodes / blocks**
 
-This controls how long a selected series keeps the channel before the schedule rotates to another series.
+This controls how many consecutive turns the currently selected series receives before the Schedule strategy is asked to choose another series.
 
-Examples:
+## With concrete playback: Sequential or Random
 
-### 1 turn
+A turn means one actual episode.
 
-- Comedy Series
-- Science Fiction Series
-- Family Comedy Series
-- Comedy Series
+### 1 episode / block
 
-### 2 turns
+Generic pattern:
 
-- Comedy Series
-- Comedy Series
-- Science Fiction Series
-- Science Fiction Series
-- Family Comedy Series
-- Family Comedy Series
+- Comedy Series — one episode
+- Detective Series — one episode
+- Action Series — one episode
 
-For Sequential and Random modes, a turn is a real episode.
+### 2 episodes / blocks
 
-For Next Unwatched and Random Unwatched, a turn is a fixed schedule block.
+Generic pattern:
 
----
+- Comedy Series — episode
+- Comedy Series — episode
+- Detective Series — episode
+- Detective Series — episode
+- Action Series — episode
+- Action Series — episode
+
+For True Random, the weight draw happens when a **new series turn group** is needed. With Consecutive turns = 2, the selected series receives two episode turns before the next weighted series draw.
+
+## With dynamic playback: Next Unwatched or Random Unwatched
+
+A turn means one fixed Guide block.
+
+With Consecutive turns = 2, the same selected series receives two consecutive blocks before the Schedule strategy rotates to another series.
+
+The actual episode inside each block is still resolved from the user's live watched/resume state at playback time.
 
 # 14. Block duration
 
-Block duration is used for watched-dependent Personalized TV modes.
+Block duration appears only for **watched-dependent Personalized TV modes**:
+
+- Series → Next Unwatched
+- Series → Random Unwatched
+- Movies → Random Unwatched
 
 Available values:
 
-- 15
-- 20
-- 30
-- 40
-- 45
-- 60
-- 75
-- 90
+- 15 minutes
+- 20 minutes
+- 30 minutes
+- 40 minutes
+- 45 minutes
+- 60 minutes
+- 75 minutes
+- 90 minutes
 - 120 minutes
+
+The block duration is primarily a **Guide/scheduling unit**.
+
+It is not a command to cut the real VOD item after exactly that many minutes.
 
 ## Series: Next Unwatched / Random Unwatched
 
-The Guide cannot know the final episode until playback time because the answer depends on the user's current Jellyfin history.
+The Guide reserves a fixed block for a series.
 
-So the schedule contains a block for the **series**, not a preselected episode.
-
-Example:
+Generic example:
 
 **20:00–20:30 — Comedy Series**
 
-When you tune in, Virtual TV checks your watch state and decides which Comedy Series episode should actually open.
+At playback time, Virtual TV checks the user's Jellyfin state and resolves the actual episode.
 
-This is why the Guide can show only the series title for these modes.
+The Guide shows the series because the exact episode cannot be known reliably in advance.
 
 ## Movies: Random Unwatched
 
-The block represents the movie slot.
+The Guide reserves a fixed movie block and materializes an unwatched candidate when the schedule is generated.
 
-Virtual TV tries to use an unwatched movie, with partially watched movies taking priority for resume.
+At playback time Virtual TV validates that choice against the user's current state and can replace it if needed.
 
-If the actual movie runs longer than the nominal block, the movie is not deliberately cut just because the block duration has been reached.
+## What if the real episode or movie is longer than the block?
 
----
+The real VOD item is not deliberately cut at the nominal block boundary.
+
+When the item physically ends, Virtual TV returns to the loading source and checks **what schedule block is active at that wall-clock moment**.
+
+Therefore:
+
+- if the next block is already active, Virtual TV follows that block;
+- if the same dynamic block is still active because the item ended early, Virtual TV can resolve another eligible item under that same block/rule.
+
+Think of Block duration as "how the dynamic channel is divided in the Guide", not "maximum playback length".
 
 # 15. Movie channels
 
-Movie channels are intentionally simpler.
-
-They do not use the Series schedule-strategy selector.
+Movie channels have fewer scheduling fields because Virtual TV does not need to rotate between separate series.
 
 ## Personalized TV — Random / Shuffle Cycle
 
-Every eligible movie is used once before a new shuffle cycle begins.
+Expected behaviour:
 
-This gives variety without repeatedly choosing the same movie while others are still unused in the cycle.
+1. Virtual TV creates a shuffled pool of all selected eligible movies.
+2. Each selected movie is used once before the pool refills.
+3. A new shuffle cycle begins.
+4. When possible, an immediate repeat across the cycle boundary is avoided.
+5. The chosen movie opens as a normal Jellyfin VOD item from the beginning.
 
-The movie opens as a normal Jellyfin item.
+Watched status does not remove a movie from this mode's pool.
+
+If you want watched state to matter, use Random Unwatched.
+
+---
 
 ## Personalized TV — Random Unwatched
 
-Virtual TV uses the owner's Jellyfin watch state.
+This mode uses the channel owner's Jellyfin state.
 
-Priority is:
+There are two stages: schedule generation and playback-time validation.
 
-1. partially watched movies — randomly choose one and resume it;
-2. never-started movies;
-3. if everything is watched, fall back to random.
+### When the schedule is generated
 
-This mode is personal to the owner because different users can have different watched states.
+- if there are unwatched movies, Virtual TV builds the dynamic schedule from that unwatched pool;
+- if every selected movie is already watched, it falls back to the full selected movie pool;
+- selection uses a shuffle-cycle style pool to spread choices.
+
+### When a movie block is actually played
+
+Virtual TV checks the current user state again.
+
+Exact priority:
+
+1. If there are partially watched movies, randomly choose one of those and resume it.
+2. Otherwise, if the movie materialized for this block is still never-started and is not an immediate repeat, use it.
+3. Otherwise, randomly choose another never-started movie.
+4. If every selected movie is watched, fall back to a random selected movie.
+
+This means the final movie can differ from the title originally materialized into the schedule if the user's watched state changed after schedule generation.
+
+When several valid choices exist, Virtual TV tries to avoid immediately repeating the last completed movie in the same Virtual TV session.
+
+---
 
 ## Standard TV — Random / Shuffle Cycle
 
-Standard TV movie channels use a concrete shuffle cycle.
+Standard TV materializes real selected movies directly into the shared Guide.
 
-The selected movies are placed into the linear Guide and everyone watching the channel sees the same programme at the same wall-clock point.
+Expected behaviour:
 
----
+- every selected movie is used once before a new shuffle cycle;
+- all viewers see the same scheduled movie at the same wall-clock time;
+- tuning in midway joins the movie at the corresponding live offset;
+- live viewing does not normally change the source movie's watched/resume state;
+- use the Standard TV **Record** shortcut if you want to leave Live TV and open the current movie from 00:00 as normal VOD.
 
 # 16. Channel visibility
 
-For channels that do **not** depend on watched state, you can choose:
+This controls which Jellyfin users are allowed to see the Virtual TV channel.
 
-- **All users**
-- **Selected users**
+## All users
 
-Visibility changes take effect without requiring a new schedule.
+The channel is visible to all Jellyfin users.
 
-## Watched-dependent channels
+Use this for shared channels whose programming does not depend on one person's watched state.
 
-Personalized TV channels using:
+## Selected users
 
-- Next Unwatched;
-- Random Unwatched;
-- Movie Random Unwatched
+The user list becomes visible.
 
-are personal in Virtual TV 2.0.
+Check every Jellyfin user who should be able to see the channel.
 
-They are automatically restricted to the administrator who owns/created the channel.
+At least one user must be selected before the channel can be saved in this mode.
 
-This prevents one user's watched history from being used to decide another user's channel.
+Changing visibility does **not** require schedule regeneration.
 
----
+## Watched-dependent Personalized TV channels
+
+If the channel uses:
+
+- Series → Next Unwatched;
+- Series → Random Unwatched;
+- Movies → Random Unwatched;
+
+Virtual TV treats that channel as personal in version 2.0.
+
+Expected behaviour:
+
+- the normal visibility controls are hidden;
+- the channel is restricted to the administrator owner/current creator;
+- another user's watch history is not used to make decisions for this channel.
+
+The reason is simple: two users can have completely different Played and Resume states, so one shared "next unwatched" decision would be ambiguous.
 
 # 17. Operating hours
 
-Enable **24 Hours** if the channel should always be on air.
+This controls when the channel is considered on air.
 
-If 24 Hours is disabled, you can define:
+## 24 Hours
+
+When enabled:
+
+- the channel has no planned Off Air period;
+- On air from / Off air from fields are hidden;
+- Virtual TV can schedule content continuously.
+
+## 24 Hours disabled
+
+Two time fields are shown:
 
 - **On air from**
 - **Off air from**
 
 The default is:
 
-- On air: 07:00
-- Off air: 02:00 the following day
+- On air from: **07:00**
+- Off air from: **02:00**
 
-During the off-air period, the Guide shows **Off Air** instead of normal programmes.
+Times are interpreted using the Jellyfin server's local time zone.
 
-This is useful if you want channels that imitate traditional broadcast schedules rather than running all night.
+Cross-midnight schedules are supported.
 
----
+For example, 07:00 → 02:00 means the channel is on air from 07:00 in the morning until 02:00 the following morning.
 
-# 18. Saving a channel vs generating a schedule
+If On air and Off air are set to the exact same time, the scheduling logic effectively treats the channel as always on.
 
-These are two separate actions.
+## What appears in the Guide during Off Air?
+
+Virtual TV creates explicit **Off Air** schedule entries.
+
+The Guide shows **Off Air** and indicates when the channel returns.
+
+## What actually plays during Off Air?
+
+Virtual TV does not start a selected library episode or movie while the active schedule entry is Off Air.
+
+The exact presentation depends on the channel experience:
+
+### Personalized TV during Off Air
+
+The neutral Virtual TV Live TV loading source is what Jellyfin opens for the channel.
+
+After the normal loading confirmation, Virtual TV sees that there is no playable programme in the current Off Air window and **does not hand off to a library VOD item**.
+
+In practical terms: no Next Unwatched/Random/Sequential movie-or-episode resolution is launched for the Off Air entry.
+
+The visible lifetime of the neutral loading source can still depend on the Jellyfin client, but Virtual TV does not keep sending library PlayNow commands during Off Air.
+
+### Standard TV during Off Air
+
+Standard TV remains a real Live TV stream, but Virtual TV serves a neutral live slate instead of a library item for the Off Air period.
+
+No source episode/movie is played for that Off Air entry.
+
+## What if content starts before Off Air and runs long?
+
+Virtual TV does not deliberately cut a concrete episode/movie in the middle just because the nominal Off Air time arrives.
+
+A concrete programme that already started can finish its scheduled runtime, and the channel enters Off Air at the next schedule boundary.
+
+Dynamic fixed blocks are different: their schedule block can be shortened at the Off Air boundary so that the Guide enters Off Air cleanly.
+
+# 18. Saving a channel, schedule status and Generate New Schedule
+
+Saving configuration and publishing future programming are related but separate operations.
 
 ## Save channel
 
-**Save channel** stores the configuration.
+**Save channel** stores the editor values.
 
-If you changed something that affects programming, Virtual TV marks the schedule as needing an update.
+Changes that normally **do not** require rebuilding programme choices include:
 
-Examples include:
+- Channel name;
+- Channel number;
+- Visibility.
 
-- changing channel experience;
-- changing Series vs Movies;
-- changing playback mode;
-- changing schedule strategy;
-- adding/removing titles;
-- changing seasons or Specials;
-- changing True Random weights;
-- changing block duration;
-- changing consecutive turns;
-- changing operating hours.
+Changes that affect programming mark the channel for schedule reconciliation, including:
+
+- Channel experience;
+- Channel type;
+- Playback mode;
+- Schedule strategy;
+- Source libraries;
+- selected titles;
+- season restrictions;
+- Include Specials;
+- True Random weights;
+- Consecutive turns;
+- Block duration;
+- Smart Schedule refresh;
+- Operating hours.
+
+After saving a programming change, the existing Guide is not immediately destroyed. The channel is marked so the future schedule can be rebuilt safely.
+
+## Schedule status in the channel list
+
+### Not generated
+
+The channel exists but has no published Virtual TV schedule yet.
+
+Use **Generate New Schedule**.
+
+### Needs reconcile
+
+The configuration changed after the current schedule was generated.
+
+The currently published Guide can remain active while Virtual TV waits to apply the new programming safely.
+
+You can press Generate New Schedule if you want to explicitly rebuild the future programming now.
+
+### Ready
+
+A schedule has been generated and Virtual TV shows the date through which future programming is currently available.
 
 ## Generate New Schedule
 
-Use **Generate New Schedule** when you want the new programming choices to appear in the Guide.
+This creates/recreates future programming and refreshes Jellyfin's Live TV Guide.
 
-Virtual TV deliberately protects what is already on air.
+Virtual TV protects what viewers could already be watching.
 
-For normal schedules, the current programme/block is preserved and regeneration starts from the next safe boundary.
+### Normal schedules
 
-For Smart Schedule, the current Sunday-to-Saturday week is preserved and the regenerated programming begins with the next week.
+- schedule history is preserved;
+- the current active programme/block is preserved;
+- the new schedule begins at the next mutable boundary.
 
----
+### Smart Schedule
+
+- the current Sunday-to-Saturday week is preserved;
+- the regenerated Smart programming starts at the next Sunday boundary;
+- a new Smart template seed/order is created for the regenerated future period.
+
+This avoids rewriting the Guide underneath the currently active programme or current Smart week.
 
 # 19. How much schedule is created?
 
@@ -736,29 +1184,185 @@ Normally you do not need to manage this manually.
 
 ---
 
-# 20. Content Coverage
+# 20. Content Coverage — purpose, controls and expected behaviour
 
-The **Content Coverage** report helps answer:
+Content Coverage is a **reporting tool**.
 
-> "Which of my movies or series have I already assigned to a Virtual TV channel?"
+It answers questions such as:
 
-It shows:
+- Which Jellyfin series/movies are already used by Virtual TV?
+- Which titles have not been assigned to any channel?
+- Which titles are used by more than one channel?
+- Does a channel still reference something that was removed from Jellyfin?
 
-- **Total** — all series and movies seen by the report;
-- **Assigned** — titles used by at least one channel;
-- **Unassigned** — titles not used by any Virtual TV channel;
-- **Multiple channels** — titles assigned to more than one channel.
+It does **not** change channel configuration by itself.
 
-You can also:
+Opening, filtering or exporting the report never adds or removes content from a channel.
 
-- search by title or channel;
-- filter by library;
-- filter Series vs Movies;
-- export the filtered result to CSV.
+## What Content Coverage compares
 
-If a channel still references an item that no longer exists in Jellyfin, it can appear as **Missing**.
+Virtual TV looks at Series and Movie items in the Jellyfin library and compares them with each channel's explicitly selected Content list.
 
----
+For a Series channel, coverage is counted at the **series level**.
+
+Example:
+
+If a generic series is assigned to a channel but that channel uses only Seasons 1–3, Content Coverage still considers the **series** assigned. It is not an episode-by-episode or season-by-season coverage report.
+
+For Movies, each selected movie is compared directly.
+
+Also remember:
+
+**Selecting a source library does not count as assigning every title in that library.**
+
+A title becomes Assigned only when it is explicitly selected in a Virtual TV channel's Content section.
+
+## Summary cards
+
+### Total
+
+The number of entries currently known to the report.
+
+This normally includes Jellyfin Series/Movies plus any missing configured references that Virtual TV can still identify as stale channel selections.
+
+Because Missing entries are separate from Assigned/Unassigned, Total does not always have to equal Assigned + Unassigned.
+
+### Assigned
+
+The summary number counts titles that are assigned to **one or more** Virtual TV channels.
+
+In the detailed status/filter view, a normal **Assigned** row means the title is assigned to exactly one channel; titles in more than one channel use the separate **Multiple channels** status.
+
+### Unassigned
+
+Titles that exist in Jellyfin but are not explicitly selected in any Virtual TV channel.
+
+This is particularly useful when building a complete channel lineup and checking what content has not yet been categorized.
+
+### Multiple channels
+
+Titles explicitly selected in more than one Virtual TV channel.
+
+This is not automatically an error.
+
+A title may intentionally belong to several channels. The report simply makes that overlap visible.
+
+## Missing items
+
+A configured title can disappear from Jellyfin after a channel was created.
+
+For example, the library may have been rescanned, removed or rebuilt.
+
+When Virtual TV can still see a configured ID that no longer resolves to a real Jellyfin item, the report can show:
+
+- **Missing library item**
+- Library: **Unavailable**
+- Status: **Missing**
+
+Missing is a diagnostic state. It helps you identify a channel configuration that should probably be edited.
+
+## Clicking the summary cards
+
+The cards act as filters.
+
+- **Total** → show everything;
+- **Assigned** → show normal single-channel Assigned rows;
+- **Unassigned** → show titles with no channel;
+- **Multiple channels** → show titles used by more than one channel.
+
+The Assigned summary count conceptually includes all titles used by at least one channel, while the table filter keeps Multiple-channel rows separate so overlap can be inspected independently.
+
+## Search
+
+The Search box checks:
+
+- title;
+- library name;
+- assigned Virtual TV channel name.
+
+Search works together with the active status/library/type filters.
+
+## Library filter
+
+Limits the report to one Jellyfin library.
+
+Choose **All libraries** to remove that restriction.
+
+## Type filter
+
+Choices:
+
+- All types
+- Series
+- Movies
+
+Use this when you want to review TV and Movie organization separately.
+
+## Refresh
+
+**Refresh** rebuilds the report from the current Jellyfin library and current Virtual TV configuration.
+
+Use it after making library changes if the report view is already open.
+
+The plugin also refreshes coverage after channel configuration changes in the Virtual TV page.
+
+## Export CSV
+
+**Export CSV** exports the **currently filtered view**, not necessarily the entire unfiltered report.
+
+The CSV includes:
+
+- Library;
+- Title;
+- Type;
+- Year;
+- Channels;
+- Channel Count;
+- Status.
+
+This is useful for reviewing the channel organization outside Jellyfin.
+
+## Practical ways to use Content Coverage
+
+### Find content not yet organized
+
+1. Open Content Coverage.
+2. Select **Unassigned**.
+3. Optionally choose Series or Movies.
+4. Use the list as a checklist when deciding what channel should receive each title.
+
+### Find accidental overlaps
+
+1. Select **Multiple channels**.
+2. Review the listed channel names.
+3. Decide whether the overlap is intentional.
+4. If not, edit one of the channels and remove the title there.
+
+### Find stale channel selections
+
+1. Leave the report on Total.
+2. Search for **Missing library item** entries or scan for the Missing status.
+3. Edit the referenced channel and remove/reselect the unavailable title.
+
+### Audit one library
+
+1. Choose the desired Library filter.
+2. Select Total, Assigned or Unassigned.
+3. Optionally export the filtered result to CSV.
+
+## What Content Coverage does not tell you
+
+Content Coverage is not a schedule preview.
+
+It does not tell you:
+
+- how often a title will appear;
+- which episode is next;
+- the True Random probability of an individual episode;
+- whether every season of a selected series is enabled;
+- whether a title will play tonight.
+
+Those behaviours are controlled by the channel's programming settings and schedule.
 
 # 21. What happens when you actually watch a channel?
 
@@ -787,6 +1391,17 @@ The source episode/movie is not being played as a normal library item, which is 
 ---
 
 # 22. Common questions
+
+## What happens if I tune to a channel while it is Off Air?
+
+The Guide shows **Off Air** and Virtual TV does not open a configured library title for that Off Air entry.
+
+- **Personalized TV:** Jellyfin opens the neutral Virtual TV loading source, but Virtual TV does not hand off to a library VOD item while the schedule is Off Air.
+- **Standard TV:** the continuous Live TV stream serves a neutral live slate instead of a scheduled library item.
+
+So Off Air is not a hidden random programme and it does not deliberately create watched/resume activity for your selected content.
+
+---
 
 ## Why does Personalized TV briefly show "Loading Virtual TV"?
 
