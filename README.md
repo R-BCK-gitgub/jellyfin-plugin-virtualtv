@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/virtual-tv-plugin-banner.jpg" alt="Virtual TV" width="900">
+  <img src="assets/virtual-tv-plugin-banner-hq.png" alt="Virtual TV" width="900">
 </p>
 
 # Virtual TV for Jellyfin
