@@ -7,8 +7,12 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.VirtualTV.Configuration;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Net;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.LiveTv;
+using MediaBrowser.Model.Session;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
@@ -17,11 +21,16 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
 {
     public const string ServiceName = "Virtual TV";
     private const string ChannelPrefix = "virtualtv-";
+    private const string ProgramPrefix = "virtualtv-program-";
 
     private readonly VirtualTvScheduleStore _scheduleStore;
     private readonly VirtualTvContentCatalog _catalog;
     private readonly VirtualTvBootstrapMediaProvider _bootstrapMedia;
     private readonly VirtualTvStandardStreamService _standardTv;
+    private readonly ILibraryManager _libraryManager;
+    private readonly ISessionManager _sessionManager;
+    private readonly IAuthorizationContext _authorizationContext;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<VirtualTvLiveTvService> _logger;
 
     public VirtualTvLiveTvService(
@@ -29,12 +38,20 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         VirtualTvContentCatalog catalog,
         VirtualTvBootstrapMediaProvider bootstrapMedia,
         VirtualTvStandardStreamService standardTv,
+        ILibraryManager libraryManager,
+        ISessionManager sessionManager,
+        IAuthorizationContext authorizationContext,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<VirtualTvLiveTvService> logger)
     {
         _scheduleStore = scheduleStore;
         _catalog = catalog;
         _bootstrapMedia = bootstrapMedia;
         _standardTv = standardTv;
+        _libraryManager = libraryManager;
+        _sessionManager = sessionManager;
+        _authorizationContext = authorizationContext;
+        _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
 
@@ -186,9 +203,18 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
     public Task CancelTimerAsync(string timerId, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task CancelSeriesTimerAsync(string timerId, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task CreateTimerAsync(TimerInfo info, CancellationToken cancellationToken)
-        => Task.FromException(new NotSupportedException("Virtual TV DVR recording is not implemented."));
+        => PlayFromBeginningFromRecordActionAsync(
+            info.ChannelId,
+            info.ProgramId,
+            cancellationToken,
+            "Record / Just this once");
+
     public Task CreateSeriesTimerAsync(SeriesTimerInfo info, CancellationToken cancellationToken)
-        => Task.FromException(new NotSupportedException("Virtual TV DVR recording is not implemented."));
+        => PlayFromBeginningFromRecordActionAsync(
+            info.ChannelId,
+            info.ProgramId,
+            cancellationToken,
+            "Record series");
     public Task UpdateTimerAsync(TimerInfo updatedTimer, CancellationToken cancellationToken)
         => Task.FromException(new NotSupportedException("Virtual TV DVR recording is not implemented."));
     public Task UpdateSeriesTimerAsync(SeriesTimerInfo info, CancellationToken cancellationToken)
@@ -199,6 +225,144 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         => Task.FromResult<IEnumerable<SeriesTimerInfo>>(Array.Empty<SeriesTimerInfo>());
     public Task<SeriesTimerInfo> GetNewTimerDefaultsAsync(CancellationToken cancellationToken, ProgramInfo? program = null)
         => Task.FromResult(new SeriesTimerInfo());
+
+    /// <summary>
+    /// Standard TV already owns the content, so its native Jellyfin Record action is repurposed
+    /// as a zero-UI shortcut to open the currently airing library item from the beginning.
+    /// Both the single-program and Android TV "Record series" paths arrive here.
+    /// No DVR timer is created and Personalized TV is never affected.
+    /// </summary>
+    private async Task PlayFromBeginningFromRecordActionAsync(
+        string? channelId,
+        string? programId,
+        CancellationToken cancellationToken,
+        string clientAction)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(channelId))
+        {
+            throw new InvalidOperationException("Virtual TV Record shortcut did not include a channel id.");
+        }
+
+        var channel = GetChannel(channelId)
+            ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
+
+        if (!VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+        {
+            throw new NotSupportedException(
+                "Virtual TV only repurposes Record as Play from Beginning on Standard TV channels.");
+        }
+
+        var entry = ResolveRecordActionEntry(channel.Id, programId, DateTime.UtcNow)
+            ?? throw new InvalidOperationException(
+                $"Virtual TV could not resolve the currently airing programme for channel '{channel.Name}'.");
+
+        if (!Guid.TryParse(entry.SourceItemId, out var sourceItemId))
+        {
+            throw new InvalidOperationException(
+                $"Virtual TV programme '{entry.Id}' does not point to a concrete Jellyfin library item.");
+        }
+
+        var sourceItem = _libraryManager.GetItemById(sourceItemId);
+        if (sourceItem is null || sourceItem.IsFolder)
+        {
+            throw new InvalidOperationException(
+                $"Virtual TV source item '{sourceItemId}' is no longer a playable Jellyfin item.");
+        }
+
+        var httpContext = _httpContextAccessor.HttpContext
+            ?? throw new InvalidOperationException(
+                "Virtual TV Record shortcut requires the active Jellyfin client request.");
+
+        var auth = await _authorizationContext.GetAuthorizationInfo(httpContext).ConfigureAwait(false);
+        if (!auth.IsAuthenticated || string.IsNullOrWhiteSpace(auth.DeviceId))
+        {
+            throw new InvalidOperationException(
+                "Virtual TV could not identify the Jellyfin device that invoked Record.");
+        }
+
+        var candidateSessions = _sessionManager.Sessions
+            .Where(session => string.Equals(session.DeviceId, auth.DeviceId, StringComparison.OrdinalIgnoreCase));
+
+        if (auth.User is not null && auth.User.Id != Guid.Empty)
+        {
+            candidateSessions = candidateSessions.Where(session => session.UserId == auth.User.Id);
+        }
+
+        var targetSession = candidateSessions
+            .OrderByDescending(session => session.LastPlaybackCheckIn)
+            .ThenByDescending(session => session.LastActivityDate)
+            .FirstOrDefault();
+
+        if (targetSession is null || targetSession.SessionControllers.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Virtual TV could not find an active controllable Jellyfin session for device '{auth.DeviceId}'.");
+        }
+
+        var controllingUserId = auth.User?.Id ?? targetSession.UserId;
+        var request = new PlayRequest
+        {
+            ItemIds = new[] { sourceItemId },
+            StartPositionTicks = 0L,
+            StartIndex = 0,
+            PlayCommand = PlayCommand.PlayNow,
+            ControllingUserId = controllingUserId
+        };
+
+        _logger.LogInformation(
+            "Virtual TV Standard TV Record shortcut: {ClientAction} on channel {ChannelName} opens item {ItemId} from 00:00 in session {SessionId} / device {DeviceId}. No DVR timer is created.",
+            clientAction,
+            channel.Name,
+            sourceItemId,
+            targetSession.Id,
+            auth.DeviceId);
+
+        // Deliberately use Jellyfin's normal PlayNow path rather than the isolated Personalized TV
+        // queue. From this point onward the item behaves exactly like normal library playback,
+        // including the user's standard watched/resume/next-episode behaviour.
+        await _sessionManager.SendPlayCommand(
+            targetSession.Id,
+            targetSession.Id,
+            request,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private VirtualTvScheduleEntry? ResolveRecordActionEntry(
+        string channelId,
+        string? programId,
+        DateTime nowUtc)
+    {
+        var schedule = _scheduleStore.Load(channelId);
+
+        if (!string.IsNullOrWhiteSpace(programId)
+            && programId.StartsWith(ProgramPrefix, StringComparison.OrdinalIgnoreCase)
+            && programId.Length > ProgramPrefix.Length)
+        {
+            var entryId = programId[ProgramPrefix.Length..];
+            var requested = schedule.FirstOrDefault(entry =>
+                string.Equals(entry.Id, entryId, StringComparison.OrdinalIgnoreCase)
+                && IsPlayableAt(entry, nowUtc));
+
+            if (requested is not null)
+            {
+                return requested;
+            }
+        }
+
+        // At an exact schedule boundary a client can briefly submit the previous ProgramId.
+        // Falling back to the active entry guarantees that Record always opens what is on air now.
+        return schedule.FirstOrDefault(entry => IsPlayableAt(entry, nowUtc));
+    }
+
+    private static bool IsPlayableAt(VirtualTvScheduleEntry entry, DateTime nowUtc)
+        => !entry.IsOffAir
+            && !entry.IsContentUnavailable
+            && !entry.IsScheduleUnavailable
+            && entry.GetStartUtc() <= nowUtc
+            && entry.GetEndUtc() > nowUtc
+            && !string.IsNullOrWhiteSpace(entry.SourceItemId);
 
     private ChannelConfiguration? GetChannel(string externalId)
     {

@@ -7,10 +7,14 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.10.18.0</Version>
-    <AssemblyVersion>1.10.18.0</AssemblyVersion>
-    <FileVersion>1.10.18.0</FileVersion>
+    <Version>1.10.19.0</Version>
+    <AssemblyVersion>1.10.19.0</AssemblyVersion>
+    <FileVersion>1.10.19.0</FileVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="12.1.0">
