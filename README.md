@@ -36,8 +36,8 @@ You choose the movies, series or seasons that belong to a channel and decide how
 
 There are two main viewing styles:
 
-- **Standard TV** — behaves like a traditional television channel. You join the programme at the point where it is currently scheduled, with the option to start the current programme from the beginning.
-- **Personalized TV** — can use your Jellyfin user history to choose what to play, including unwatched episodes and partially watched content.
+- **Standard TV** — behaves like a traditional television channel. You join the programme at the point where it is currently scheduled and watch it as a live broadcast. There is no normal VOD backtracking, fast-forward seeking, resume point or selectable subtitle control while you are watching the live channel. When an eligible English subtitle track exists, Virtual TV may burn those subtitles directly into the live picture. If you want to restart the programme from the beginning, the Jellyfin **Record** action is repurposed as **Play from Beginning** and opens the real library item from 00:00.
+- **Personalized TV** — opens the selected episode or movie in Jellyfin's normal player. That means you keep the normal Jellyfin experience: pause and resume, seek forward or backward, choose audio and subtitle tracks, use watched/resume progress, and continue from partially watched content. Personalized modes can also use your Jellyfin user history to choose what to play, including Next Unwatched and Random Unwatched behaviour.
 
 Your original media remains in Jellyfin; Virtual TV simply creates another way to watch it.
 
