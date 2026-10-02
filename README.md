@@ -10,6 +10,8 @@ Virtual TV is a Jellyfin plugin that turns the movies and TV shows you already h
 
 Instead of always choosing a movie or episode manually, you can create channels with their own schedules and content rules, then watch them through Jellyfin's normal Live TV experience.
 
+📘 **Need help creating or configuring channels?** Read the **[Virtual TV User Guide](USER_GUIDE.md)** for a detailed explanation of every setting, playback mode and common configuration combination.
+
 ## Why I created it
 
 I created Virtual TV because I could not find an existing solution that worked exactly the way I wanted.
