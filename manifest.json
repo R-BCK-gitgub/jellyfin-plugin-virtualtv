@@ -6,6 +6,7 @@
     "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
     "owner": "R-BCK-gitgub",
     "overview": "Virtual linear TV channels inside Jellyfin.",
+    "imageUrl": "https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/assets/virtual-tv-plugin-banner.jpg",
     "versions": [
       {
         "version": "2.0.0.0",
