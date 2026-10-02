@@ -77,8 +77,21 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.10.19.0" or len(set(values.values()))!=1:
+          if version!="2.0.0.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
+
+          manifest=json.loads(Path("manifest.json").read_text(encoding="utf-8"))
+          if not isinstance(manifest,list) or len(manifest)!=1:
+              raise SystemExit("Repository manifest must contain exactly one Virtual TV package.")
+          package=manifest[0]
+          if package.get("guid")!="2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1":
+              raise SystemExit("Repository manifest GUID does not match Virtual TV.")
+          if package.get("owner")!="R-BCK-gitgub":
+              raise SystemExit("Repository manifest owner must be R-BCK-gitgub.")
+          versions=package.get("versions") or []
+          if not any(v.get("version")=="2.0.0.0" and v.get("targetAbi")=="12.1.0.0" for v in versions):
+              raise SystemExit("Repository manifest is missing the Jellyfin 12.1 Virtual TV 2.0 release.")
+          print("Full-release repository manifest metadata validation passed.")
           PY
 
       - name: Restore dependencies
@@ -192,7 +205,7 @@ jobs:
           print("Single Personalized VOD startup path and unchanged Resume/EOF invariants passed.")
           PY
 
-      - name: Validate 1.10.19 scheduling, editing and coverage
+      - name: Validate 2.0 full-release scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -220,7 +233,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="1.10.19.0"',
+              'data-ui-version="2.0.0.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -242,7 +255,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"1.10.19 UI missing: {missing}")
+              raise SystemExit(f"2.0 full-release UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -471,7 +484,7 @@ jobs:
         run: |
           set -euo pipefail
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="1.10.19.0"' "$DLL"
+          grep -a -q 'data-ui-version="2.0.0.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -511,7 +524,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 1.10.19 UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
+          echo "Embedded 2.0 full-release UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash
@@ -521,6 +534,7 @@ jobs:
           cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll artifact/VirtualTV/
           cp build.yaml artifact/VirtualTV/
           cp meta.json artifact/VirtualTV/
+          cp manifest.json artifact/VirtualTV/
           unzip -t <(cd artifact && zip -qr - VirtualTV) >/dev/null 2>&1 || true
           find artifact/VirtualTV -maxdepth 1 -type f -printf "%f\n" | sort
 

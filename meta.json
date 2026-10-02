@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Adds a Standard TV Play-from-Beginning shortcut without changing the player UI: the native Jellyfin Record action now opens the currently airing movie or episode from 00:00 in Jellyfin's normal library player and replaces the Live TV session. On Android TV, both 'Record series' and 'Just this once' launch the current episode/movie from the beginning; no DVR timer is created. The action is restricted to Virtual TV Standard TV channels and targets the exact Jellyfin device/session that issued the Record request. Personalized TV, scheduling, True Random weights, Guide geometry/text styling and all other playback behavior are unchanged. Version 1.10.18 remains the last stable baseline.",
+  "changelog": "Virtual TV 2.0 full release. This release promotes the validated 1.10.19 runtime behavior without changing scheduling or playback logic. It retains Standard TV, Personalized TV, weighted True Random, Guide text polish, Content Coverage and the Standard TV Record-to-Play-from-Beginning shortcut. Release packaging now includes a Jellyfin repository manifest with the canonical Virtual TV GUID and developer R-BCK-gitgub so Jellyfin can display repository metadata when the manifest is configured as an accessible plugin repository.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.10.19.0",
+  "version": "2.0.0.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
