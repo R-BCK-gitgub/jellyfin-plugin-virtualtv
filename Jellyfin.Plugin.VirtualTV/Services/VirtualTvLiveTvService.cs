@@ -51,8 +51,8 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             .Select(channel => new ChannelInfo
             {
                 Id = ToExternalId(channel.Id),
-                Name = GetFrontendChannelName(channel),
-                Number = GetFrontendChannelNumber(channel),
+                Name = channel.Name,
+                Number = channel.Number.ToString(CultureInfo.InvariantCulture),
                 ChannelType = ChannelType.TV,
                 CallSign = "VTV" + channel.Number.ToString(CultureInfo.InvariantCulture),
                 Tags = ["Virtual TV"]
@@ -271,12 +271,6 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             OriginalAirDate = entry.IsDynamicBlock ? null : premiereDate
         };
     }
-
-    private static string GetFrontendChannelNumber(ChannelConfiguration channel)
-        => "Channel " + channel.Number.ToString(CultureInfo.InvariantCulture);
-
-    private static string GetFrontendChannelName(ChannelConfiguration channel)
-        => "- " + channel.Name;
 
     private static string ToExternalId(string channelId) => ChannelPrefix + channelId;
 

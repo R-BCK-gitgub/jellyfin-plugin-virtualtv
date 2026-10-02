@@ -21,8 +21,10 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class VirtualTvVisibilityManager
 {
-    private const string GuideCssStart = "/* Virtual TV Guide UI START */";
-    private const string GuideCssEnd = "/* Virtual TV Guide UI END */";
+    private const string LegacyGuideCssStart = "/* Virtual TV Guide UI START */";
+    private const string LegacyGuideCssEnd = "/* Virtual TV Guide UI END */";
+    private const string GuideTextCssStart = "/* Virtual TV Guide Text UI START */";
+    private const string GuideTextCssEnd = "/* Virtual TV Guide Text UI END */";
 
     private readonly ILiveTvManager _liveTvManager;
     private readonly IUserManager _userManager;
@@ -52,7 +54,7 @@ public sealed class VirtualTvVisibilityManager
             return;
         }
 
-        RemoveLegacyGuidePresentation();
+        EnsureGuideTextPresentation();
 
         var internalChannels = _liveTvManager.GetInternalChannels(
             new LiveTvChannelQuery(),
@@ -171,40 +173,90 @@ public sealed class VirtualTvVisibilityManager
         plugin.SaveConfiguration();
     }
 
-    private void RemoveLegacyGuidePresentation()
+    private void EnsureGuideTextPresentation()
     {
         try
         {
             var branding = (BrandingOptions)_serverConfigurationManager.GetConfiguration("branding");
             var existing = branding.CustomCss ?? string.Empty;
 
-            var start = existing.IndexOf(GuideCssStart, StringComparison.Ordinal);
-            var end = existing.IndexOf(GuideCssEnd, StringComparison.Ordinal);
-            if (start < 0 || end < start)
+            // Remove the pre-1.10.16 geometry override, if it is still present, then replace
+            // only our own text-polish block. Unrelated Jellyfin Branding CSS is preserved.
+            var cleaned = RemoveCssBlock(existing, LegacyGuideCssStart, LegacyGuideCssEnd);
+            cleaned = RemoveCssBlock(cleaned, GuideTextCssStart, GuideTextCssEnd);
+
+            const string guideTextCss = """
+            /* Virtual TV Guide Text UI START */
+            /*
+             * Text-only polish for the stock Jellyfin Live TV Guide.
+             * Keep row/cell/channel dimensions, spacing, logo sizing and positioning untouched.
+             */
+            .guideProgramNameText {
+                font-size: .82em !important;
+                line-height: 1.15 !important;
+                white-space: normal !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                display: -webkit-box !important;
+                -webkit-box-orient: vertical !important;
+                -webkit-line-clamp: 2 !important;
+                min-width: 0 !important;
+                word-break: normal !important;
+                overflow-wrap: normal !important;
+            }
+
+            .guideChannelNumber,
+            .guideChannelName {
+                font-size: .80em !important;
+                line-height: 1.15 !important;
+            }
+            /* Virtual TV Guide Text UI END */
+            """;
+
+            var desired = string.IsNullOrWhiteSpace(cleaned)
+                ? guideTextCss
+                : cleaned.TrimEnd() + Environment.NewLine + Environment.NewLine + guideTextCss;
+
+            if (string.Equals(existing, desired, StringComparison.Ordinal))
             {
                 return;
             }
 
-            end += GuideCssEnd.Length;
-            var restored = (existing[..start] + existing[end..]).Trim();
-
-            if (string.Equals(existing, restored, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            branding.CustomCss = restored;
+            branding.CustomCss = desired;
             _serverConfigurationManager.SaveConfiguration("branding", branding);
 
             _logger.LogInformation(
-                "Virtual TV removed its legacy Live TV Guide CSS so Jellyfin can use the default Guide presentation.");
+                "Virtual TV applied text-only Live TV Guide readability styling without changing Guide geometry.");
         }
         catch (Exception ex)
         {
-            // Cleanup is best-effort and must never block channel/visibility maintenance.
+            // Presentation is best-effort and must never block channel/visibility maintenance.
             _logger.LogWarning(
                 ex,
-                "Virtual TV could not remove its legacy Live TV Guide CSS.");
+                "Virtual TV could not apply the text-only Live TV Guide readability styling.");
+        }
+    }
+
+    private static string RemoveCssBlock(string css, string startMarker, string endMarker)
+    {
+        var result = css;
+
+        while (true)
+        {
+            var start = result.IndexOf(startMarker, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                return result.Trim();
+            }
+
+            var end = result.IndexOf(endMarker, start, StringComparison.Ordinal);
+            if (end < start)
+            {
+                return result.Trim();
+            }
+
+            end += endMarker.Length;
+            result = (result[..start] + result[end..]).Trim();
         }
     }
 
