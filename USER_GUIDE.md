@@ -6,6 +6,30 @@ It is written for people who want to use the plugin without needing to understan
 
 > **Version covered:** Virtual TV 2.0.0.0 for Jellyfin 12.1.
 
+## Installation
+
+### Recommended — install directly from Jellyfin
+
+1. Open **Dashboard → Plugins → Repositories**.
+2. Add:
+   - **Repository Name:** `R-BCK-gitgub / Virtual TV`
+   - **Repository URL:** `https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/manifest.json`
+3. Save the repository.
+4. Open **Dashboard → Plugins → Catalog**.
+5. Find **Virtual TV** and select **Install**.
+6. Restart Jellyfin when prompted.
+
+This is the recommended installation method and also allows Jellyfin to offer future compatible plugin updates through the normal Plugin Catalog.
+
+### Manual installation
+
+1. Download the latest ZIP from the repository's **Releases** section.
+2. Stop Jellyfin.
+3. Create a `VirtualTV` folder inside the Jellyfin plugins directory.
+4. Extract the ZIP contents directly into that folder.
+5. Start Jellyfin again.
+6. Confirm **Virtual TV** is active under **Dashboard → Plugins → My Plugins**.
+
 ---
 
 ## 1. The basic idea
@@ -55,7 +79,7 @@ For **Next Unwatched** and **Random Unwatched**, Virtual TV can use your Jellyfi
 
 Personalized TV is useful when you want things such as:
 
-- "play my next unwatched Simpsons episode";
+- "play my next unwatched Comedy Series episode";
 - "resume something I started before choosing a new episode";
 - "give me a random unwatched movie";
 - normal Jellyfin seek, pause and resume controls.
@@ -156,10 +180,10 @@ This is the name that appears in Jellyfin Live TV.
 
 Examples:
 
-- Cartoon Network
-- Saturday Morning Cartoons
-- Classic Movies
-- The Simpsons Golden Age
+- Action Movies
+- Comedy Movies
+- Comedy Series
+- Detective Series
 
 ## Channel number
 
@@ -214,7 +238,7 @@ Only titles from those libraries will be available for the channel.
 
 For example, you could create:
 
-- a Series channel using only your **TV Kids** library;
+- a Series channel using only your **Kids TV** library;
 - a Movie channel using only your **Movies** library;
 - a Series channel combining two different TV-show libraries.
 
@@ -255,7 +279,7 @@ Disable **All Seasons** if you only want certain seasons.
 
 Example:
 
-**The Simpsons — Seasons 1 to 12 only**
+**Comedy Series — Seasons 1 to 12 only**
 
 This is useful for channels built around a specific era of a long-running show.
 
@@ -359,8 +383,8 @@ This is separate from Playback mode.
 
 For example:
 
-- Schedule strategy may choose **The Simpsons**;
-- Playback mode then decides which Simpsons episode to use.
+- Schedule strategy may choose **Comedy Series**;
+- Playback mode then decides which Comedy Series episode to use.
 
 That distinction is important.
 
@@ -372,12 +396,12 @@ It then repeats that order.
 
 Example:
 
-1. The Simpsons
-2. Futurama
-3. Bob's Burgers
-4. The Simpsons
-5. Futurama
-6. Bob's Burgers
+1. Comedy Series
+2. Science Fiction Series
+3. Family Comedy Series
+4. Comedy Series
+5. Science Fiction Series
+6. Family Comedy Series
 
 The order remains stable until the eligible series set changes or you explicitly generate a new schedule.
 
@@ -422,11 +446,11 @@ Channels where some shows should dominate the schedule.
 
 Example:
 
-- The Simpsons — Weight 4
-- Futurama — Weight 2
-- King of the Hill — Weight 1
+- Comedy Series — Weight 4
+- Science Fiction Series — Weight 2
+- Sitcom Series — Weight 1
 
-The Simpsons is four times as likely per turn as King of the Hill.
+Comedy Series is four times as likely per turn as Sitcom Series.
 
 ---
 
@@ -438,12 +462,12 @@ Use the arrows in the configuration page to move titles up or down.
 
 Example:
 
-1. Batman
-2. Superman
-3. Teenage Mutant Ninja Turtles
-4. X-Men
+1. Action Series
+2. Adventure Series
+3. Martial Arts Series
+4. Superhero Series
 
-Then the pattern starts again from Batman.
+Then the pattern starts again from Action Series.
 
 ### Good for
 
@@ -516,19 +540,19 @@ Examples:
 
 ### 1 turn
 
-- Simpsons
-- Futurama
-- Bob's Burgers
-- Simpsons
+- Comedy Series
+- Science Fiction Series
+- Family Comedy Series
+- Comedy Series
 
 ### 2 turns
 
-- Simpsons
-- Simpsons
-- Futurama
-- Futurama
-- Bob's Burgers
-- Bob's Burgers
+- Comedy Series
+- Comedy Series
+- Science Fiction Series
+- Science Fiction Series
+- Family Comedy Series
+- Family Comedy Series
 
 For Sequential and Random modes, a turn is a real episode.
 
@@ -560,9 +584,9 @@ So the schedule contains a block for the **series**, not a preselected episode.
 
 Example:
 
-**20:00–20:30 — The Simpsons**
+**20:00–20:30 — Comedy Series**
 
-When you tune in, Virtual TV checks your watch state and decides which Simpsons episode should actually open.
+When you tune in, Virtual TV checks your watch state and decides which Comedy Series episode should actually open.
 
 This is why the Guide can show only the series title for these modes.
 

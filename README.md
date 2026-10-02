@@ -66,14 +66,33 @@ Virtual TV is still a personal project and will continue to evolve as new ideas,
 
 ## Installation
 
-Download the latest ZIP from the **Releases** section.
+### Recommended — install directly from Jellyfin
 
-For a manual installation:
+The easiest way to install Virtual TV is through Jellyfin's Plugin Catalog.
 
-1. Stop Jellyfin.
-2. Extract the included `VirtualTV` folder into your Jellyfin plugins directory.
-3. Start Jellyfin again.
-4. Open **Dashboard → Plugins → My Plugins → Virtual TV** and confirm that the plugin is active.
+1. Open **Dashboard → Plugins → Repositories**.
+2. Add a new repository:
+   - **Repository Name:** `R-BCK-gitgub / Virtual TV`
+   - **Repository URL:** `https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/manifest.json`
+3. Save the repository.
+4. Open **Dashboard → Plugins → Catalog**.
+5. Find **Virtual TV** and select **Install**.
+6. Restart Jellyfin when prompted.
+
+After the restart, open **Dashboard → Plugins → My Plugins → Virtual TV** and confirm that the plugin is active.
+
+Using the repository is recommended because future compatible releases can be offered through Jellyfin's normal plugin update system.
+
+### Manual installation
+
+If you prefer to install the plugin manually:
+
+1. Download the latest ZIP from the **Releases** section.
+2. Stop Jellyfin.
+3. Create a folder named `VirtualTV` inside your Jellyfin plugins directory.
+4. Extract the files from the ZIP directly into that `VirtualTV` folder.
+5. Start Jellyfin again.
+6. Open **Dashboard → Plugins → My Plugins → Virtual TV** and confirm that the plugin is active.
 
 The exact plugins directory depends on how your Jellyfin server is installed.
 

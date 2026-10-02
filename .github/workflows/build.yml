@@ -561,12 +561,22 @@ jobs:
           TAG="v${VERSION}"
           ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
 
+          # Jellyfin repository packages must place the plugin files at the root of the ZIP.
+          # Fixed timestamps + zip -X keep the package checksum stable across documentation-only builds.
           rm -rf release-package
-          mkdir -p release-package/VirtualTV
-          cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll release-package/VirtualTV/
-          cp meta.json release-package/VirtualTV/
-          (cd release-package && zip -qr "../${ZIP}" VirtualTV)
+          mkdir -p release-package
+          cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll release-package/
+          cp meta.json release-package/
+          TZ=UTC touch -t 198001010000.00 release-package/Jellyfin.Plugin.VirtualTV.dll release-package/meta.json
+          (
+            cd release-package
+            zip -X -q "../${ZIP}" Jellyfin.Plugin.VirtualTV.dll meta.json
+          )
           unzip -t "${ZIP}"
+          unzip -l "${ZIP}"
+
+          CHECKSUM="$(md5sum "${ZIP}" | awk '{print $1}')"
+          SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP}"
 
           cat > /tmp/virtualtv-release-notes.md <<'EOF'
           # Virtual TV 2.0
@@ -589,13 +599,20 @@ jobs:
 
           ## Installation
 
-          Download `VirtualTV-Jellyfin-12.1-v2.0.0.0.zip`, stop Jellyfin, extract the included `VirtualTV` folder into your Jellyfin plugins directory, and start Jellyfin again.
+          The recommended method is to add the Virtual TV repository to Jellyfin and install the plugin directly from **Dashboard → Plugins → Catalog**.
+
+          Repository URL:
+
+          `https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/manifest.json`
+
+          Manual installation is also supported using the ZIP attached to this release.
 
           This release preserves the validated runtime behaviour from the final 1.10.x testing cycle.
           EOF
 
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "GitHub release ${TAG} already exists; leaving it unchanged."
+            gh release upload "${TAG}" "${ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --notes-file /tmp/virtualtv-release-notes.md
           else
             gh release create "${TAG}" "${ZIP}" \
               --repo "${GITHUB_REPOSITORY}" \
@@ -603,4 +620,40 @@ jobs:
               --title "Virtual TV v${VERSION}" \
               --notes-file /tmp/virtualtv-release-notes.md \
               --latest
+          fi
+
+          python3 - "${VERSION}" "${SOURCE_URL}" "${CHECKSUM}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          version, source_url, checksum = sys.argv[1:4]
+          path = Path("manifest.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          matches = [
+              item
+              for package in data
+              for item in package.get("versions", [])
+              if item.get("version") == version
+          ]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one manifest entry for {version}, found {len(matches)}")
+
+          entry = matches[0]
+          entry["sourceUrl"] = source_url
+          entry["checksum"] = checksum
+          path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          print(f"Jellyfin repository package: {source_url}")
+          print(f"Jellyfin repository MD5: {checksum}")
+          PY
+
+          if ! git diff --quiet -- manifest.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add manifest.json
+            git commit -m "Update Jellyfin repository package metadata for v${VERSION}"
+            git push origin HEAD:main
+          else
+            echo "manifest.json already points to the current release package and checksum."
           fi
