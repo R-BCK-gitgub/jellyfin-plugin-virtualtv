@@ -11,6 +11,9 @@ concurrency:
   group: virtualtv-build-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -545,3 +548,59 @@ jobs:
           path: artifact/VirtualTV/
           if-no-files-found: error
           retention-days: 90
+
+
+      - name: Publish GitHub full release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.version == '2.0.0.0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
+
+          rm -rf release-package
+          mkdir -p release-package/VirtualTV
+          cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll release-package/VirtualTV/
+          cp meta.json release-package/VirtualTV/
+          (cd release-package && zip -qr "../${ZIP}" VirtualTV)
+          unzip -t "${ZIP}"
+
+          cat > /tmp/virtualtv-release-notes.md <<'EOF'
+          # Virtual TV 2.0
+
+          Virtual TV 2.0 is the first full release of the plugin for Jellyfin 12.1.
+
+          It turns movies and TV shows already available in Jellyfin into custom Live TV-style channels, with both traditional scheduled playback and personalized viewing modes.
+
+          ## Highlights
+
+          - Standard TV and Personalized TV channel experiences
+          - Sequential, Random and weighted True Random playback
+          - Next Unwatched and Random Unwatched modes
+          - Resume-first behaviour for partially watched content
+          - Flexible scheduling and programme blocks
+          - Per-user channel visibility
+          - Content Coverage reporting
+          - Jellyfin Live TV Guide integration
+          - Start the current Standard TV programme from the beginning
+
+          ## Installation
+
+          Download `VirtualTV-Jellyfin-12.1-v2.0.0.0.zip`, stop Jellyfin, extract the included `VirtualTV` folder into your Jellyfin plugins directory, and start Jellyfin again.
+
+          This release preserves the validated runtime behaviour from the final 1.10.x testing cycle.
+          EOF
+
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "GitHub release ${TAG} already exists; leaving it unchanged."
+          else
+            gh release create "${TAG}" "${ZIP}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" \
+              --title "Virtual TV v${VERSION}" \
+              --notes-file /tmp/virtualtv-release-notes.md \
+              --latest
+          fi
