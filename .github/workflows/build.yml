@@ -131,7 +131,7 @@ jobs:
               'StartIndex = 0',
               'PlayCommand = PlayCommand.PlayNow',
               'SessionMessageType.Play',
-              'queue length 1',
+              'server request item count 1',
               'PrepareVodHandoff(context, entry, sourceItemId, 0)',
               'reason + "; concrete Personalized TV"',
               'CompleteResumeSeekAsync',
