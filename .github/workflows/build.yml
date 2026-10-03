@@ -654,7 +654,7 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.event.head_commit.message == 'Prepare final Virtual TV 2.0.1.0 hotfix release')
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -717,26 +717,17 @@ jobs:
           Manual installation is also supported using the ZIP attached to this release.
           EOF
 
-          # Consolidate public history to exactly v2.0.0.0 + v2.0.1.0.
-          # v2.0.0.0 is intentionally preserved unchanged.
-          if gh release view "v2.0.1.1" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release delete "v2.0.1.1" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y
-          else
-            git push origin :refs/tags/v2.0.1.1 >/dev/null 2>&1 || true
-          fi
-
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y
+            gh release upload "${TAG}" "${ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "Virtual TV v${VERSION}" --notes-file /tmp/virtualtv-release-notes.md --latest
           else
-            git push origin ":refs/tags/${TAG}" >/dev/null 2>&1 || true
+            gh release create "${TAG}" "${ZIP}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${RELEASE_TARGET}" \
+              --title "Virtual TV v${VERSION}" \
+              --notes-file /tmp/virtualtv-release-notes.md \
+              --latest
           fi
-
-          gh release create "${TAG}" "${ZIP}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --target "${RELEASE_TARGET}" \
-            --title "Virtual TV v${VERSION}" \
-            --notes-file /tmp/virtualtv-release-notes.md \
-            --latest
 
           python3 - "${VERSION}" "${SOURCE_URL}" "${CHECKSUM}" <<'PY'
           import json
