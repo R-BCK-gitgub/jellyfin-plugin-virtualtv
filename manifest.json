@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "2.0.1.0",
-        "changelog": "Virtual TV 2.0.1 adds per-channel Standard TV broadcast quality (480p, 720p or 1080p), a Clone Channel action that opens a new pre-filled channel without copying its schedule, and Android TV compatibility handling for Standard TV Record-to-Play-from-Beginning. Existing Standard TV channels retain the historical 720p setting until edited; new channels default to 1080p in the editor. Personalized TV scheduling and playback rules are unchanged.",
+        "changelog": "Virtual TV 2.0.1.0 adds per-channel Standard TV quality (480p, 720p or 1080p), Clone Channel, Android TV Record-to-Play-from-Beginning compatibility, optional Hide from Android TV for Personalized channels, and an Android phone/tablet-specific Personalized TV handoff. Web and webOS behavior remains unchanged.",
         "targetAbi": "12.1.0.0",
         "timestamp": "2026-10-03T12:10:00Z",
         "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v2.0.1.0/VirtualTV-Jellyfin-12.1-v2.0.1.0.zip",
