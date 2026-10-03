@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/assets/virtual-tv-plugin-banner-hq.png",
     "versions": [
       {
+        "version": "2.0.1.1",
+        "changelog": "Virtual TV 2.0.1.1 improves channel-management UI and Save feedback, stabilizes Personalized TV handoff on Jellyfin for Android, prevents failed handoffs from leaving an infinite Loading screen, and makes Hide from Android TV compatible with legacy/current Android TV client names including Google TV and Fire TV deployments.",
+        "targetAbi": "12.1.0.0",
+        "timestamp": "2026-10-03T14:35:00Z",
+        "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v2.0.1.1/VirtualTV-Jellyfin-12.1-v2.0.1.1.zip",
+        "checksum": ""
+      },
+      {
         "version": "2.0.1.0",
         "changelog": "Virtual TV 2.0.1.0 adds per-channel Standard TV quality (480p, 720p or 1080p), Clone Channel, Android TV Record-to-Play-from-Beginning compatibility, optional Hide from Android TV for Personalized channels, and an Android phone/tablet-specific Personalized TV handoff. Web and webOS behavior remains unchanged.",
         "targetAbi": "12.1.0.0",
