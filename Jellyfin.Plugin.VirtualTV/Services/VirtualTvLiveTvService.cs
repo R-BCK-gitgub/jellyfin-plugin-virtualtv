@@ -416,7 +416,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         }
 
         var auth = await _authorizationContext.GetAuthorizationInfo(httpContext).ConfigureAwait(false);
-        return string.Equals(auth.Client, "Jellyfin for Android TV", StringComparison.OrdinalIgnoreCase);
+        return VirtualTvClientPolicy.IsAndroidTv(auth.Client);
     }
 
     private ChannelConfiguration? GetChannel(string externalId)
