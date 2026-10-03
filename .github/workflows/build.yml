@@ -14,7 +14,7 @@ on:
         type: boolean
 
 concurrency:
-  group: virtualtv-build-${{ github.ref }}-${{ github.event_name == 'push' && github.event.head_commit.message == 'Publish authorized Virtual TV 2.0.1.0' && 'release' || 'normal' }}
+  group: virtualtv-build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -605,7 +605,7 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.event.head_commit.message == 'Publish authorized Virtual TV 2.0.1.0')
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -614,11 +614,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="v${VERSION}"
           ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
-          if [ "${{ github.event_name }}" = "push" ]; then
-            RELEASE_TARGET="60696170ef75e13e359fcf3aed002aa159438392"
-          else
-            RELEASE_TARGET="${GITHUB_SHA}"
-          fi
+          RELEASE_TARGET="${GITHUB_SHA}"
 
           # Jellyfin repository packages must place the plugin files at the root of the ZIP.
           # Fixed timestamps + zip -X keep the package checksum stable across documentation-only builds.
@@ -674,13 +670,6 @@ jobs:
 
           Scheduling rules remain unchanged from 2.0.0. Personalized TV now has client-specific compatibility handling for Jellyfin for Android while Web and webOS retain the existing handoff.
           EOF
-
-          git fetch origin "${RELEASE_TARGET}" --depth=1
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force || true
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            git tag -f "${TAG}" "${RELEASE_TARGET}"
-            git push origin "refs/tags/${TAG}" --force
-          fi
 
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
