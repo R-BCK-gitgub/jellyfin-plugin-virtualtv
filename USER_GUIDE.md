@@ -140,7 +140,26 @@ With the native **Jellyfin Android TV** client, **Personalized TV remains unsupp
 
 For this Android TV Play-from-Beginning flow, use Jellyfin's **internal player**; the client's **Use external player** option should remain disabled. Exact device/client behaviour can still vary, so Android TV compatibility remains something worth validating on the actual device.
 
-Use **Jellyfin Web/browser** or a web-based client such as **Jellyfin for webOS** when you need Personalized TV.
+### Android phone and tablet
+
+The normal **Jellyfin for Android** app is treated separately from Android TV. Virtual TV 2.0.1 uses an Android-specific Personalized TV handoff so the native Integrated Player does not have to wait for its slower playback-progress heartbeat: the loading screen begins the buffer from PlaybackStart, Virtual TV explicitly stops that loading player, waits briefly for teardown, and then opens the selected episode or movie.
+
+Web and webOS keep the existing Personalized TV handoff unchanged.
+
+### Hide from Android TV
+
+When **Channel experience = Personalized TV**, the editor can show **Hide from Android TV**.
+
+When enabled, that channel is omitted only from **Jellyfin for Android TV**. It remains available on:
+
+- Jellyfin Web;
+- Jellyfin for webOS;
+- Jellyfin for Android phones;
+- Jellyfin for Android tablets.
+
+Changing this setting is a client-visibility change only and does **not** require Generate New Schedule. Virtual TV also blocks playback of a hidden Personalized channel if an Android TV client reaches it through stale cached data.
+
+Use **Jellyfin Web/browser** or a web-based client such as **Jellyfin for webOS** as the primary reference clients for Personalized TV.
 
 ---
 
@@ -347,6 +366,7 @@ Clone Channel opens the normal channel editor as a **new channel**, pre-filled f
 - per-series season, Specials and True Random weight settings;
 - playback mode and schedule strategy;
 - Standard TV quality;
+- Hide from Android TV;
 - consecutive turns and block settings;
 - visibility and operating hours.
 
