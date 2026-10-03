@@ -61,6 +61,9 @@ public static class VirtualTvModePolicy
     public static int NormalizeEpisodesPerTurn(int count)
         => count == 2 ? 2 : 1;
 
+    public static int NormalizeStandardTvResolution(int resolution)
+        => resolution is 480 or 720 or 1080 ? resolution : 720;
+
     public static int NormalizeSeriesWeight(int weight)
         => Math.Clamp(weight, 1, 100);
 
