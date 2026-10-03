@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a GitHub/Jellyfin full release"
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: virtualtv-build-${{ github.ref }}
@@ -571,7 +577,7 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.version == '2.0.1.0'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
