@@ -167,17 +167,25 @@ jobs:
           if c.count('private async Task SendIsolatedVodPlayNowAsync(') != 1:
               raise SystemExit("Personalized VOD startup implementation is duplicated.")
           if c.count('_sessionManager.SendPlaystateCommand(') != 2:
-              raise SystemExit("Personalized playback must have exactly two automatic Playstate commands: guarded Resume seek and Android-mobile loading Stop.")
+              raise SystemExit("Personalized playback must have exactly two automatic Playstate commands: guarded Resume seek and failed-bootstrap cleanup Stop.")
 
           for token in [
-              'private const string AndroidMobileClient = "Jellyfin for Android";',
-              'PlaybackStart is sufficient, starting the 2-second loading buffer immediately.',
-              'Command = PlaystateCommand.Stop',
-              'AndroidPlayerTeardownBuffer = TimeSpan.FromSeconds(1)',
-              'context.IsAndroidMobile',
+              'private async Task FailBootstrapHandoffAsync(',
+              'Stopping the loading player so the client is not left on an infinite loading screen.',
+              'context.Phase = PlaybackPhase.BootstrapWaitingForProgress;',
+              'No VOD command will be sent until the loading source reports playback progress.',
           ]:
               if token not in c:
-                  raise SystemExit(f"Android mobile handoff invariant missing: {token}")
+                  raise SystemExit(f"Personalized handoff safety invariant missing: {token}")
+
+          for forbidden in [
+              'AndroidPlayerTeardownBuffer',
+              'PlaybackStart is sufficient',
+              'context.IsAndroidMobile',
+              'AndroidMobileClient',
+          ]:
+              if forbidden in c:
+                  raise SystemExit(f"Obsolete Android-specific pre-PlayNow handoff remains: {forbidden}")
 
           # Traditional Personalized: Guide selects item, pending Resume is zero, same PlayNow.
           concrete_start=c.index('private async Task PlayConcreteEntryAsync')
@@ -238,6 +246,7 @@ jobs:
           standard=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
           channel_config=Path("Jellyfin.Plugin.VirtualTV/Configuration/ChannelConfiguration.cs").read_text(encoding="utf-8")
           android_filter=Path("Jellyfin.Plugin.VirtualTV/Services/AndroidTvChannelVisibilityFilter.cs").read_text(encoding="utf-8")
+          client_policy=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvClientPolicy.cs").read_text(encoding="utf-8")
 
           required_generator=[
               'BuildSmartAppendWithRotation(channel, startUtc, targetUtc, prefix, resetRandomState: true)',
@@ -284,6 +293,12 @@ jobs:
               'Hide from Android TV',
               "page.querySelector('#androidTvCompatibilityContainer').style.display=standard?'none':''",
               'existing.HideFromAndroidTv=hideFromAndroidTv',
+              'class="vtv-schedule-cell"',
+              'btnGenerate vtv-schedule-action',
+              'id="btnSaveChannel"',
+              'id="saveStatus"',
+              "saveButton.textContent=saving?'Saving...':'Save channel'",
+              'Dashboard.processPluginConfigurationUpdateResult(result);',
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
@@ -345,11 +360,13 @@ jobs:
           for token in [
               'public bool HideFromAndroidTv { get; set; }',
               'IAsyncResultFilter',
-              'Jellyfin for Android TV',
               'ShouldHideChannel',
               'GetAuthorizationInfo(context.HttpContext)',
+              'VirtualTvClientPolicy.IsAndroidTv(auth.Client)',
+              'LegacyAndroidTvPrefix = "Jellyfin Android TV"',
+              'CurrentAndroidTvPrefix = "Jellyfin for Android TV"',
           ]:
-              if token not in channel_config+android_filter:
+              if token not in channel_config+android_filter+client_policy:
                   raise SystemExit(f"Android TV visibility invariant missing: {token}")
 
           if 'Configure<MvcOptions>' not in Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8"):
