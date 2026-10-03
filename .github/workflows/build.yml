@@ -14,7 +14,7 @@ on:
         type: boolean
 
 concurrency:
-  group: virtualtv-build-${{ github.ref }}
+  group: virtualtv-build-${{ github.ref }}-${{ github.event_name == 'push' && github.event.head_commit.message == 'Publish authorized Virtual TV 2.0.1.0' && 'release' || 'normal' }}
   cancel-in-progress: true
 
 permissions:
@@ -605,7 +605,7 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.event.head_commit.message == 'Publish authorized Virtual TV 2.0.1.0')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -614,6 +614,11 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="v${VERSION}"
           ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            RELEASE_TARGET="$(git rev-parse HEAD^)"
+          else
+            RELEASE_TARGET="${GITHUB_SHA}"
+          fi
 
           # Jellyfin repository packages must place the plugin files at the root of the ZIP.
           # Fixed timestamps + zip -X keep the package checksum stable across documentation-only builds.
@@ -635,7 +640,7 @@ jobs:
           cat > /tmp/virtualtv-release-notes.md <<'EOF'
           # Virtual TV 2.0.1
 
-          Virtual TV 2.0.1 is a maintenance update for Jellyfin 12.1 that adds configurable Standard TV quality, channel cloning and Android TV Play-from-Beginning compatibility handling.
+          Virtual TV 2.0.1.0 is a maintenance update for Jellyfin 12.1 that adds configurable Standard TV quality, channel cloning, Android TV compatibility controls and an Android phone/tablet-specific Personalized TV handoff.
 
           It turns movies and TV shows already available in Jellyfin into custom Live TV-style channels, with both traditional scheduled playback and personalized viewing modes.
 
@@ -645,6 +650,9 @@ jobs:
           - Standard TV quality selectable per channel: 480p, 720p or 1080p
           - Clone Channel to create a new channel from an existing configuration
           - Android TV compatibility handling for Standard TV Play from Beginning
+          - Optional Hide from Android TV for Personalized channels
+          - Android phone/tablet-specific Personalized TV handoff
+          - Web and webOS Personalized TV behavior remains unchanged
           - Sequential, Random and weighted True Random playback
           - Next Unwatched and Random Unwatched modes
           - Resume-first behaviour for partially watched content
@@ -664,16 +672,21 @@ jobs:
 
           Manual installation is also supported using the ZIP attached to this release.
 
-          Personalized TV behavior and scheduling rules remain unchanged from 2.0.0.
+          Scheduling rules remain unchanged from 2.0.0. Personalized TV now has client-specific compatibility handling for Jellyfin for Android while Web and webOS retain the existing handoff.
           EOF
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            git tag -f "${TAG}" "${RELEASE_TARGET}"
+            git push origin "refs/tags/${TAG}" --force
+          fi
 
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
-            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --notes-file /tmp/virtualtv-release-notes.md
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "Virtual TV v${VERSION}" --notes-file /tmp/virtualtv-release-notes.md --latest
           else
             gh release create "${TAG}" "${ZIP}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --target "${GITHUB_SHA}" \
+              --target "${RELEASE_TARGET}" \
               --title "Virtual TV v${VERSION}" \
               --notes-file /tmp/virtualtv-release-notes.md \
               --latest
