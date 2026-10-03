@@ -17,7 +17,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.VirtualTV.Services;
 
-public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStreamProvider
+public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStreamProvider, ISupportsNewTimerIds
 {
     public const string ServiceName = "Virtual TV";
     private const string ChannelPrefix = "virtualtv-";
@@ -129,7 +129,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
 
         var source = VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)
-            ? _standardTv.CreateMenuSource(channel.Id)
+            ? _standardTv.CreateMenuSource(channel)
             : GetPersonalizedBootstrapSource(channel);
 
         return Task.FromResult(new List<MediaSourceInfo> { source });
@@ -215,6 +215,29 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             info.ProgramId,
             cancellationToken,
             "Record series");
+
+    public async Task<string> CreateTimer(TimerInfo info, CancellationToken cancellationToken)
+    {
+        await PlayFromBeginningFromRecordActionAsync(
+            info.ChannelId,
+            info.ProgramId,
+            cancellationToken,
+            "Record / Just this once").ConfigureAwait(false);
+
+        return CreateSyntheticRecordActionId("program");
+    }
+
+    public async Task<string> CreateSeriesTimer(SeriesTimerInfo info, CancellationToken cancellationToken)
+    {
+        await PlayFromBeginningFromRecordActionAsync(
+            info.ChannelId,
+            info.ProgramId,
+            cancellationToken,
+            "Record series").ConfigureAwait(false);
+
+        return CreateSyntheticRecordActionId("series");
+    }
+
     public Task UpdateTimerAsync(TimerInfo updatedTimer, CancellationToken cancellationToken)
         => Task.FromException(new NotSupportedException("Virtual TV DVR recording is not implemented."));
     public Task UpdateSeriesTimerAsync(SeriesTimerInfo info, CancellationToken cancellationToken)
@@ -230,7 +253,8 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
     /// Standard TV already owns the content, so its native Jellyfin Record action is repurposed
     /// as a zero-UI shortcut to open the currently airing library item from the beginning.
     /// Both the single-program and Android TV "Record series" paths arrive here.
-    /// No DVR timer is created and Personalized TV is never affected.
+    /// ISupportsNewTimerIds returns a short-lived synthetic id so native clients receive a valid
+    /// TimerCreated/SeriesTimerCreated event, but no DVR timer is stored and Personalized TV is never affected.
     /// </summary>
     private async Task PlayFromBeginningFromRecordActionAsync(
         string? channelId,
@@ -328,6 +352,9 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             request,
             cancellationToken).ConfigureAwait(false);
     }
+
+    private static string CreateSyntheticRecordActionId(string kind)
+        => "virtualtv-playfrombeginning-" + kind + "-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
 
     private VirtualTvScheduleEntry? ResolveRecordActionEntry(
         string channelId,
