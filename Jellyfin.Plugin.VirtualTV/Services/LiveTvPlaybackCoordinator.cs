@@ -39,6 +39,11 @@ public sealed class LiveTvPlaybackCoordinator
     private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DuplicateTuneFallbackWindow = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AndroidBootstrapProgressTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan AndroidControlReadyTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan AndroidControlReadyPollInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan AndroidVodStartAckTimeout = TimeSpan.FromSeconds(10);
+    private const int AndroidVodPlayMaxAttempts = 2;
 
     private readonly ISessionManager _sessionManager;
     private readonly ILibraryManager _libraryManager;
@@ -147,6 +152,18 @@ public sealed class LiveTvPlaybackCoordinator
             || context.LiveChannelItemId != liveChannel.Id
             || !string.Equals(context.ChannelId, configurationChannelId, StringComparison.OrdinalIgnoreCase))
         {
+            return Task.CompletedTask;
+        }
+
+        // Jellyfin starts server-side automatic progress immediately after PlaybackStart.
+        // That is not proof that the Android phone/tablet client has actually entered stable
+        // playback. Wait for a real client check-in on Android mobile before arming the handoff.
+        if (context.IsAndroidMobile && eventArgs.IsAutomated)
+        {
+            _logger.LogDebug(
+                "Virtual TV ignored automated loading progress for Android mobile session {SessionId}, generation {Generation}. Waiting for a real client progress report.",
+                sessionId,
+                context.Generation);
             return Task.CompletedTask;
         }
 
@@ -304,6 +321,11 @@ public sealed class LiveTvPlaybackCoordinator
                 existing.Generation,
                 existing.ChannelName);
 
+            if (existing.IsAndroidMobile)
+            {
+                _ = MonitorAndroidBootstrapProgressAsync(existing);
+            }
+
             return Task.CompletedTask;
         }
 
@@ -359,6 +381,7 @@ public sealed class LiveTvPlaybackCoordinator
             contentMode,
             liveChannel.Id,
             eventArgs.PlaySessionId ?? string.Empty,
+            VirtualTvClientPolicy.IsAndroidMobile(eventArgs.Session.Client),
             Interlocked.Increment(ref _nextGeneration));
 
         _sessions[sessionId] = context;
@@ -370,6 +393,11 @@ public sealed class LiveTvPlaybackCoordinator
             context.ChannelName,
             eventArgs.Session.Client ?? string.Empty,
             context.ContentMode);
+
+        if (context.IsAndroidMobile)
+        {
+            _ = MonitorAndroidBootstrapProgressAsync(context);
+        }
 
         return Task.CompletedTask;
     }
@@ -486,6 +514,35 @@ public sealed class LiveTvPlaybackCoordinator
         }
 
         EndSession(sessionId, context.Generation, "unrelated playback started");
+    }
+
+    private async Task MonitorAndroidBootstrapProgressAsync(SessionContext context)
+    {
+        try
+        {
+            await Task.Delay(AndroidBootstrapProgressTimeout, context.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!IsCurrent(context))
+        {
+            return;
+        }
+
+        lock (context.Gate)
+        {
+            if (context.Phase != PlaybackPhase.BootstrapWaitingForProgress)
+            {
+                return;
+            }
+        }
+
+        await FailBootstrapHandoffAsync(
+            context,
+            "Android mobile did not report real loading playback progress before the bootstrap timeout").ConfigureAwait(false);
     }
 
     private async Task CompleteBootstrapBufferAsync(SessionContext context)
@@ -836,12 +893,29 @@ public sealed class LiveTvPlaybackCoordinator
                 }
             }
 
-            var targetSession = _sessionManager.Sessions.FirstOrDefault(
-                session => string.Equals(session.Id, context.SessionId, StringComparison.Ordinal));
+            var targetSession = context.IsAndroidMobile
+                ? await WaitForAndroidControllableSessionAsync(context).ConfigureAwait(false)
+                : FindTargetSession(context.SessionId);
 
-            if (targetSession is null || targetSession.SessionControllers.Count == 0)
+            if (targetSession is null)
             {
-                await FailBootstrapHandoffAsync(context, "target session has no active controller for isolated VOD PlayNow").ConfigureAwait(false);
+                await FailBootstrapHandoffAsync(
+                    context,
+                    context.IsAndroidMobile
+                        ? "Android mobile target session never became active and remotely controllable"
+                        : "target session has no active controller for isolated VOD PlayNow").ConfigureAwait(false);
+                return;
+            }
+
+            var controllers = context.IsAndroidMobile
+                ? targetSession.SessionControllers
+                    .Where(controller => controller.IsSessionActive && controller.SupportsMediaControl)
+                    .ToArray()
+                : targetSession.SessionControllers.ToArray();
+
+            if (controllers.Length == 0)
+            {
+                await FailBootstrapHandoffAsync(context, "target session has no active media-control controller for isolated VOD PlayNow").ConfigureAwait(false);
                 return;
             }
 
@@ -868,14 +942,16 @@ public sealed class LiveTvPlaybackCoordinator
                 TimeSpan.FromTicks(resumeTicks).TotalSeconds,
                 reason);
 
-            var messageId = Guid.NewGuid();
-            foreach (var controller in targetSession.SessionControllers)
+            await SendRawPlayMessageAsync(
+                controllers,
+                request,
+                context.Token).ConfigureAwait(false);
+
+            if (context.IsAndroidMobile)
             {
-                await controller.SendMessage(
-                    SessionMessageType.Play,
-                    messageId,
-                    request,
-                    context.Token).ConfigureAwait(false);
+                // A successful WebSocket write is not an acknowledgement that the Android
+                // WebView/native bridge opened the item. Watch for the real VOD PlaybackStart.
+                _ = MonitorAndroidVodStartAsync(context, itemId, request, reason);
             }
         }
         catch (OperationCanceledException) when (context.Token.IsCancellationRequested)
@@ -895,6 +971,189 @@ public sealed class LiveTvPlaybackCoordinator
         finally
         {
             gate.Release();
+        }
+    }
+
+    private SessionInfo? FindTargetSession(string sessionId)
+        => _sessionManager.Sessions.FirstOrDefault(
+            session => string.Equals(session.Id, sessionId, StringComparison.Ordinal));
+
+    private async Task<SessionInfo?> WaitForAndroidControllableSessionAsync(
+        SessionContext context)
+    {
+        var deadlineUtc = DateTime.UtcNow + AndroidControlReadyTimeout;
+
+        while (IsCurrent(context))
+        {
+            var session = FindTargetSession(context.SessionId);
+            if (session is not null
+                && session.IsActive
+                && session.SupportsRemoteControl
+                && session.SessionControllers.Any(
+                    controller => controller.IsSessionActive && controller.SupportsMediaControl))
+            {
+                return session;
+            }
+
+            if (DateTime.UtcNow >= deadlineUtc)
+            {
+                return null;
+            }
+
+            try
+            {
+                await Task.Delay(AndroidControlReadyPollInterval, context.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task SendRawPlayMessageAsync(
+        IReadOnlyCollection<ISessionController> controllers,
+        PlayRequest request,
+        CancellationToken cancellationToken)
+    {
+        var messageId = Guid.NewGuid();
+        foreach (var controller in controllers)
+        {
+            await controller.SendMessage(
+                SessionMessageType.Play,
+                messageId,
+                request,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task MonitorAndroidVodStartAsync(
+        SessionContext context,
+        Guid itemId,
+        PlayRequest request,
+        string reason)
+    {
+        for (var attempt = 1; attempt <= AndroidVodPlayMaxAttempts; attempt++)
+        {
+            try
+            {
+                await Task.Delay(AndroidVodStartAckTimeout, context.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (!IsCurrent(context))
+            {
+                return;
+            }
+
+            lock (context.Gate)
+            {
+                if (context.Phase == PlaybackPhase.Vod
+                    && context.CurrentVodItemId == itemId)
+                {
+                    return;
+                }
+
+                if (context.Phase != PlaybackPhase.AwaitingVod
+                    || context.PendingVodItemId != itemId)
+                {
+                    return;
+                }
+            }
+
+            if (attempt >= AndroidVodPlayMaxAttempts)
+            {
+                await FailBootstrapHandoffAsync(
+                    context,
+                    "Android mobile did not acknowledge isolated VOD PlayNow with PlaybackStart after retry").ConfigureAwait(false);
+                return;
+            }
+
+            var gate = _commandGates.GetOrAdd(context.SessionId, _ => new SemaphoreSlim(1, 1));
+            try
+            {
+                await gate.WaitAsync(context.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!IsCurrent(context))
+                {
+                    return;
+                }
+
+                lock (context.Gate)
+                {
+                    if (context.Phase != PlaybackPhase.AwaitingVod
+                        || context.PendingVodItemId != itemId)
+                    {
+                        return;
+                    }
+                }
+
+                var targetSession = await WaitForAndroidControllableSessionAsync(context).ConfigureAwait(false);
+                if (targetSession is null)
+                {
+                    await FailBootstrapHandoffAsync(
+                        context,
+                        "Android mobile target session was no longer remotely controllable before VOD retry").ConfigureAwait(false);
+                    return;
+                }
+
+                var controllers = targetSession.SessionControllers
+                    .Where(controller => controller.IsSessionActive && controller.SupportsMediaControl)
+                    .ToArray();
+
+                if (controllers.Length == 0)
+                {
+                    await FailBootstrapHandoffAsync(
+                        context,
+                        "Android mobile target session had no active media-control controller before VOD retry").ConfigureAwait(false);
+                    return;
+                }
+
+                _logger.LogWarning(
+                    "Virtual TV Android mobile VOD PlayNow was not acknowledged for session {SessionId}, generation {Generation}, item {ItemId} within {TimeoutSeconds:F0}s. Retrying once; reason {Reason}.",
+                    context.SessionId,
+                    context.Generation,
+                    itemId,
+                    AndroidVodStartAckTimeout.TotalSeconds,
+                    reason);
+
+                await SendRawPlayMessageAsync(
+                    controllers,
+                    request,
+                    context.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (context.Token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Virtual TV Android mobile VOD retry failed for session {SessionId}, generation {Generation}, item {ItemId}.",
+                    context.SessionId,
+                    context.Generation,
+                    itemId);
+
+                await FailBootstrapHandoffAsync(context, "Android mobile isolated VOD PlayNow retry failed").ConfigureAwait(false);
+                return;
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
     }
 
@@ -1173,6 +1432,7 @@ public sealed class LiveTvPlaybackCoordinator
             string contentMode,
             Guid liveChannelItemId,
             string bootstrapPlaySessionId,
+            bool isAndroidMobile,
             long generation)
         {
             SessionId = sessionId;
@@ -1182,6 +1442,7 @@ public sealed class LiveTvPlaybackCoordinator
             ContentMode = contentMode;
             LiveChannelItemId = liveChannelItemId;
             BootstrapPlaySessionId = bootstrapPlaySessionId;
+            IsAndroidMobile = isAndroidMobile;
             Generation = generation;
             Phase = PlaybackPhase.BootstrapWaitingForProgress;
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
@@ -1206,6 +1467,8 @@ public sealed class LiveTvPlaybackCoordinator
         public Guid LiveChannelItemId { get; }
 
         public long Generation { get; }
+
+        public bool IsAndroidMobile { get; }
 
         public bool IsDynamicUnwatched { get; }
 

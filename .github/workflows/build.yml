@@ -181,11 +181,23 @@ jobs:
           for forbidden in [
               'AndroidPlayerTeardownBuffer',
               'PlaybackStart is sufficient',
-              'context.IsAndroidMobile',
               'AndroidMobileClient',
           ]:
               if forbidden in c:
                   raise SystemExit(f"Obsolete Android-specific pre-PlayNow handoff remains: {forbidden}")
+
+          for token in [
+              'AndroidBootstrapProgressTimeout = TimeSpan.FromSeconds(15)',
+              'eventArgs.IsAutomated',
+              'context.IsAndroidMobile',
+              'WaitForAndroidControllableSessionAsync',
+              'session.SupportsRemoteControl',
+              'controller.IsSessionActive && controller.SupportsMediaControl',
+              'MonitorAndroidVodStartAsync',
+              'AndroidVodPlayMaxAttempts = 2',
+          ]:
+              if token not in c:
+                  raise SystemExit(f"Android mobile Personalized handoff invariant missing: {token}")
 
           # Traditional Personalized: Guide selects item, pending Resume is zero, same PlayNow.
           concrete_start=c.index('private async Task PlayConcreteEntryAsync')
