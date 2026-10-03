@@ -615,7 +615,7 @@ jobs:
           TAG="v${VERSION}"
           ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
           if [ "${{ github.event_name }}" = "push" ]; then
-            RELEASE_TARGET="$(git rev-parse HEAD^)"
+            RELEASE_TARGET="60696170ef75e13e359fcf3aed002aa159438392"
           else
             RELEASE_TARGET="${GITHUB_SHA}"
           fi
