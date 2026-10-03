@@ -98,8 +98,8 @@ jobs:
           if package.get("owner")!="R-BCK-gitgub":
               raise SystemExit("Repository manifest owner must be R-BCK-gitgub.")
           versions=package.get("versions") or []
-          if not any(v.get("version")=="2.0.1.0" and v.get("targetAbi")=="12.1.0.0" for v in versions):
-              raise SystemExit("Repository manifest is missing the Jellyfin 12.1 Virtual TV 2.0 release.")
+          if not any(v.get("version")=="2.0.1.1" and v.get("targetAbi")=="12.1.0.0" for v in versions):
+              raise SystemExit("Repository manifest is missing the Jellyfin 12.1 Virtual TV 2.0.1.1 release.")
           print("Full-release repository manifest metadata validation passed.")
           PY
 
