@@ -128,6 +128,20 @@ Standard TV is useful when you want:
 - channel surfing without affecting Continue Watching or watched status;
 - a fixed programme guide that behaves like normal television.
 
+## Client compatibility (important)
+
+Virtual TV uses a few client-side behaviours that are not identical across Jellyfin apps. These features are currently tested primarily with **Jellyfin Web in a browser** and **Jellyfin for webOS**. The webOS app is a lightweight wrapper around the Jellyfin Web interface provided by the server, so its playback behaviour is generally closer to the browser than to fully native TV clients.
+
+### Android TV
+
+With the native **Jellyfin Android TV** client versions tested so far, **Personalized TV channels do not work correctly**. The required handoff from the Virtual TV Live TV/loading source to the selected normal Jellyfin library item does not complete as expected, so Personalized TV should currently be considered **unsupported on Android TV**.
+
+The repurposed Standard TV **Record → Play from Beginning** flow also depends on client-side Record/PlayNow behaviour and has **not worked reliably in the limited Android TV testing performed for Virtual TV**.
+
+This does not mean that all Virtual TV functionality is unavailable on Android TV. **Standard TV's normal linear Live TV playback is a separate path and may still work**, although exact behaviour can vary between Jellyfin client versions and devices.
+
+For features that depend on the Live TV → normal player handoff, use **Jellyfin Web/browser** or a web-based client such as **Jellyfin for webOS**. This compatibility note describes the current Virtual TV test results; future Jellyfin client or plugin changes may change this behaviour.
+
 ---
 
 # 3. The Standard TV Record button
@@ -152,7 +166,7 @@ From that point onward you are no longer watching the live channel. You are watc
 
 Virtual TV does not create a DVR recording, recording file or recording timer.
 
-The button is only being reused because Jellyfin already exposes it consistently across clients and there is currently no universal plugin button that can be added to every Jellyfin player.
+The button is only being reused because Jellyfin exposes a Record action on many clients and there is currently no universal plugin button that can be added to every Jellyfin player. Client behaviour is not identical: in the Android TV versions tested so far, this repurposed action has not worked reliably.
 
 Some Jellyfin clients may still briefly show messages such as:
 
@@ -1457,16 +1471,13 @@ The same applies to a temporary red Record icon in the Guide.
 
 ---
 
-## What does "Record series" do on Android TV?
+## Does Play from Beginning work on Android TV?
 
-For a Virtual TV Standard TV channel, both:
+Not reliably in the Android TV client versions tested so far.
 
-- **Just this once**
-- **Record series**
+Virtual TV's **Play from Beginning** feature reuses Jellyfin's Record command and then asks the client to leave Live TV and open the real library item from 00:00. In the limited Android TV testing performed for Virtual TV, that client-side handoff has not worked consistently.
 
-are routed to the same Virtual TV action: open the programme currently on air from the beginning.
-
-No series recording rule is created.
+For now, treat **Record → Play from Beginning** as a browser/webOS-oriented feature. No real recording or series recording rule is created by Virtual TV.
 
 ---
 
