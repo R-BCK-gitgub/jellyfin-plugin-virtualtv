@@ -86,7 +86,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="2.0.1.1" or len(set(values.values()))!=1:
+          if version!="2.0.1.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
 
           manifest=json.loads(Path("manifest.json").read_text(encoding="utf-8"))
@@ -98,8 +98,11 @@ jobs:
           if package.get("owner")!="R-BCK-gitgub":
               raise SystemExit("Repository manifest owner must be R-BCK-gitgub.")
           versions=package.get("versions") or []
-          if not any(v.get("version")=="2.0.1.1" and v.get("targetAbi")=="12.1.0.0" for v in versions):
-              raise SystemExit("Repository manifest is missing the Jellyfin 12.1 Virtual TV 2.0.1.1 release.")
+          version_names=[v.get("version") for v in versions]
+          if version_names != ["2.0.1.0","2.0.0.0"]:
+              raise SystemExit(f"Public manifest must contain only 2.0.1.0 and 2.0.0.0, got: {version_names}")
+          if versions[0].get("targetAbi")!="12.1.0.0":
+              raise SystemExit("Virtual TV 2.0.1.0 target ABI must be Jellyfin 12.1.")
           print("Full-release repository manifest metadata validation passed.")
           PY
 
@@ -293,7 +296,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="2.0.1.1"',
+              'data-ui-version="2.0.1.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -587,7 +590,7 @@ jobs:
         run: |
           set -euo pipefail
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="2.0.1.1"' "$DLL"
+          grep -a -q 'data-ui-version="2.0.1.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -651,7 +654,7 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.event.head_commit.message == 'Prepare final Virtual TV 2.0.1.0 hotfix release')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -680,57 +683,60 @@ jobs:
           SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP}"
 
           cat > /tmp/virtualtv-release-notes.md <<'EOF'
-          # Virtual TV 2.0.1.1
+          # Virtual TV 2.0.1.0
 
-          Virtual TV 2.0.1.1 is a maintenance update for Jellyfin 12.1 focused on Android client compatibility and administration UI polish.
+          Virtual TV 2.0.1.0 is the consolidated hotfix for Virtual TV 2.0 on Jellyfin 12.1.
 
-          It turns movies and TV shows already available in Jellyfin into custom Live TV-style channels, with both traditional scheduled playback and personalized viewing modes.
+          It preserves the validated 2.0 scheduling/playback model while incorporating the maintenance fixes developed after the initial release.
 
-          ## Highlights
+          ## Hotfix highlights
 
-          - Standard TV and Personalized TV channel experiences
           - Standard TV quality selectable per channel: 480p, 720p or 1080p
-          - Clone Channel to create a new channel from an existing configuration
-          - Android TV compatibility handling for Standard TV Play from Beginning
-          - Hide from Android TV supports legacy and current Android TV client names, including Google TV / Fire TV deployments
-          - Personalized TV on Android phone/tablet now waits for confirmed loading playback and no longer performs a manual pre-PlayNow Stop
-          - Failed Personalized handoffs stop the loading player instead of leaving an infinite loading screen
-          - Schedule status and Generate New Schedule are grouped cleanly in the Schedule column
-          - Hide from Android TV and Save/Saving feedback have improved UI
-          - Web and webOS Personalized TV behavior remains unchanged
-          - Sequential, Random and weighted True Random playback
-          - Next Unwatched and Random Unwatched modes
+          - Clone Channel
+          - Standard TV Play from Beginning compatibility on Android TV
+          - Optional Hide from Android TV for Personalized channels, covering legacy/current Android TV client names
+          - Cleaner channel editor, schedule controls and Save/Saving feedback
+          - Validated Personalized TV handoff on Jellyfin for Android phones/tablets: Loading resolves the item and routes Play through the companion WebView control session, following Jellyfin's normal local playback path
+          - Personalized VOD physical EOF returns to Virtual TV Loading before the next programme is resolved
+          - Sequential, Random, weighted True Random, Next Unwatched and Random Unwatched modes
           - Resume-first behaviour for partially watched content
-          - Flexible scheduling and programme blocks
-          - Per-user channel visibility
-          - Content Coverage reporting
-          - Jellyfin Live TV Guide integration
-          - Start the current Standard TV programme from the beginning
+          - Per-user channel visibility and Content Coverage reporting
+
+          ## Android phone/tablet note
+
+          For the Personalized TV EOF → Loading → next-programme flow, keep **Play next episode automatically** disabled for the Virtual TV user.
 
           ## Installation
 
-          The recommended method is to add the Virtual TV repository to Jellyfin and install the plugin directly from **Dashboard → Plugins → Catalog**.
+          Recommended: add the Virtual TV repository in **Dashboard → Plugins → Repositories** and install/update from the Jellyfin plugin catalog.
 
           Repository URL:
 
           `https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/manifest.json`
 
           Manual installation is also supported using the ZIP attached to this release.
-
-          Scheduling rules, Standard TV streaming rules, watched-state selection logic, Clone Channel and existing Web/webOS behavior remain unchanged.
           EOF
 
-          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "${ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
-            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "Virtual TV v${VERSION}" --notes-file /tmp/virtualtv-release-notes.md --latest
+          # Consolidate public history to exactly v2.0.0.0 + v2.0.1.0.
+          # v2.0.0.0 is intentionally preserved unchanged.
+          if gh release view "v2.0.1.1" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release delete "v2.0.1.1" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y
           else
-            gh release create "${TAG}" "${ZIP}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --target "${RELEASE_TARGET}" \
-              --title "Virtual TV v${VERSION}" \
-              --notes-file /tmp/virtualtv-release-notes.md \
-              --latest
+            git push origin :refs/tags/v2.0.1.1 >/dev/null 2>&1 || true
           fi
+
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y
+          else
+            git push origin ":refs/tags/${TAG}" >/dev/null 2>&1 || true
+          fi
+
+          gh release create "${TAG}" "${ZIP}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${RELEASE_TARGET}" \
+            --title "Virtual TV v${VERSION}" \
+            --notes-file /tmp/virtualtv-release-notes.md \
+            --latest
 
           python3 - "${VERSION}" "${SOURCE_URL}" "${CHECKSUM}" <<'PY'
           import json

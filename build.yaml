@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "2.0.1.1"
+version: "2.0.1.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Virtual TV 2.0.1.1 improves the channel-management UI and save feedback, stabilizes Personalized TV handoff on Jellyfin for Android by using the same confirmed-loading flow as Web/webOS, prevents failed handoffs from leaving an infinite loading screen, and makes Hide from Android TV compatible with legacy and current Jellyfin Android TV client names including Google TV/Fire TV deployments.
+  Virtual TV 2.0.1.0 is the consolidated hotfix for the 2.0 release. It includes per-channel Standard TV quality, Clone Channel, Android TV compatibility/visibility handling, administration UI improvements, and the validated Jellyfin for Android phone/tablet Personalized TV WebView handoff so Loading opens the selected item through Jellyfin's normal local playback path.

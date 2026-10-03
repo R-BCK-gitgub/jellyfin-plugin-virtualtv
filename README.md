@@ -47,9 +47,9 @@ With the native **Jellyfin Android TV** client, **Personalized TV remains unsupp
 
 Virtual TV 2.0.1 also adds Android-TV-specific compatibility handling for the Standard TV **Record → Play from Beginning** shortcut. Android TV uses a native DVR workflow before accepting the resulting PlayNow command, so Virtual TV now returns a valid synthetic timer identifier while still creating no real recording. The feature is designed to open the programme currently on air from 00:00 in Jellyfin's internal player. Client/device behaviour can still vary, and Android TV's **Use external player** option should remain disabled for this flow.
 
-On **Jellyfin for Android** phones and tablets, Virtual TV 2.0.1.1 uses the same confirmed-loading principle as Web/webOS: PlaybackStart arms the handoff, the first real PlaybackProgress confirms the loading player is active, a short buffer runs, and Virtual TV then opens the selected episode or movie. The previous Android-specific pre-PlayNow Stop has been removed. If the handoff cannot be completed, Virtual TV now stops the loading player instead of leaving an infinite loading screen.
+On **Jellyfin for Android** phones and tablets, Virtual TV 2.0.1.0 keeps the normal Loading → VOD flow but routes the selected episode/movie through the app's companion WebView control session. This makes the handoff follow Jellyfin's normal local `playbackManager.play()` path used when Play is pressed on an episode. Physical EOF returns to Virtual TV Loading before the next programme is resolved; for this Virtual TV flow, **Play next episode automatically should remain disabled** for the user.
 
-Personalized channels can also be configured with **Hide from Android TV**. Virtual TV 2.0.1.1 recognizes both legacy `Jellyfin Android TV` and current `Jellyfin for Android TV` client names (including debug suffixes), covering Android TV, Google TV and Fire TV devices using that client. Hidden channels are filtered from Android TV Live TV channel/program responses while remaining visible on Web, webOS and Android phones/tablets.
+Personalized channels can also be configured with **Hide from Android TV**. Virtual TV 2.0.1.0 recognizes both legacy `Jellyfin Android TV` and current `Jellyfin for Android TV` client names (including debug suffixes), covering Android TV, Google TV and Fire TV devices using that client. Hidden channels are filtered from Android TV Live TV channel/program responses while remaining visible on Web, webOS and Android phones/tablets.
 
 Jellyfin Web/browser and web-based clients such as Jellyfin for webOS remain the primary reference clients for **Personalized TV**.
 
@@ -78,7 +78,7 @@ Your original media remains in Jellyfin; Virtual TV simply creates another way t
 
 ## Current release
 
-The current release is **Virtual TV v2.0.1.1**, developed and validated for **Jellyfin 12.1**.
+The current release is **Virtual TV v2.0.1.0**, developed and validated for **Jellyfin 12.1**.
 
 Virtual TV is still a personal project and will continue to evolve as new ideas, improvements and issues are found through everyday use.
 

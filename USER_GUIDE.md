@@ -4,7 +4,7 @@ This guide explains how to create and configure Virtual TV channels in plain lan
 
 It is written for people who want to use the plugin without needing to understand how Jellyfin plugins, Live TV providers or playback APIs work.
 
-> **Version covered:** Virtual TV 2.0.1.1 for Jellyfin 12.1.
+> **Version covered:** Virtual TV 2.0.1.0 for Jellyfin 12.1.
 
 ## Installation
 
@@ -136,13 +136,13 @@ Virtual TV uses a few client-side behaviours that are not identical across Jelly
 
 With the native **Jellyfin Android TV** client, **Personalized TV remains unsupported**. Its Live TV/loading-source → normal library-item handoff does not behave like Jellyfin Web, so watched-dependent Personalized TV features should not be expected to work there.
 
-**Standard TV uses Jellyfin's normal Live TV path and is supported by the current Virtual TV architecture.** Virtual TV 2.0.1.1 also includes Android-TV-specific handling for the Standard TV **Record → Play from Beginning** action. Android TV first performs its native DVR request flow, so Virtual TV returns a valid synthetic timer identifier and then sends the normal Jellyfin PlayNow command for the programme currently on air. No real recording or DVR timer is stored.
+**Standard TV uses Jellyfin's normal Live TV path and is supported by the current Virtual TV architecture.** Virtual TV 2.0.1.0 also includes Android-TV-specific handling for the Standard TV **Record → Play from Beginning** action. Android TV first performs its native DVR request flow, so Virtual TV returns a valid synthetic timer identifier and then sends the normal Jellyfin PlayNow command for the programme currently on air. No real recording or DVR timer is stored.
 
 For this Android TV Play-from-Beginning flow, use Jellyfin's **internal player**; the client's **Use external player** option should remain disabled. Exact device/client behaviour can still vary, so Android TV compatibility remains something worth validating on the actual device.
 
 ### Android phone and tablet
 
-The normal **Jellyfin for Android** app is treated separately from Android TV. In Virtual TV 2.0.1.1, Android phones/tablets use the same confirmed-loading principle as Web and webOS: PlaybackStart arms the bootstrap, the first real PlaybackProgress confirms that the loading source is actually playing, the normal short buffer runs, and Virtual TV then opens the selected episode or movie.
+The normal **Jellyfin for Android** app is treated separately from Android TV. In Virtual TV 2.0.1.0, Android phones/tablets use the normal confirmed-loading bootstrap and then route the selected episode/movie through the companion WebView control session for the same local `playbackManager.play()` path used by Jellyfin when Play is pressed on an episode. Physical EOF returns to the Virtual TV Loading source before the next programme is resolved. Keep **Play next episode automatically** disabled for the Virtual TV user so Jellyfin does not advance its own episode queue.
 
 The previous Android-specific manual Stop before PlayNow was removed because Jellyfin already handles replacement of the current player when PlayNow is received. If a Personalized handoff fails before the real item can open, Virtual TV now stops the loading player and logs the reason instead of leaving an endless Loading Virtual TV screen.
 
@@ -169,7 +169,7 @@ Use **Jellyfin Web/browser** or a web-based client such as **Jellyfin for webOS*
 
 # 3. The Standard TV Record button
 
-This is an important Virtual TV 2.0.1.1 behaviour.
+This is an important Virtual TV 2.0.1.0 behaviour.
 
 On a Standard TV channel, Virtual TV repurposes Jellyfin's normal **Record** action as a **Play from Beginning** shortcut.
 
@@ -189,7 +189,7 @@ From that point onward you are no longer watching the live channel. You are watc
 
 Virtual TV does not create a DVR recording, recording file or recording timer.
 
-The button is only being reused because Jellyfin exposes a Record action on many clients and there is currently no universal plugin button that can be added to every Jellyfin player. On Android TV, Virtual TV 2.0.1.1 also satisfies the client's native DVR request flow with a synthetic timer identifier before opening the actual item; no real timer is stored.
+The button is only being reused because Jellyfin exposes a Record action on many clients and there is currently no universal plugin button that can be added to every Jellyfin player. On Android TV, Virtual TV 2.0.1.0 also satisfies the client's native DVR request flow with a synthetic timer identifier before opening the actual item; no real timer is stored.
 
 Some Jellyfin clients may still briefly show messages such as:
 
