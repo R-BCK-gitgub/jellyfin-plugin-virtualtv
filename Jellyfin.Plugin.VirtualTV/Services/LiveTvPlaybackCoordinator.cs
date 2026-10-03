@@ -29,8 +29,10 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 ///
 /// This keeps client state transitions explicit and serial, avoids VOD-to-VOD auto-next races, and
 /// gives webOS/Android TV time to tear down one player before the next request is issued.
-/// Concrete VOD items are sent as raw one-item Play messages so Jellyfin cannot expand an episode
-/// into the rest of its series; Virtual TV never exposes a native Next Up item.
+/// Concrete VOD items are sent as raw one-item Play messages so the Jellyfin server cannot expand
+/// an episode into the rest of its series. On Android mobile the command is routed through the
+/// companion WebView control session so playback follows the same local playbackManager path as
+/// pressing Play on an episode in the app. Physical EOF remains owned by Virtual TV.
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
@@ -382,6 +384,8 @@ public sealed class LiveTvPlaybackCoordinator
             liveChannel.Id,
             eventArgs.PlaySessionId ?? string.Empty,
             VirtualTvClientPolicy.IsAndroidMobile(eventArgs.Session.Client),
+            eventArgs.Session.DeviceId ?? string.Empty,
+            eventArgs.Session.DeviceName ?? string.Empty,
             Interlocked.Increment(ref _nextGeneration));
 
         _sessions[sessionId] = context;
@@ -510,6 +514,16 @@ public sealed class LiveTvPlaybackCoordinator
                 sessionId,
                 context.Generation,
                 pendingVod.Value);
+            return;
+        }
+
+        if (context.IsAndroidMobile && phase == PlaybackPhase.AwaitingBootstrap)
+        {
+            _logger.LogWarning(
+                "Virtual TV Android mobile observed unexpected VOD item {ItemId} while returning to Loading for session {SessionId}, generation {Generation}. Keeping Virtual TV ownership; the pending bootstrap PlayNow will replace it.",
+                startedItemId,
+                sessionId,
+                context.Generation);
             return;
         }
 
@@ -848,9 +862,13 @@ public sealed class LiveTvPlaybackCoordinator
     /// "Play next episode automatically" setting is enabled. That server-side expansion creates
     /// Next Up / SxxExx queue items that are wrong for Virtual TV.
     ///
-    /// Sending the already-resolved concrete item as a raw SessionMessageType.Play message keeps
-    /// the client playlist to exactly one item. At EOF the normal VOD player therefore has no next
-    /// item to autoplay; it closes, and Virtual TV explicitly reopens the neutral Live TV bootstrap.
+    /// Sending the already-resolved concrete item as a raw SessionMessageType.Play message prevents
+    /// Jellyfin's server-side SendPlayCommand path from expanding the request. Jellyfin Web/Android
+    /// may still prepare its own episode queue, so the user's "Play next episode automatically"
+    /// setting remains relevant. When auto-next is disabled (the supported Virtual TV setup), EOF
+    /// closes the normal VOD player and Virtual TV explicitly reopens the neutral Live TV bootstrap.
+    /// A late Android queued-item start observed while that bootstrap return is already in progress
+    /// is ignored so the pending bootstrap command can replace it instead of losing Virtual TV state.
     /// </summary>
     private async Task SendIsolatedVodPlayNowAsync(
         SessionContext context,
@@ -935,9 +953,10 @@ public sealed class LiveTvPlaybackCoordinator
             };
 
             _logger.LogInformation(
-                "Virtual TV isolated VOD PlayNow {Generation}: session {SessionId}, item {ItemId}, queue length 1, start 1 tick, pending Resume {ResumeSeconds:F1}s; reason {Reason}.",
+                "Virtual TV isolated VOD PlayNow {Generation}: playback session {SessionId}, control session {ControlSessionId}, item {ItemId}, server request item count 1, start 1 tick, pending Resume {ResumeSeconds:F1}s; reason {Reason}.",
                 context.Generation,
                 context.SessionId,
+                targetSession.Id,
                 itemId,
                 TimeSpan.FromTicks(resumeTicks).TotalSeconds,
                 reason);
@@ -978,6 +997,98 @@ public sealed class LiveTvPlaybackCoordinator
         => _sessionManager.Sessions.FirstOrDefault(
             session => string.Equals(session.Id, sessionId, StringComparison.Ordinal));
 
+    private SessionInfo? FindAndroidControlSession(SessionContext context)
+    {
+        var candidates = _sessionManager.Sessions
+            .Where(session =>
+                session.UserId == context.UserId
+                && VirtualTvClientPolicy.IsAndroidMobile(session.Client)
+                && session.IsActive
+                && session.SessionControllers.Any(
+                    controller => controller.IsSessionActive && controller.SupportsMediaControl))
+            .ToList();
+
+        // Some client/player combinations keep playback and WebView control on the same Jellyfin
+        // session. Prefer that when it is actually controllable.
+        var sameSession = candidates.FirstOrDefault(
+            session => string.Equals(session.Id, context.SessionId, StringComparison.Ordinal));
+        if (sameSession is not null)
+        {
+            return sameSession;
+        }
+
+        // Jellyfin for Android 2.7.x can expose a native-player session whose DeviceId is the
+        // WebView device id with the user UUID appended. Treat those two ids as the same physical
+        // phone/tablet and route Play to the session that owns the active WebSocket controller.
+        var deviceMatches = candidates
+            .Where(session => AreAndroidCompanionDeviceIds(context.DeviceId, session.DeviceId, context.UserId))
+            .ToList();
+
+        if (deviceMatches.Count == 1)
+        {
+            return deviceMatches[0];
+        }
+
+        // Defensive fallback for future Android client versions: only accept a device-name match
+        // when it is unique for this user. Never choose an arbitrary Android session, otherwise a
+        // command could be sent to another phone/tablet signed in as the same user.
+        if (!string.IsNullOrWhiteSpace(context.DeviceName))
+        {
+            var nameMatches = candidates
+                .Where(session => string.Equals(
+                    session.DeviceName,
+                    context.DeviceName,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (nameMatches.Count == 1)
+            {
+                return nameMatches[0];
+            }
+        }
+
+        return null;
+    }
+
+    private static bool AreAndroidCompanionDeviceIds(
+        string playbackDeviceId,
+        string candidateDeviceId,
+        Guid userId)
+    {
+        if (string.Equals(playbackDeviceId, candidateDeviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(playbackDeviceId)
+            || string.IsNullOrWhiteSpace(candidateDeviceId)
+            || userId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var userIdDashed = userId.ToString("D");
+        var userIdCompact = userId.ToString("N");
+
+        return string.Equals(playbackDeviceId, candidateDeviceId + userIdDashed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(candidateDeviceId, playbackDeviceId + userIdDashed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(playbackDeviceId, candidateDeviceId + userIdCompact, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(candidateDeviceId, playbackDeviceId + userIdCompact, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string DescribeAndroidSessions(SessionContext context)
+    {
+        var sessions = _sessionManager.Sessions
+            .Where(session =>
+                session.UserId == context.UserId
+                && VirtualTvClientPolicy.IsAndroidMobile(session.Client))
+            .Select(session =>
+                $"session={session.Id}, device={session.DeviceName}, deviceId={session.DeviceId}, active={session.IsActive}, controllers={session.SessionControllers.Count}, activeMediaControllers={session.SessionControllers.Count(controller => controller.IsSessionActive && controller.SupportsMediaControl)}")
+            .ToArray();
+
+        return sessions.Length == 0 ? "none" : string.Join(" | ", sessions);
+    }
+
     private async Task<SessionInfo?> WaitForAndroidControllableSessionAsync(
         SessionContext context)
     {
@@ -985,18 +1096,28 @@ public sealed class LiveTvPlaybackCoordinator
 
         while (IsCurrent(context))
         {
-            var session = FindTargetSession(context.SessionId);
-            if (session is not null
-                && session.IsActive
-                && session.SupportsRemoteControl
-                && session.SessionControllers.Any(
-                    controller => controller.IsSessionActive && controller.SupportsMediaControl))
+            var session = FindAndroidControlSession(context);
+            if (session is not null)
             {
+                if (!string.Equals(session.Id, context.SessionId, StringComparison.Ordinal))
+                {
+                    _logger.LogInformation(
+                        "Virtual TV Android mobile routing control from playback session {PlaybackSessionId} to companion WebView session {ControlSessionId} on device {DeviceName}.",
+                        context.SessionId,
+                        session.Id,
+                        session.DeviceName);
+                }
+
                 return session;
             }
 
             if (DateTime.UtcNow >= deadlineUtc)
             {
+                _logger.LogWarning(
+                    "Virtual TV Android mobile found no controllable companion session for playback session {PlaybackSessionId}, device {DeviceName}. Android session topology: {Sessions}.",
+                    context.SessionId,
+                    context.DeviceName,
+                    DescribeAndroidSessions(context));
                 return null;
             }
 
@@ -1263,18 +1384,55 @@ public sealed class LiveTvPlaybackCoordinator
                 PlayCommand = PlayCommand.PlayNow
             };
 
-            _logger.LogInformation(
-                "Virtual TV bootstrap PlayNow {Generation}: session {SessionId}, channel {ChannelName}, reason {Reason}.",
-                context.Generation,
-                context.SessionId,
-                context.ChannelName,
-                reason);
+            if (context.IsAndroidMobile)
+            {
+                var targetSession = await WaitForAndroidControllableSessionAsync(context).ConfigureAwait(false);
+                if (targetSession is null)
+                {
+                    EndSession(context.SessionId, context.Generation, "Android mobile could not find companion WebView session for bootstrap PlayNow");
+                    return;
+                }
 
-            await _sessionManager.SendPlayCommand(
-                context.SessionId,
-                context.SessionId,
-                request,
-                context.Token).ConfigureAwait(false);
+                var controllers = targetSession.SessionControllers
+                    .Where(controller => controller.IsSessionActive && controller.SupportsMediaControl)
+                    .ToArray();
+
+                if (controllers.Length == 0)
+                {
+                    EndSession(context.SessionId, context.Generation, "Android mobile companion WebView session has no active media-control controller for bootstrap PlayNow");
+                    return;
+                }
+
+                request.ControllingUserId = context.UserId;
+
+                _logger.LogInformation(
+                    "Virtual TV Android mobile bootstrap PlayNow {Generation}: playback session {PlaybackSessionId}, control session {ControlSessionId}, channel {ChannelName}, reason {Reason}.",
+                    context.Generation,
+                    context.SessionId,
+                    targetSession.Id,
+                    context.ChannelName,
+                    reason);
+
+                await SendRawPlayMessageAsync(
+                    controllers,
+                    request,
+                    context.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Virtual TV bootstrap PlayNow {Generation}: session {SessionId}, channel {ChannelName}, reason {Reason}.",
+                    context.Generation,
+                    context.SessionId,
+                    context.ChannelName,
+                    reason);
+
+                await _sessionManager.SendPlayCommand(
+                    context.SessionId,
+                    context.SessionId,
+                    request,
+                    context.Token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (context.Token.IsCancellationRequested)
         {
@@ -1433,6 +1591,8 @@ public sealed class LiveTvPlaybackCoordinator
             Guid liveChannelItemId,
             string bootstrapPlaySessionId,
             bool isAndroidMobile,
+            string deviceId,
+            string deviceName,
             long generation)
         {
             SessionId = sessionId;
@@ -1443,6 +1603,8 @@ public sealed class LiveTvPlaybackCoordinator
             LiveChannelItemId = liveChannelItemId;
             BootstrapPlaySessionId = bootstrapPlaySessionId;
             IsAndroidMobile = isAndroidMobile;
+            DeviceId = deviceId;
+            DeviceName = deviceName;
             Generation = generation;
             Phase = PlaybackPhase.BootstrapWaitingForProgress;
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
@@ -1469,6 +1631,10 @@ public sealed class LiveTvPlaybackCoordinator
         public long Generation { get; }
 
         public bool IsAndroidMobile { get; }
+
+        public string DeviceId { get; }
+
+        public string DeviceName { get; }
 
         public bool IsDynamicUnwatched { get; }
 

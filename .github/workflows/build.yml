@@ -190,14 +190,31 @@ jobs:
               'AndroidBootstrapProgressTimeout = TimeSpan.FromSeconds(15)',
               'eventArgs.IsAutomated',
               'context.IsAndroidMobile',
-              'WaitForAndroidControllableSessionAsync',
-              'session.SupportsRemoteControl',
+              'FindAndroidControlSession',
+              'AreAndroidCompanionDeviceIds',
+              'context.DeviceId',
+              'context.DeviceName',
               'controller.IsSessionActive && controller.SupportsMediaControl',
+              'companion WebView session',
               'MonitorAndroidVodStartAsync',
               'AndroidVodPlayMaxAttempts = 2',
+              'phase == PlaybackPhase.AwaitingBootstrap',
+              'the pending bootstrap PlayNow will replace it',
           ]:
               if token not in c:
                   raise SystemExit(f"Android mobile Personalized handoff invariant missing: {token}")
+
+          android_bootstrap_start=c.index('private async Task SendBootstrapPlayNowAsync(')
+          android_bootstrap_end=c.index('private bool IsCurrent(', android_bootstrap_start)
+          android_bootstrap=c[android_bootstrap_start:android_bootstrap_end]
+          for token in [
+              'if (context.IsAndroidMobile)',
+              'WaitForAndroidControllableSessionAsync(context)',
+              'SendRawPlayMessageAsync(',
+              'targetSession.Id',
+          ]:
+              if token not in android_bootstrap:
+                  raise SystemExit(f"Android EOF/bootstrap routing invariant missing: {token}")
 
           # Traditional Personalized: Guide selects item, pending Resume is zero, same PlayNow.
           concrete_start=c.index('private async Task PlayConcreteEntryAsync')
