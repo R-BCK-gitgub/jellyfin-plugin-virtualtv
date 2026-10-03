@@ -821,6 +821,7 @@ public sealed class VirtualTvScheduleGenerator
     private void Normalize(ChannelConfiguration channel)
     {
         channel.PlaybackExperience = VirtualTvModePolicy.NormalizePlaybackExperience(channel.PlaybackExperience);
+        channel.StandardTvResolution = VirtualTvModePolicy.NormalizeStandardTvResolution(channel.StandardTvResolution);
         var standardTv = VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience);
 
         if (string.Equals(channel.ChannelType, "Movies", StringComparison.OrdinalIgnoreCase))
@@ -866,6 +867,7 @@ public sealed class VirtualTvScheduleGenerator
             channel.ChannelType,
             channel.ContentMode,
             channel.SchedulingMethod,
+            channel.StandardTvResolution.ToString(CultureInfo.InvariantCulture),
             channel.BlockMinutes.ToString(CultureInfo.InvariantCulture),
             channel.EpisodesPerTurn.ToString(CultureInfo.InvariantCulture),
             channel.Is24Hours.ToString(CultureInfo.InvariantCulture),
