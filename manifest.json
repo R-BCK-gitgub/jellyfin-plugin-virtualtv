@@ -14,7 +14,7 @@
         "targetAbi": "12.1.0.0",
         "timestamp": "2026-10-03T18:38:00Z",
         "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v2.0.1.0/VirtualTV-Jellyfin-12.1-v2.0.1.0.zip",
-        "checksum": "PENDING_RELEASE_BUILD"
+        "checksum": "9d5dbaeeb336c36669f294047fc87758"
       },
       {
         "version": "2.0.0.0",
