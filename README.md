@@ -78,7 +78,7 @@ Your original media remains in Jellyfin; Virtual TV simply creates another way t
 
 ## Current release
 
-The current release is **Virtual TV v2.0.1.1**, developed for **Jellyfin 12.1**.
+The current release is **Virtual TV v2.0.1.1**, developed and validated for **Jellyfin 12.1**.
 
 Virtual TV is still a personal project and will continue to evolve as new ideas, improvements and issues are found through everyday use.
 
