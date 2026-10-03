@@ -86,7 +86,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="2.0.1.0" or len(set(values.values()))!=1:
+          if version!="2.0.1.1" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
 
           manifest=json.loads(Path("manifest.json").read_text(encoding="utf-8"))
@@ -264,7 +264,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="2.0.1.0"',
+              'data-ui-version="2.0.1.1"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -651,9 +651,9 @@ jobs:
           SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP}"
 
           cat > /tmp/virtualtv-release-notes.md <<'EOF'
-          # Virtual TV 2.0.1
+          # Virtual TV 2.0.1.1
 
-          Virtual TV 2.0.1.0 is a maintenance update for Jellyfin 12.1 that adds configurable Standard TV quality, channel cloning, Android TV compatibility controls and an Android phone/tablet-specific Personalized TV handoff.
+          Virtual TV 2.0.1.1 is a maintenance update for Jellyfin 12.1 focused on Android client compatibility and administration UI polish.
 
           It turns movies and TV shows already available in Jellyfin into custom Live TV-style channels, with both traditional scheduled playback and personalized viewing modes.
 
@@ -663,8 +663,11 @@ jobs:
           - Standard TV quality selectable per channel: 480p, 720p or 1080p
           - Clone Channel to create a new channel from an existing configuration
           - Android TV compatibility handling for Standard TV Play from Beginning
-          - Optional Hide from Android TV for Personalized channels
-          - Android phone/tablet-specific Personalized TV handoff
+          - Hide from Android TV supports legacy and current Android TV client names, including Google TV / Fire TV deployments
+          - Personalized TV on Android phone/tablet now waits for confirmed loading playback and no longer performs a manual pre-PlayNow Stop
+          - Failed Personalized handoffs stop the loading player instead of leaving an infinite loading screen
+          - Schedule status and Generate New Schedule are grouped cleanly in the Schedule column
+          - Hide from Android TV and Save/Saving feedback have improved UI
           - Web and webOS Personalized TV behavior remains unchanged
           - Sequential, Random and weighted True Random playback
           - Next Unwatched and Random Unwatched modes
@@ -685,7 +688,7 @@ jobs:
 
           Manual installation is also supported using the ZIP attached to this release.
 
-          Scheduling rules remain unchanged from 2.0.0. Personalized TV now has client-specific compatibility handling for Jellyfin for Android while Web and webOS retain the existing handoff.
+          Scheduling rules, Standard TV streaming rules, watched-state selection logic, Clone Channel and existing Web/webOS behavior remain unchanged.
           EOF
 
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
