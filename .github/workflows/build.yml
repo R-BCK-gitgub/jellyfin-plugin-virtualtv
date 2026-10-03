@@ -558,7 +558,7 @@ jobs:
         run: |
           set -euo pipefail
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="2.0.1.0"' "$DLL"
+          grep -a -q 'data-ui-version="2.0.1.1"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
