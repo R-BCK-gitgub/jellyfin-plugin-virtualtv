@@ -23,6 +23,13 @@ public sealed class ChannelConfiguration
     /// </summary>
     public string PlaybackExperience { get; set; } = "PersonalizedTV";
 
+    /// <summary>
+    /// Fixed output resolution used by Standard TV's continuous H.264/AAC broadcast stream.
+    /// Existing Standard TV channels retain the historical 720p default until edited.
+    /// Supported values are 480, 720 and 1080.
+    /// </summary>
+    public int StandardTvResolution { get; set; } = 720;
+
     public string ChannelType { get; set; } = "Series";
 
     /// <summary>
