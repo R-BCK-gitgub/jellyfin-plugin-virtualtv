@@ -165,6 +165,15 @@
         </select>
         <div id="channelExperienceHelp" class="fieldDescription">Personalized TV supports watched-state modes and normal VOD controls. Standard TV is a true linear Live TV stream.</div>
       </div>
+      <div id="standardTvQualityContainer" class="selectContainer" style="display:none;">
+        <label class="selectLabel" for="standardTvResolution">Standard TV quality</label>
+        <select id="standardTvResolution" is="emby-select" class="emby-select-withcolor emby-select">
+          <option value="480">480p</option>
+          <option value="720">720p</option>
+          <option value="1080">1080p</option>
+        </select>
+        <div class="fieldDescription">Fixed broadcast resolution for this Standard TV channel. Higher resolutions provide better image quality but require more server processing. Save the channel and generate a new schedule after changing this setting.</div>
+      </div>
       <div class="selectContainer">
         <label class="selectLabel" for="channelType">Channel type</label>
         <select id="channelType" is="emby-select" class="emby-select-withcolor emby-select">
@@ -473,7 +482,9 @@
   }
 
   function modeLabel(c){
-    var prefix=experienceLabel(c.PlaybackExperience)+' · ';
+    var resolution=Number(c.StandardTvResolution);
+    if([480,720,1080].indexOf(resolution)===-1)resolution=720;
+    var prefix=experienceLabel(c.PlaybackExperience)+(c.PlaybackExperience==='StandardTV'?' '+resolution+'p':'')+' · ';
     if(c.ChannelType==='Movies'){
       return prefix+(c.ContentMode==='RandomUnwatched'
         ? 'Random Unwatched · '+c.BlockMinutes+' min'
@@ -527,6 +538,7 @@
         '<td><div class="vtv-actions">'+
           '<button is="emby-button" type="button" class="raised button-submit emby-button btnGenerate" data-id="'+esc(c.Id)+'">Generate New Schedule</button>'+
           '<button is="emby-button" type="button" class="raised emby-button btnEdit" data-id="'+esc(c.Id)+'">Edit</button>'+
+          '<button is="emby-button" type="button" class="raised emby-button btnClone" data-id="'+esc(c.Id)+'">Clone Channel</button>'+
           '<button is="emby-button" type="button" class="raised emby-button btnDelete vtv-delete-button" data-id="'+esc(c.Id)+'">Delete</button>'+
         '</div></td>'+
       '</tr>';
@@ -544,7 +556,10 @@
       b.addEventListener('click',function(){generateSchedule(b.getAttribute('data-id'));});
     });
     Array.prototype.forEach.call(box.querySelectorAll('.btnEdit'),function(b){
-      b.addEventListener('click',function(){openEditor(b.getAttribute('data-id'));});
+      b.addEventListener('click',function(){openEditor(b.getAttribute('data-id'),false);});
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('.btnClone'),function(b){
+      b.addEventListener('click',function(){openEditor(b.getAttribute('data-id'),true);});
     });
     Array.prototype.forEach.call(box.querySelectorAll('.btnDelete'),function(b){
       b.addEventListener('click',function(){deleteChannel(b.getAttribute('data-id'));});
@@ -564,6 +579,8 @@
     var experience=page.querySelector('#channelExperience').value;
     var standard=experience==='StandardTV';
     var movies=page.querySelector('#channelType').value==='Movies';
+
+    page.querySelector('#standardTvQualityContainer').style.display=standard?'':'none';
 
     page.querySelector('#channelExperienceHelp').textContent=standard
       ? 'True linear Live TV: enter at the current broadcast position, no restart/seek/resume, no watched-state changes, and English subtitles are burned in automatically when available.'
@@ -1128,6 +1145,7 @@
     page.querySelector('#channelNumber').value=nextNumber();
     page.querySelector('#channelDescription').value='';
     page.querySelector('#channelExperience').value='PersonalizedTV';
+    page.querySelector('#standardTvResolution').value='1080';
     page.querySelector('#channelType').value='Series';
     page.querySelector('#channelType').disabled=false;
     page.querySelector('#contentFilter').value='';
@@ -1152,12 +1170,12 @@
     updateHours();
   }
 
-  function openEditor(id){
+  function openEditor(id,clone){
     resetEditor();
 
     var c=id&&state.config?state.config.Channels.find(function(x){return x.Id===id;}):null;
     if(c){
-      state.editingId=c.Id;
+      state.editingId=clone?null:c.Id;
       state.selectedLibraryIds=(c.SelectedLibraryIds||[]).slice();
       state.selectedItemIds=(c.SelectedItemIds||[]).slice();
       state.seriesSelections=(c.SeriesSelections||[]).map(function(x){
@@ -1171,12 +1189,17 @@
       });
       state.selectedVisibleUserIds=(c.VisibleUserIds||[]).slice();
 
-      page.querySelector('#editorTitle').textContent='Edit channel';
-      page.querySelector('#immutableNotice').style.display='';
-      page.querySelector('#channelName').value=c.Name||'';
-      page.querySelector('#channelNumber').value=c.Number||1;
+      page.querySelector('#editorTitle').textContent=clone?'Clone channel':'Edit channel';
+      page.querySelector('#immutableNotice').style.display=clone?'none':'';
+      page.querySelector('#channelName').value=clone?((c.Name||'Channel')+' Copy'):(c.Name||'');
+      page.querySelector('#channelNumber').value=clone?nextNumber():(c.Number||1);
       page.querySelector('#channelDescription').value=c.Description||'';
       page.querySelector('#channelExperience').value=c.PlaybackExperience==='StandardTV'?'StandardTV':'PersonalizedTV';
+      var savedResolution=parseInt(c.StandardTvResolution,10);
+      if([480,720,1080].indexOf(savedResolution)===-1){
+        savedResolution=c.PlaybackExperience==='StandardTV'?720:1080;
+      }
+      page.querySelector('#standardTvResolution').value=String(savedResolution);
       page.querySelector('#channelType').value=c.ChannelType||'Series';
       page.querySelector('#channelType').disabled=false;
       page.querySelector('#contentMode').value=c.ChannelType==='Series'?(c.ContentMode||'Sequential'):'Sequential';
@@ -1348,6 +1371,8 @@
     }
     var existing=state.editingId?state.config.Channels.find(function(c){return c.Id===state.editingId;}):null;
     var experience=page.querySelector('#channelExperience').value==='StandardTV'?'StandardTV':'PersonalizedTV';
+    var standardTvResolution=parseInt(page.querySelector('#standardTvResolution').value,10);
+    if([480,720,1080].indexOf(standardTvResolution)===-1)standardTvResolution=1080;
     var type=page.querySelector('#channelType').value;
 
     var contentMode;
@@ -1386,6 +1411,7 @@
         || String(existing.ChannelType||'Series')!==String(type)
         || String(existing.ContentMode||'')!==String(contentMode)
         || String(existing.SchedulingMethod||'')!==String(schedulingMethod)
+        || Number(existing.StandardTvResolution||(existing.PlaybackExperience==='StandardTV'?720:1080))!==Number(standardTvResolution)
         || !arraysEqual(existing.SelectedLibraryIds,state.selectedLibraryIds)
         || JSON.stringify(existing.SelectedItemIds||[])!==JSON.stringify(state.selectedItemIds||[])
         || JSON.stringify(existing.SeriesSelections||[])!==JSON.stringify(seriesSelections)
@@ -1429,6 +1455,7 @@
     existing.Number=number;
     existing.Description=description;
     existing.PlaybackExperience=experience;
+    existing.StandardTvResolution=standardTvResolution;
     existing.ChannelType=type;
     existing.ContentMode=contentMode;
     existing.SchedulingMethod=schedulingMethod;
@@ -1688,7 +1715,7 @@
     });
   }
 
-  page.querySelector('#btnCreateChannel').addEventListener('click',function(){openEditor(null);});
+  page.querySelector('#btnCreateChannel').addEventListener('click',function(){openEditor(null,false);});
   page.querySelector('#btnOpenCoverage').addEventListener('click',function(){loadCoverage(true);});
   page.querySelector('#btnCloseCoverage').addEventListener('click',function(){page.querySelector('#coverageReport').style.display='none';});
   page.querySelector('#btnRefreshCoverage').addEventListener('click',function(){loadCoverage(true);});
