@@ -675,6 +675,7 @@ jobs:
           Scheduling rules remain unchanged from 2.0.0. Personalized TV now has client-specific compatibility handling for Jellyfin for Android while Web and webOS retain the existing handoff.
           EOF
 
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force || true
           if git rev-parse "${TAG}" >/dev/null 2>&1; then
             git tag -f "${TAG}" "${RELEASE_TARGET}"
             git push origin "refs/tags/${TAG}" --force
