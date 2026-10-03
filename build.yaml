@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Virtual TV 2.0.1 adds per-channel Standard TV broadcast quality (480p, 720p or 1080p), a Clone Channel action that opens a new pre-filled channel without copying its schedule, and Android TV compatibility handling for Standard TV Record-to-Play-from-Beginning. Existing Standard TV channels retain the historical 720p setting until edited; new channels default to 1080p in the editor. Personalized TV scheduling and playback rules are unchanged.
+  Virtual TV 2.0.1.0 adds per-channel Standard TV quality (480p, 720p or 1080p), Clone Channel, Android TV Record-to-Play-from-Beginning compatibility, an optional Hide from Android TV setting for Personalized channels, and a dedicated Personalized TV handoff for Jellyfin for Android phones/tablets. Web and webOS behavior remains unchanged. Existing Standard TV channels keep the historical 720p setting until edited; new Standard TV channels default to 1080p.
