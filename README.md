@@ -39,6 +39,14 @@ There are two main viewing styles:
 - **Standard TV** — behaves like a traditional television channel. You join the programme at the point where it is currently scheduled and watch it as a live broadcast. There is no normal VOD backtracking, fast-forward seeking, resume point or selectable subtitle control while you are watching the live channel. When an eligible English subtitle track exists, Virtual TV may burn those subtitles directly into the live picture. If you want to restart the programme from the beginning, the Jellyfin **Record** action is repurposed as **Play from Beginning** and opens the real library item from 00:00.
 - **Personalized TV** — opens the selected episode or movie in Jellyfin's normal player. That means you keep the normal Jellyfin experience: pause and resume, seek forward or backward, choose audio and subtitle tracks, use watched/resume progress, and continue from partially watched content. Personalized modes can also use your Jellyfin user history to choose what to play, including Next Unwatched and Random Unwatched behaviour.
 
+### Client compatibility note
+
+Virtual TV's client-side handoff features are currently tested primarily with **Jellyfin Web in a browser** and web-based clients such as **Jellyfin for webOS**. The webOS app is a lightweight wrapper around the Jellyfin Web interface provided by the server, so its playback behaviour is generally closer to the browser than to fully native TV clients.
+
+With the native **Jellyfin Android TV** client versions tested so far, **Personalized TV channels do not work correctly** because the required Live TV → normal library item handoff does not complete as expected. The repurposed Standard TV **Record → Play from Beginning** action has also not worked reliably in those limited Android TV tests. Standard TV's normal linear Live TV playback uses a separate path and may still work, but exact behaviour can vary by Jellyfin client and version.
+
+For features that depend on these handoffs, Jellyfin Web/browser or a web-based client such as Jellyfin for webOS is currently recommended. This reflects the present Virtual TV test coverage and may change as Jellyfin clients or the plugin evolve.
+
 Your original media remains in Jellyfin; Virtual TV simply creates another way to watch it.
 
 ## Main features
