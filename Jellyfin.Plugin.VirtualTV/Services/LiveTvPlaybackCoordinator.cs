@@ -34,7 +34,10 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class LiveTvPlaybackCoordinator
 {
+    private const string AndroidMobileClient = "Jellyfin for Android";
+    private const string AndroidTvClient = "Jellyfin for Android TV";
     private static readonly TimeSpan BootstrapBuffer = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AndroidPlayerTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan VodSeekSettleBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan VodTeardownBuffer = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PhysicalEndTolerance = TimeSpan.FromSeconds(5);
@@ -89,6 +92,15 @@ public sealed class LiveTvPlaybackCoordinator
             var channel = GetChannelConfiguration(configurationChannelId);
             if (channel is null || VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
             {
+                return;
+            }
+
+            if (channel.HideFromAndroidTv && IsAndroidTvClient(eventArgs.Session.Client))
+            {
+                _logger.LogInformation(
+                    "Virtual TV ignored hidden Personalized channel {ChannelName} on Android TV session {SessionId}.",
+                    channel.Name,
+                    eventArgs.Session.Id);
                 return;
             }
 
@@ -280,7 +292,9 @@ public sealed class LiveTvPlaybackCoordinator
         {
             lock (existing.Gate)
             {
-                existing.Phase = PlaybackPhase.BootstrapWaitingForProgress;
+                existing.Phase = existing.IsAndroidMobile
+                    ? PlaybackPhase.BootstrapBuffering
+                    : PlaybackPhase.BootstrapWaitingForProgress;
                 existing.BootstrapPlaySessionId = eventArgs.PlaySessionId ?? string.Empty;
                 existing.ReplacingPlaySessionId = string.Empty;
                 existing.CurrentVodItemId = null;
@@ -289,11 +303,23 @@ public sealed class LiveTvPlaybackCoordinator
                 existing.ResumeSeekScheduled = false;
             }
 
-            _logger.LogInformation(
-                "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the 2-second buffer.",
-                sessionId,
-                existing.Generation,
-                existing.ChannelName);
+            if (existing.IsAndroidMobile)
+            {
+                _logger.LogInformation(
+                    "Virtual TV Android bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; PlaybackStart is sufficient, starting the 2-second buffer immediately.",
+                    sessionId,
+                    existing.Generation,
+                    existing.ChannelName);
+                _ = CompleteBootstrapBufferAsync(existing);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Virtual TV bootstrap restarted for session {SessionId}, generation {Generation}, channel {ChannelName}; waiting for real playback progress before starting the 2-second buffer.",
+                    sessionId,
+                    existing.Generation,
+                    existing.ChannelName);
+            }
 
             return Task.CompletedTask;
         }
@@ -350,16 +376,37 @@ public sealed class LiveTvPlaybackCoordinator
             contentMode,
             liveChannel.Id,
             eventArgs.PlaySessionId ?? string.Empty,
+            eventArgs.Session.Client ?? string.Empty,
             Interlocked.Increment(ref _nextGeneration));
 
         _sessions[sessionId] = context;
 
-        _logger.LogInformation(
-            "Virtual TV tune {Generation}: session {SessionId}, channel {ChannelName}, phase BootstrapWaitingForProgress, mode {Mode}. No VOD command will be sent until the loading source reports playback progress.",
-            context.Generation,
-            sessionId,
-            context.ChannelName,
-            context.ContentMode);
+        if (context.IsAndroidMobile)
+        {
+            lock (context.Gate)
+            {
+                context.Phase = PlaybackPhase.BootstrapBuffering;
+            }
+
+            _logger.LogInformation(
+                "Virtual TV Android tune {Generation}: session {SessionId}, channel {ChannelName}, client {Client}; PlaybackStart is sufficient, starting the 2-second loading buffer immediately.",
+                context.Generation,
+                sessionId,
+                context.ChannelName,
+                context.ClientName);
+
+            _ = CompleteBootstrapBufferAsync(context);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Virtual TV tune {Generation}: session {SessionId}, channel {ChannelName}, client {Client}, phase BootstrapWaitingForProgress, mode {Mode}. No VOD command will be sent until the loading source reports playback progress.",
+                context.Generation,
+                sessionId,
+                context.ChannelName,
+                context.ClientName,
+                context.ContentMode);
+        }
 
         return Task.CompletedTask;
     }
@@ -835,6 +882,41 @@ public sealed class LiveTvPlaybackCoordinator
                 return;
             }
 
+            if (context.IsAndroidMobile)
+            {
+                _logger.LogInformation(
+                    "Virtual TV Android handoff {Generation}: stopping the loading player for session {SessionId}, then waiting {BufferMs}ms before opening item {ItemId}.",
+                    context.Generation,
+                    context.SessionId,
+                    AndroidPlayerTeardownBuffer.TotalMilliseconds,
+                    itemId);
+
+                await _sessionManager.SendPlaystateCommand(
+                    context.SessionId,
+                    context.SessionId,
+                    new PlaystateRequest
+                    {
+                        Command = PlaystateCommand.Stop
+                    },
+                    context.Token).ConfigureAwait(false);
+
+                await Task.Delay(AndroidPlayerTeardownBuffer, context.Token).ConfigureAwait(false);
+
+                if (!IsCurrent(context))
+                {
+                    return;
+                }
+
+                targetSession = _sessionManager.Sessions.FirstOrDefault(
+                    session => string.Equals(session.Id, context.SessionId, StringComparison.Ordinal));
+
+                if (targetSession is null || targetSession.SessionControllers.Count == 0)
+                {
+                    EndSession(context.SessionId, context.Generation, "Android loading player teardown left no active controller for isolated VOD PlayNow");
+                    return;
+                }
+            }
+
             // Every Personalized TV mode now initializes VOD identically. One concrete item,
             // one PlayNow, and one near-zero start tick. Traditional modes stop here.
             // Next/Random Unwatched may later issue the existing single guarded Resume seek
@@ -1027,6 +1109,12 @@ public sealed class LiveTvPlaybackCoordinator
         }
     }
 
+    private static bool IsAndroidMobileClient(string? client)
+        => string.Equals(client, AndroidMobileClient, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsAndroidTvClient(string? client)
+        => string.Equals(client, AndroidTvClient, StringComparison.OrdinalIgnoreCase);
+
     private bool IsCurrent(SessionContext context)
         => _sessions.TryGetValue(context.SessionId, out var current)
             && ReferenceEquals(current, context)
@@ -1123,6 +1211,7 @@ public sealed class LiveTvPlaybackCoordinator
             string contentMode,
             Guid liveChannelItemId,
             string bootstrapPlaySessionId,
+            string clientName,
             long generation)
         {
             SessionId = sessionId;
@@ -1132,6 +1221,8 @@ public sealed class LiveTvPlaybackCoordinator
             ContentMode = contentMode;
             LiveChannelItemId = liveChannelItemId;
             BootstrapPlaySessionId = bootstrapPlaySessionId;
+            ClientName = clientName;
+            IsAndroidMobile = IsAndroidMobileClient(clientName);
             Generation = generation;
             Phase = PlaybackPhase.BootstrapWaitingForProgress;
             IsDynamicUnwatched = VirtualTvModePolicy.IsDynamicUnwatched(contentMode);
@@ -1154,6 +1245,10 @@ public sealed class LiveTvPlaybackCoordinator
         public string ContentMode { get; }
 
         public Guid LiveChannelItemId { get; }
+
+        public string ClientName { get; }
+
+        public bool IsAndroidMobile { get; }
 
         public long Generation { get; }
 
