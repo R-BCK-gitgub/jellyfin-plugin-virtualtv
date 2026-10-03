@@ -80,7 +80,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="2.0.0.0" or len(set(values.values()))!=1:
+          if version!="2.0.1.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
 
           manifest=json.loads(Path("manifest.json").read_text(encoding="utf-8"))
@@ -92,7 +92,7 @@ jobs:
           if package.get("owner")!="R-BCK-gitgub":
               raise SystemExit("Repository manifest owner must be R-BCK-gitgub.")
           versions=package.get("versions") or []
-          if not any(v.get("version")=="2.0.0.0" and v.get("targetAbi")=="12.1.0.0" for v in versions):
+          if not any(v.get("version")=="2.0.1.0" and v.get("targetAbi")=="12.1.0.0" for v in versions):
               raise SystemExit("Repository manifest is missing the Jellyfin 12.1 Virtual TV 2.0 release.")
           print("Full-release repository manifest metadata validation passed.")
           PY
@@ -219,6 +219,8 @@ jobs:
           a=Path("Jellyfin.Plugin.VirtualTV/Api/ChannelController.cs").read_text(encoding="utf-8")
           v=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvVisibilityManager.cs").read_text(encoding="utf-8")
           livetv=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
+          standard=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
+          channel_config=Path("Jellyfin.Plugin.VirtualTV/Configuration/ChannelConfiguration.cs").read_text(encoding="utf-8")
 
           required_generator=[
               'BuildSmartAppendWithRotation(channel, startUtc, targetUtc, prefix, resetRandomState: true)',
@@ -236,7 +238,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="2.0.0.0"',
+              'data-ui-version="2.0.1.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -255,6 +257,12 @@ jobs:
               'Export CSV',
               'loadCoverage(true)',
               'Channel settings saved. Generate a new schedule',
+              'id="standardTvResolution"',
+              '<option value="480">480p</option>',
+              '<option value="720">720p</option>',
+              '<option value="1080">1080p</option>',
+              'Clone Channel',
+              "openEditor(b.getAttribute('data-id'),true)",
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
@@ -293,6 +301,8 @@ jobs:
               'PlayCommand = PlayCommand.PlayNow',
               '_sessionManager.SendPlayCommand(',
               'No DVR timer is created',
+              'ISupportsNewTimerIds',
+              'CreateSyntheticRecordActionId',
           ]
           missing=[x for x in restart_required if x not in livetv]
           if missing:
@@ -300,6 +310,16 @@ jobs:
 
           if 'SendIsolatedVodPlayNowAsync(' in livetv:
               raise SystemExit("Standard TV Record shortcut must not use the Personalized-TV isolated VOD queue.")
+
+          for token in [
+              'public int StandardTvResolution { get; set; } = 720;',
+              'ResolveVideoProfile(channel.StandardTvResolution)',
+              '480 => new StandardTvVideoProfile(854, 480, 2_000_000',
+              '1080 => new StandardTvVideoProfile(1920, 1080, 8_000_000',
+              '$"scale={_videoProfile.Width}:{_videoProfile.Height}:force_original_aspect_ratio=decrease,"',
+          ]:
+              if token not in channel_config+standard:
+                  raise SystemExit(f"Standard TV quality profile invariant missing: {token}")
 
           # Channel labels must be canonical. Guide styling may change typography only;
           # Jellyfin's stock row/cell/channel geometry must remain untouched.
@@ -487,7 +507,7 @@ jobs:
         run: |
           set -euo pipefail
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="2.0.0.0"' "$DLL"
+          grep -a -q 'data-ui-version="2.0.1.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -551,7 +571,7 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.version == '2.0.0.0'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.version == '2.0.1.0'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -579,15 +599,18 @@ jobs:
           SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP}"
 
           cat > /tmp/virtualtv-release-notes.md <<'EOF'
-          # Virtual TV 2.0
+          # Virtual TV 2.0.1
 
-          Virtual TV 2.0 is the first full release of the plugin for Jellyfin 12.1.
+          Virtual TV 2.0.1 is a maintenance update for Jellyfin 12.1 that adds configurable Standard TV quality, channel cloning and Android TV Play-from-Beginning compatibility handling.
 
           It turns movies and TV shows already available in Jellyfin into custom Live TV-style channels, with both traditional scheduled playback and personalized viewing modes.
 
           ## Highlights
 
           - Standard TV and Personalized TV channel experiences
+          - Standard TV quality selectable per channel: 480p, 720p or 1080p
+          - Clone Channel to create a new channel from an existing configuration
+          - Android TV compatibility handling for Standard TV Play from Beginning
           - Sequential, Random and weighted True Random playback
           - Next Unwatched and Random Unwatched modes
           - Resume-first behaviour for partially watched content
@@ -607,7 +630,7 @@ jobs:
 
           Manual installation is also supported using the ZIP attached to this release.
 
-          This release preserves the validated runtime behaviour from the final 1.10.x testing cycle.
+          Personalized TV behavior and scheduling rules remain unchanged from 2.0.0.
           EOF
 
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
