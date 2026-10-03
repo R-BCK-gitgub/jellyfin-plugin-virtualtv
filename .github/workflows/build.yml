@@ -631,11 +631,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="v${VERSION}"
           ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
-          if [ "${{ github.event_name }}" = "push" ]; then
-            RELEASE_TARGET="a80574d958076ea6ffaf302303bc7f18eec33c00"
-          else
-            RELEASE_TARGET="${GITHUB_SHA}"
-          fi
+          RELEASE_TARGET="${GITHUB_SHA}"
 
           # Jellyfin repository packages must place the plugin files at the root of the ZIP.
           # Fixed timestamps + zip -X keep the package checksum stable across documentation-only builds.
