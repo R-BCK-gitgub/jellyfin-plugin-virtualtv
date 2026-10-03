@@ -31,10 +31,7 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class VirtualTvStandardStreamService
 {
-    private const int OutputWidth = 1280;
-    private const int OutputHeight = 720;
     private const int OutputFps = 30;
-    private const int OutputVideoBitrate = 4_000_000;
 
     private readonly IServerApplicationHost _appHost;
     private readonly VirtualTvScheduleStore _scheduleStore;
@@ -59,19 +56,21 @@ public sealed class VirtualTvStandardStreamService
         _logger = logger;
     }
 
-    public MediaSourceInfo CreateMenuSource(string channelId)
+    public MediaSourceInfo CreateMenuSource(ChannelConfiguration channel)
     {
+        var profile = ResolveVideoProfile(channel.StandardTvResolution);
+
         var video = new MediaStream
         {
             Type = MediaStreamType.Video,
             Index = 0,
             Codec = "h264",
             Profile = "main",
-            Width = OutputWidth,
-            Height = OutputHeight,
+            Width = profile.Width,
+            Height = profile.Height,
             RealFrameRate = OutputFps,
             AverageFrameRate = OutputFps,
-            BitRate = OutputVideoBitrate,
+            BitRate = profile.BitRate,
             IsInterlaced = false,
             PixelFormat = "yuv420p"
         };
@@ -88,7 +87,7 @@ public sealed class VirtualTvStandardStreamService
 
         return new MediaSourceInfo
         {
-            Id = "virtualtv-standard-" + channelId + "-v1",
+            Id = "virtualtv-standard-" + channel.Id + "-v1",
             Protocol = MediaProtocol.File,
             Container = "mpegts",
             IsInfiniteStream = true,
@@ -110,11 +109,13 @@ public sealed class VirtualTvStandardStreamService
             throw new InvalidOperationException("A Personalized TV channel cannot open the Standard TV stream pipeline.");
         }
 
+        var profile = ResolveVideoProfile(channel.StandardTvResolution);
         var liveId = "virtualtv-standard-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
 
         return new StandardLiveStream(
             channel.Id,
             channel.Name,
+            profile,
             uniqueId => new MediaSourceInfo
             {
                 Id = liveId,
@@ -141,10 +142,26 @@ public sealed class VirtualTvStandardStreamService
             _logger);
     }
 
+    private static StandardTvVideoProfile ResolveVideoProfile(int resolution)
+        => VirtualTvModePolicy.NormalizeStandardTvResolution(resolution) switch
+        {
+            480 => new StandardTvVideoProfile(854, 480, 2_000_000, "2M", "4M"),
+            1080 => new StandardTvVideoProfile(1920, 1080, 8_000_000, "8M", "16M"),
+            _ => new StandardTvVideoProfile(1280, 720, 4_000_000, "4M", "8M")
+        };
+
+    private sealed record StandardTvVideoProfile(
+        int Width,
+        int Height,
+        int BitRate,
+        string MaxRate,
+        string BufferSize);
+
     private sealed class StandardLiveStream : ILiveStream, IDirectStreamProvider
     {
         private readonly string _channelId;
         private readonly string _channelName;
+        private readonly StandardTvVideoProfile _videoProfile;
         private readonly VirtualTvScheduleStore _scheduleStore;
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaSourceManager _mediaSourceManager;
@@ -159,6 +176,7 @@ public sealed class VirtualTvStandardStreamService
         public StandardLiveStream(
             string channelId,
             string channelName,
+            StandardTvVideoProfile videoProfile,
             Func<string, MediaSourceInfo> buildSource,
             VirtualTvScheduleStore scheduleStore,
             ILibraryManager libraryManager,
@@ -168,6 +186,7 @@ public sealed class VirtualTvStandardStreamService
         {
             _channelId = channelId;
             _channelName = channelName;
+            _videoProfile = videoProfile;
             _scheduleStore = scheduleStore;
             _libraryManager = libraryManager;
             _mediaSourceManager = mediaSourceManager;
@@ -231,6 +250,7 @@ public sealed class VirtualTvStandardStreamService
                 _broadcast ??= new StandardBroadcastStream(
                     _channelId,
                     _channelName,
+                    _videoProfile,
                     _scheduleStore,
                     _libraryManager,
                     _mediaSourceManager,
@@ -334,6 +354,7 @@ public sealed class VirtualTvStandardStreamService
 
         private readonly string _channelId;
         private readonly string _channelName;
+        private readonly StandardTvVideoProfile _videoProfile;
         private readonly VirtualTvScheduleStore _scheduleStore;
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaSourceManager _mediaSourceManager;
@@ -356,6 +377,7 @@ public sealed class VirtualTvStandardStreamService
         public StandardBroadcastStream(
             string channelId,
             string channelName,
+            StandardTvVideoProfile videoProfile,
             VirtualTvScheduleStore scheduleStore,
             ILibraryManager libraryManager,
             IMediaSourceManager mediaSourceManager,
@@ -365,6 +387,7 @@ public sealed class VirtualTvStandardStreamService
         {
             _channelId = channelId;
             _channelName = channelName;
+            _videoProfile = videoProfile;
             _scheduleStore = scheduleStore;
             _libraryManager = libraryManager;
             _mediaSourceManager = mediaSourceManager;
@@ -643,8 +666,8 @@ public sealed class VirtualTvStandardStreamService
                 "-level:v", "4.0",
                 "-pix_fmt", "yuv420p",
                 "-crf", "21",
-                "-maxrate", "4M",
-                "-bufsize", "8M",
+                "-maxrate", _videoProfile.MaxRate,
+                "-bufsize", _videoProfile.BufferSize,
                 "-g", "60",
                 "-keyint_min", "60",
                 "-sc_threshold", "0",
@@ -701,7 +724,7 @@ public sealed class VirtualTvStandardStreamService
                 "-hide_banner", "-loglevel", "warning", "-nostdin",
                 "-re",
                 "-f", "lavfi",
-                "-i", "color=c=black:s=1280x720:r=30",
+                "-i", $"color=c=black:s={_videoProfile.Width}x{_videoProfile.Height}:r={OutputFps}",
                 "-f", "lavfi",
                 "-i", "anullsrc=r=48000:cl=stereo",
                 "-t", FormatSeconds(remaining),
@@ -836,12 +859,12 @@ public sealed class VirtualTvStandardStreamService
             }
         }
 
-        private static string ScaleFilter()
-            => "scale=1280:720:force_original_aspect_ratio=decrease,"
-                + "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black,"
-                + "setsar=1,fps=30,format=yuv420p";
+        private string ScaleFilter()
+            => $"scale={_videoProfile.Width}:{_videoProfile.Height}:force_original_aspect_ratio=decrease,"
+                + $"pad={_videoProfile.Width}:{_videoProfile.Height}:(ow-iw)/2:(oh-ih)/2:black,"
+                + $"setsar=1,fps={OutputFps},format=yuv420p";
 
-        private static string TextSubtitleFilter(
+        private string TextSubtitleFilter(
             string mediaPath,
             TimeSpan offset,
             SubtitleChoice subtitle)
