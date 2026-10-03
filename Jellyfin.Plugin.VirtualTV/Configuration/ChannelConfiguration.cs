@@ -30,6 +30,12 @@ public sealed class ChannelConfiguration
     /// </summary>
     public int StandardTvResolution { get; set; } = 720;
 
+    /// <summary>
+    /// When enabled on a Personalized TV channel, Jellyfin for Android TV does not receive
+    /// the channel in its Live TV channel list. Web, webOS and Jellyfin for Android remain unaffected.
+    /// </summary>
+    public bool HideFromAndroidTv { get; set; }
+
     public string ChannelType { get; set; } = "Series";
 
     /// <summary>
