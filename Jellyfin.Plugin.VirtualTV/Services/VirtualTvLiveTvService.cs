@@ -121,21 +121,27 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         return Task.FromResult<IEnumerable<ProgramInfo>>(programs);
     }
 
-    public Task<List<MediaSourceInfo>> GetChannelStreamMediaSources(string channelId, CancellationToken cancellationToken)
+    public async Task<List<MediaSourceInfo>> GetChannelStreamMediaSources(string channelId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var channel = GetChannel(channelId)
             ?? throw new KeyNotFoundException($"Unknown Virtual TV channel '{channelId}'.");
 
+        if (await IsHiddenPersonalizedAndroidTvRequestAsync(channel).ConfigureAwait(false))
+        {
+            throw new NotSupportedException(
+                $"Personalized TV channel '{channel.Name}' is hidden from Jellyfin for Android TV.");
+        }
+
         var source = VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience)
             ? _standardTv.CreateMenuSource(channel)
             : GetPersonalizedBootstrapSource(channel);
 
-        return Task.FromResult(new List<MediaSourceInfo> { source });
+        return new List<MediaSourceInfo> { source };
     }
 
-    public Task<MediaSourceInfo> GetChannelStream(string channelId, string streamId, CancellationToken cancellationToken)
+    public async Task<MediaSourceInfo> GetChannelStream(string channelId, string streamId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _ = streamId;
@@ -145,11 +151,16 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
 
         if (VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
         {
-            return Task.FromException<MediaSourceInfo>(
-                new NotSupportedException("Standard TV uses Jellyfin's direct live-stream provider path."));
+            throw new NotSupportedException("Standard TV uses Jellyfin's direct live-stream provider path.");
         }
 
-        return Task.FromResult(GetPersonalizedBootstrapSource(channel));
+        if (await IsHiddenPersonalizedAndroidTvRequestAsync(channel).ConfigureAwait(false))
+        {
+            throw new NotSupportedException(
+                $"Personalized TV channel '{channel.Name}' is hidden from Jellyfin for Android TV.");
+        }
+
+        return GetPersonalizedBootstrapSource(channel);
     }
 
     public Task<ILiveStream> GetChannelStreamWithDirectStreamProvider(
@@ -390,6 +401,23 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             && entry.GetStartUtc() <= nowUtc
             && entry.GetEndUtc() > nowUtc
             && !string.IsNullOrWhiteSpace(entry.SourceItemId);
+
+    private async Task<bool> IsHiddenPersonalizedAndroidTvRequestAsync(ChannelConfiguration channel)
+    {
+        if (!channel.HideFromAndroidTv || VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
+        {
+            return false;
+        }
+
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext is null)
+        {
+            return false;
+        }
+
+        var auth = await _authorizationContext.GetAuthorizationInfo(httpContext).ConfigureAwait(false);
+        return string.Equals(auth.Client, "Jellyfin for Android TV", StringComparison.OrdinalIgnoreCase);
+    }
 
     private ChannelConfiguration? GetChannel(string externalId)
     {
