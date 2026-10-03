@@ -21,8 +21,6 @@ namespace Jellyfin.Plugin.VirtualTV.Services;
 /// </summary>
 public sealed class AndroidTvChannelVisibilityFilter : IAsyncResultFilter
 {
-    private const string AndroidTvClient = "Jellyfin for Android TV";
-
     private readonly IAuthorizationContext _authorizationContext;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<AndroidTvChannelVisibilityFilter> _logger;
@@ -54,7 +52,7 @@ public sealed class AndroidTvChannelVisibilityFilter : IAsyncResultFilter
                 .GetAuthorizationInfo(context.HttpContext)
                 .ConfigureAwait(false);
 
-            if (!string.Equals(auth.Client, AndroidTvClient, StringComparison.OrdinalIgnoreCase))
+            if (!VirtualTvClientPolicy.IsAndroidTv(auth.Client))
             {
                 await next().ConfigureAwait(false);
                 return;
