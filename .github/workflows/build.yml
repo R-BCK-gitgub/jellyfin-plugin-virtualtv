@@ -172,7 +172,7 @@ jobs:
           for token in [
               'private async Task FailBootstrapHandoffAsync(',
               'Stopping the loading player so the client is not left on an infinite loading screen.',
-              'context.Phase = PlaybackPhase.BootstrapWaitingForProgress;',
+              'existing.Phase = PlaybackPhase.BootstrapWaitingForProgress;',
               'No VOD command will be sent until the loading source reports playback progress.',
           ]:
               if token not in c:
