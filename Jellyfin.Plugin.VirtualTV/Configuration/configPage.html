@@ -174,6 +174,13 @@
         </select>
         <div class="fieldDescription">Fixed broadcast resolution for this Standard TV channel. Higher resolutions provide better image quality but require more server processing. Save the channel and generate a new schedule after changing this setting.</div>
       </div>
+      <div id="androidTvCompatibilityContainer" class="checkboxContainer" style="display:none;">
+        <label class="emby-checkbox-label">
+          <input id="hideFromAndroidTv" type="checkbox" is="emby-checkbox">
+          <span>Hide from Android TV</span>
+        </label>
+        <div class="fieldDescription">Hides this Personalized TV channel only from Jellyfin for Android TV. Web, webOS and Jellyfin for Android on phones/tablets remain unchanged. This visibility setting does not require schedule regeneration.</div>
+      </div>
       <div class="selectContainer">
         <label class="selectLabel" for="channelType">Channel type</label>
         <select id="channelType" is="emby-select" class="emby-select-withcolor emby-select">
@@ -581,6 +588,7 @@
     var movies=page.querySelector('#channelType').value==='Movies';
 
     page.querySelector('#standardTvQualityContainer').style.display=standard?'':'none';
+    page.querySelector('#androidTvCompatibilityContainer').style.display=standard?'none':'';
 
     page.querySelector('#channelExperienceHelp').textContent=standard
       ? 'True linear Live TV: enter at the current broadcast position, no restart/seek/resume, no watched-state changes, and English subtitles are burned in automatically when available.'
@@ -1146,6 +1154,7 @@
     page.querySelector('#channelDescription').value='';
     page.querySelector('#channelExperience').value='PersonalizedTV';
     page.querySelector('#standardTvResolution').value='1080';
+    page.querySelector('#hideFromAndroidTv').checked=false;
     page.querySelector('#channelType').value='Series';
     page.querySelector('#channelType').disabled=false;
     page.querySelector('#contentFilter').value='';
@@ -1200,6 +1209,7 @@
         savedResolution=c.PlaybackExperience==='StandardTV'?720:1080;
       }
       page.querySelector('#standardTvResolution').value=String(savedResolution);
+      page.querySelector('#hideFromAndroidTv').checked=c.HideFromAndroidTv===true;
       page.querySelector('#channelType').value=c.ChannelType||'Series';
       page.querySelector('#channelType').disabled=false;
       page.querySelector('#contentMode').value=c.ChannelType==='Series'?(c.ContentMode||'Sequential'):'Sequential';
@@ -1373,6 +1383,7 @@
     var experience=page.querySelector('#channelExperience').value==='StandardTV'?'StandardTV':'PersonalizedTV';
     var standardTvResolution=parseInt(page.querySelector('#standardTvResolution').value,10);
     if([480,720,1080].indexOf(standardTvResolution)===-1)standardTvResolution=1080;
+    var hideFromAndroidTv=experience==='PersonalizedTV'&&page.querySelector('#hideFromAndroidTv').checked===true;
     var type=page.querySelector('#channelType').value;
 
     var contentMode;
@@ -1456,6 +1467,7 @@
     existing.Description=description;
     existing.PlaybackExperience=experience;
     existing.StandardTvResolution=standardTvResolution;
+    existing.HideFromAndroidTv=hideFromAndroidTv;
     existing.ChannelType=type;
     existing.ContentMode=contentMode;
     existing.SchedulingMethod=schedulingMethod;
