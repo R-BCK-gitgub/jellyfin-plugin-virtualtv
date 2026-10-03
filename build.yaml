@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "2.0.0.0"
+version: "2.0.1.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Virtual TV 2.0 full release. This release promotes the validated 1.10.19 runtime behavior without changing scheduling or playback logic. It retains Standard TV, Personalized TV, weighted True Random, Guide text polish, Content Coverage and the Standard TV Record-to-Play-from-Beginning shortcut. Release packaging now includes a Jellyfin repository manifest with the canonical Virtual TV GUID and developer R-BCK-gitgub so Jellyfin can display repository metadata when the manifest is configured as an accessible plugin repository.
+  Virtual TV 2.0.1 adds per-channel Standard TV broadcast quality (480p, 720p or 1080p), a Clone Channel action that opens a new pre-filled channel without copying its schedule, and Android TV compatibility handling for Standard TV Record-to-Play-from-Beginning. Existing Standard TV channels retain the historical 720p setting until edited; new channels default to 1080p in the editor. Personalized TV scheduling and playback rules are unchanged.
