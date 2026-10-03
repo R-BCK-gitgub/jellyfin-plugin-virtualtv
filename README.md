@@ -43,9 +43,11 @@ There are two main viewing styles:
 
 Virtual TV's client-side handoff features are currently tested primarily with **Jellyfin Web in a browser** and web-based clients such as **Jellyfin for webOS**. The webOS app is a lightweight wrapper around the Jellyfin Web interface provided by the server, so its playback behaviour is generally closer to the browser than to fully native TV clients.
 
-With the native **Jellyfin Android TV** client versions tested so far, **Personalized TV channels do not work correctly** because the required Live TV → normal library item handoff does not complete as expected. The repurposed Standard TV **Record → Play from Beginning** action has also not worked reliably in those limited Android TV tests. Standard TV's normal linear Live TV playback uses a separate path and may still work, but exact behaviour can vary by Jellyfin client and version.
+With the native **Jellyfin Android TV** client, **Personalized TV remains unsupported** because its Live TV → normal library-item handoff does not behave like Jellyfin Web. **Standard TV uses Jellyfin's normal Live TV path and is supported by the current Virtual TV architecture.**
 
-For features that depend on these handoffs, Jellyfin Web/browser or a web-based client such as Jellyfin for webOS is currently recommended. This reflects the present Virtual TV test coverage and may change as Jellyfin clients or the plugin evolve.
+Virtual TV 2.0.1 also adds Android-TV-specific compatibility handling for the Standard TV **Record → Play from Beginning** shortcut. Android TV uses a native DVR workflow before accepting the resulting PlayNow command, so Virtual TV now returns a valid synthetic timer identifier while still creating no real recording. The feature is designed to open the programme currently on air from 00:00 in Jellyfin's internal player. Client/device behaviour can still vary, and Android TV's **Use external player** option should remain disabled for this flow.
+
+Jellyfin Web/browser and web-based clients such as Jellyfin for webOS remain the recommended clients for **Personalized TV**.
 
 Your original media remains in Jellyfin; Virtual TV simply creates another way to watch it.
 
@@ -54,6 +56,8 @@ Your original media remains in Jellyfin; Virtual TV simply creates another way t
 - Create custom TV channels from Jellyfin movies and TV shows
 - Choose specific series, seasons or groups of content
 - Standard TV-style scheduled playback
+- Per-channel Standard TV quality: **480p, 720p or 1080p**
+- **Clone Channel** to create a new pre-filled channel from an existing configuration
 - Personalized channels based on the Jellyfin user
 - Sequential, Random and weighted **True Random** playback
 - **Next Unwatched** and **Random Unwatched** modes
@@ -68,7 +72,7 @@ Your original media remains in Jellyfin; Virtual TV simply creates another way t
 
 ## Current release
 
-The current full release is **Virtual TV v2.0.0.0**, developed and tested for **Jellyfin 12.1**.
+The current release is **Virtual TV v2.0.1.0**, developed for **Jellyfin 12.1**.
 
 Virtual TV is still a personal project and will continue to evolve as new ideas, improvements and issues are found through everyday use.
 
