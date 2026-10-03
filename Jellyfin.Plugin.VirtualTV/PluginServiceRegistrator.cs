@@ -7,6 +7,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.VirtualTV;
@@ -26,6 +27,9 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<VirtualTvStandardStreamService>();
         serviceCollection.AddSingleton<VirtualTvVisibilityManager>();
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
+        serviceCollection.AddScoped<AndroidTvChannelVisibilityFilter>();
+        serviceCollection.Configure<MvcOptions>(options =>
+            options.Filters.AddService<AndroidTvChannelVisibilityFilter>());
         serviceCollection.AddSingleton<IScheduledTask, VirtualTvExtendSchedulesTask>();
         serviceCollection.AddSingleton<IScheduledTask, VirtualTvReconcileSchedulesTask>();
         serviceCollection.AddSingleton<IScheduledTask, VirtualTvRecoveryTask>();
