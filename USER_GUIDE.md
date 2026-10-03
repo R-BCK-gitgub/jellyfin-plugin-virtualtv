@@ -4,7 +4,7 @@ This guide explains how to create and configure Virtual TV channels in plain lan
 
 It is written for people who want to use the plugin without needing to understand how Jellyfin plugins, Live TV providers or playback APIs work.
 
-> **Version covered:** Virtual TV 2.0.0.0 for Jellyfin 12.1.
+> **Version covered:** Virtual TV 2.0.1.0 for Jellyfin 12.1.
 
 ## Installation
 
@@ -134,19 +134,19 @@ Virtual TV uses a few client-side behaviours that are not identical across Jelly
 
 ### Android TV
 
-With the native **Jellyfin Android TV** client versions tested so far, **Personalized TV channels do not work correctly**. The required handoff from the Virtual TV Live TV/loading source to the selected normal Jellyfin library item does not complete as expected, so Personalized TV should currently be considered **unsupported on Android TV**.
+With the native **Jellyfin Android TV** client, **Personalized TV remains unsupported**. Its Live TV/loading-source → normal library-item handoff does not behave like Jellyfin Web, so watched-dependent Personalized TV features should not be expected to work there.
 
-The repurposed Standard TV **Record → Play from Beginning** flow also depends on client-side Record/PlayNow behaviour and has **not worked reliably in the limited Android TV testing performed for Virtual TV**.
+**Standard TV uses Jellyfin's normal Live TV path and is supported by the current Virtual TV architecture.** Virtual TV 2.0.1 also includes Android-TV-specific handling for the Standard TV **Record → Play from Beginning** action. Android TV first performs its native DVR request flow, so Virtual TV returns a valid synthetic timer identifier and then sends the normal Jellyfin PlayNow command for the programme currently on air. No real recording or DVR timer is stored.
 
-This does not mean that all Virtual TV functionality is unavailable on Android TV. **Standard TV's normal linear Live TV playback is a separate path and may still work**, although exact behaviour can vary between Jellyfin client versions and devices.
+For this Android TV Play-from-Beginning flow, use Jellyfin's **internal player**; the client's **Use external player** option should remain disabled. Exact device/client behaviour can still vary, so Android TV compatibility remains something worth validating on the actual device.
 
-For features that depend on the Live TV → normal player handoff, use **Jellyfin Web/browser** or a web-based client such as **Jellyfin for webOS**. This compatibility note describes the current Virtual TV test results; future Jellyfin client or plugin changes may change this behaviour.
+Use **Jellyfin Web/browser** or a web-based client such as **Jellyfin for webOS** when you need Personalized TV.
 
 ---
 
 # 3. The Standard TV Record button
 
-This is an important Virtual TV 2.0 behaviour.
+This is an important Virtual TV 2.0.1 behaviour.
 
 On a Standard TV channel, Virtual TV repurposes Jellyfin's normal **Record** action as a **Play from Beginning** shortcut.
 
@@ -166,7 +166,7 @@ From that point onward you are no longer watching the live channel. You are watc
 
 Virtual TV does not create a DVR recording, recording file or recording timer.
 
-The button is only being reused because Jellyfin exposes a Record action on many clients and there is currently no universal plugin button that can be added to every Jellyfin player. Client behaviour is not identical: in the Android TV versions tested so far, this repurposed action has not worked reliably.
+The button is only being reused because Jellyfin exposes a Record action on many clients and there is currently no universal plugin button that can be added to every Jellyfin player. On Android TV, Virtual TV 2.0.1 also satisfies the client's native DVR request flow with a synthetic timer identifier before opening the actual item; no real timer is stored.
 
 Some Jellyfin clients may still briefly show messages such as:
 
@@ -269,6 +269,22 @@ For Movie channels, Standard TV uses:
 
 - Random / Shuffle Cycle.
 
+### Standard TV quality
+
+When **Channel experience = Standard TV**, the editor shows **Standard TV quality**:
+
+- **480p** — 854×480;
+- **720p** — 1280×720;
+- **1080p** — 1920×1080.
+
+This is the fixed broadcast resolution for that channel. Standard TV keeps one stable live-stream format while programmes change, so source material is scaled to the selected channel resolution while preserving its aspect ratio.
+
+New channels default to **1080p** in the editor. Standard TV channels created before Virtual TV 2.0.1 keep the historical **720p** setting until you edit them, so upgrading the plugin does not silently increase their processing requirements.
+
+Changing Standard TV quality is treated as a channel programming change: **Save channel**, then use **Generate New Schedule**. The setting is editable at any time.
+
+The resolution setting changes the output size only. The current Standard TV pipeline still normalizes the continuous broadcast to H.264/AAC for compatibility and continuity.
+
 ## Channel type
 
 Choose:
@@ -319,6 +335,24 @@ If the change affects programming, the channel is marked as needing schedule reg
 ## Cancel
 
 Closes the editor without saving the changes made in that editing session.
+
+## Clone Channel
+
+Each channel row includes **Clone Channel**.
+
+Clone Channel opens the normal channel editor as a **new channel**, pre-filled from the selected source channel. It copies the channel configuration, including:
+
+- Channel experience and type;
+- selected libraries and titles;
+- per-series season, Specials and True Random weight settings;
+- playback mode and schedule strategy;
+- Standard TV quality;
+- consecutive turns and block settings;
+- visibility and operating hours.
+
+The clone receives a **new channel ID**, the next available channel number and a temporary name ending in **Copy** so you can rename it before saving.
+
+The existing generated schedule is **not** copied. After making any desired changes, save the cloned channel and use **Generate New Schedule** to publish its programming.
 
 # 5. Channel experience
 
@@ -1124,6 +1158,7 @@ Changes that affect programming mark the channel for schedule reconciliation, in
 - Channel type;
 - Playback mode;
 - Schedule strategy;
+- Standard TV quality;
 - Source libraries;
 - selected titles;
 - season restrictions;
@@ -1473,11 +1508,11 @@ The same applies to a temporary red Record icon in the Guide.
 
 ## Does Play from Beginning work on Android TV?
 
-Not reliably in the Android TV client versions tested so far.
+Virtual TV 2.0.1 includes a dedicated compatibility path for it.
 
-Virtual TV's **Play from Beginning** feature reuses Jellyfin's Record command and then asks the client to leave Live TV and open the real library item from 00:00. In the limited Android TV testing performed for Virtual TV, that client-side handoff has not worked consistently.
+Android TV sends the Record action through Jellyfin's native DVR API before accepting the PlayNow command. Virtual TV now satisfies that request with a valid synthetic timer identifier, creates **no real recording**, and sends the currently airing episode or movie to Jellyfin's normal player from **00:00**.
 
-For now, treat **Record → Play from Beginning** as a browser/webOS-oriented feature. No real recording or series recording rule is created by Virtual TV.
+Use Jellyfin's **internal Android TV player** for this flow; **Use external player** should remain disabled. Because Android TV behaviour can vary by client version and device, this should still be verified on the actual Android TV device after updating.
 
 ---
 
