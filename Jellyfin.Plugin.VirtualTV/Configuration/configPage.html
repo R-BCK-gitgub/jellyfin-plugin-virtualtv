@@ -30,11 +30,17 @@
 #VirtualTVConfigPage .vtv-channel-name{font-weight:800}
 #VirtualTVConfigPage .vtv-cell-secondary{margin-top:.28em;font-size:.86em;opacity:.65}
 #VirtualTVConfigPage .vtv-table-status{display:flex;align-items:center;gap:.45em}
+#VirtualTVConfigPage .vtv-schedule-cell{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+#VirtualTVConfigPage .vtv-schedule-action{margin-top:.55em!important;padding:.5em .75em!important;font-size:.82em!important;line-height:1.15;white-space:nowrap}
 #VirtualTVConfigPage .vtv-status-dot{width:.62em;height:.62em;border-radius:50%;background:#777;flex:0 0 auto}
 #VirtualTVConfigPage .vtv-status-dot.ready{background:#49b675;box-shadow:0 0 0 3px rgba(73,182,117,.12)}
 #VirtualTVConfigPage .vtv-actions{display:flex;align-items:center;justify-content:flex-end;gap:.45em;white-space:nowrap}
 #VirtualTVConfigPage .vtv-actions button{margin:0}
 #VirtualTVConfigPage .vtv-delete-button{opacity:.82}
+#VirtualTVConfigPage .vtv-android-tv-option{grid-column:1/-1;margin:.15em 0 .35em}
+#VirtualTVConfigPage .vtv-android-tv-option .emby-checkbox-label{display:inline-flex;align-items:center;gap:.5em;margin:0}
+#VirtualTVConfigPage .vtv-android-tv-option .fieldDescription{display:block;margin-top:.4em;max-width:58em}
+#VirtualTVConfigPage .vtv-save-status{margin-top:.55em;min-height:1.25em}
 #VirtualTVConfigPage .vtv-coverage-launcher{display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap;margin-top:1.5em}
 #VirtualTVConfigPage .vtv-coverage-cards{display:grid;grid-template-columns:repeat(4,minmax(9em,1fr));gap:.7em;margin:1em 0}
 #VirtualTVConfigPage .vtv-coverage-card{border:1px solid rgba(255,255,255,.13);border-radius:.7em;padding:1em;background:#202020;color:#fff!important;cursor:pointer;text-align:left}
@@ -174,7 +180,7 @@
         </select>
         <div class="fieldDescription">Fixed broadcast resolution for this Standard TV channel. Higher resolutions provide better image quality but require more server processing. Save the channel and generate a new schedule after changing this setting.</div>
       </div>
-      <div id="androidTvCompatibilityContainer" class="checkboxContainer" style="display:none;">
+      <div id="androidTvCompatibilityContainer" class="vtv-android-tv-option checkboxContainer checkboxContainer-withDescription" style="display:none;">
         <label class="emby-checkbox-label">
           <input id="hideFromAndroidTv" type="checkbox" is="emby-checkbox">
           <span>Hide from Android TV</span>
@@ -352,9 +358,10 @@
     </div>
 
     <div class="vtv-editor-actions">
-      <button type="submit" is="emby-button" class="raised button-submit emby-button">Save channel</button>
+      <button id="btnSaveChannel" type="submit" is="emby-button" class="raised button-submit emby-button">Save channel</button>
       <button id="btnCancelEdit" type="button" is="emby-button" class="raised emby-button">Cancel</button>
     </div>
+    <div id="saveStatus" class="fieldDescription vtv-save-status" aria-live="polite"></div>
   </form>
 </div>
 
@@ -541,9 +548,8 @@
         '<td>'+esc(libraries)+'</td>'+
         '<td>'+esc((c.SelectedItemIds||[]).length)+'</td>'+
         '<td>'+esc(hoursLabel(c))+'</td>'+
-        '<td><div class="vtv-table-status"><span class="vtv-status-dot'+(schedule.ready?' ready':'')+'"></span><strong>'+esc(schedule.label)+'</strong></div><div class="vtv-cell-secondary">'+esc(schedule.detail)+'</div></td>'+
+        '<td><div class="vtv-schedule-cell"><div class="vtv-table-status"><span class="vtv-status-dot'+(schedule.ready?' ready':'')+'"></span><strong>'+esc(schedule.label)+'</strong></div><div class="vtv-cell-secondary">'+esc(schedule.detail)+'</div><button is="emby-button" type="button" class="raised button-submit emby-button btnGenerate vtv-schedule-action" data-id="'+esc(c.Id)+'">Generate New Schedule</button></div></td>'+
         '<td><div class="vtv-actions">'+
-          '<button is="emby-button" type="button" class="raised button-submit emby-button btnGenerate" data-id="'+esc(c.Id)+'">Generate New Schedule</button>'+
           '<button is="emby-button" type="button" class="raised emby-button btnEdit" data-id="'+esc(c.Id)+'">Edit</button>'+
           '<button is="emby-button" type="button" class="raised emby-button btnClone" data-id="'+esc(c.Id)+'">Clone Channel</button>'+
           '<button is="emby-button" type="button" class="raised emby-button btnDelete vtv-delete-button" data-id="'+esc(c.Id)+'">Delete</button>'+
@@ -553,7 +559,7 @@
 
     box.innerHTML='<div class="vtv-channel-table-wrap"><table class="vtv-channel-table">'+
       '<colgroup>'+
-        '<col style="width:6%"><col style="width:12%"><col style="width:8%"><col style="width:17%"><col style="width:12%"><col style="width:6%"><col style="width:9%"><col style="width:13%"><col style="width:17%">'+
+        '<col style="width:6%"><col style="width:12%"><col style="width:8%"><col style="width:17%"><col style="width:12%"><col style="width:6%"><col style="width:9%"><col style="width:18%"><col style="width:12%">'+
       '</colgroup>'+
       '<thead><tr>'+
         '<th>No.</th><th>Channel</th><th>Type</th><th>Playback / schedule</th><th>Libraries</th><th>Titles</th><th>Hours</th><th>Schedule</th><th>Actions</th>'+
@@ -1321,29 +1327,36 @@
     return ApiClient.ajax({type:'DELETE',url:ApiClient.getUrl('VirtualTV/Channels/'+encodeURIComponent(id)+'/Schedule')});
   }
 
+  function setEditorSaving(saving){
+    var saveButton=page.querySelector('#btnSaveChannel');
+    var cancelButton=page.querySelector('#btnCancelEdit');
+    var status=page.querySelector('#saveStatus');
+
+    saveButton.disabled=saving;
+    cancelButton.disabled=saving;
+    saveButton.textContent=saving?'Saving...':'Save channel';
+    status.textContent=saving?'Saving...':'';
+  }
+
   function saveConfiguration(afterSave){
-    Dashboard.showLoadingMsg();
-    var saved=false;
-    var postSaveWarning=false;
+    setEditorSaving(true);
 
     ApiClient.updatePluginConfiguration(pluginId,state.config).then(function(result){
-      saved=true;
-      Dashboard.processPluginConfigurationUpdateResult(result);
-      return refreshGuide().catch(function(){
-        postSaveWarning=true;
-        return null;
-      });
-    }).then(function(){
-      Dashboard.hideLoadingMsg();
+      // Persistence is complete here. Return to the channel table first, then show Jellyfin's
+      // normal "Settings saved" confirmation so the UI never claims completion while still
+      // blocking inside the editor.
       if(afterSave)afterSave();
-      if(postSaveWarning){
+      setEditorSaving(false);
+      Dashboard.processPluginConfigurationUpdateResult(result);
+
+      // Guide refresh can be materially slower than saving the plugin configuration and is not
+      // required to keep the editor blocked. Run it after the saved UI state is already visible.
+      refreshGuide().catch(function(){
         Dashboard.alert('Settings saved. Jellyfin could not refresh the Live TV Guide immediately; the saved configuration was not lost.');
-      }
+      });
     }).catch(function(){
-      Dashboard.hideLoadingMsg();
-      Dashboard.alert(saved
-        ? 'Settings were saved, but a follow-up Live TV operation failed.'
-        : 'Unable to save the Virtual TV configuration.');
+      setEditorSaving(false);
+      Dashboard.alert('Unable to save the Virtual TV configuration.');
     });
   }
 
