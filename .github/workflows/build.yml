@@ -166,8 +166,18 @@ jobs:
 
           if c.count('private async Task SendIsolatedVodPlayNowAsync(') != 1:
               raise SystemExit("Personalized VOD startup implementation is duplicated.")
-          if c.count('_sessionManager.SendPlaystateCommand(') != 1:
-              raise SystemExit("Resume must remain the only automatic Playstate command.")
+          if c.count('_sessionManager.SendPlaystateCommand(') != 2:
+              raise SystemExit("Personalized playback must have exactly two automatic Playstate commands: guarded Resume seek and Android-mobile loading Stop.")
+
+          for token in [
+              'private const string AndroidMobileClient = "Jellyfin for Android";',
+              'PlaybackStart is sufficient, starting the 2-second loading buffer immediately.',
+              'Command = PlaystateCommand.Stop',
+              'AndroidPlayerTeardownBuffer = TimeSpan.FromSeconds(1)',
+              'context.IsAndroidMobile',
+          ]:
+              if token not in c:
+                  raise SystemExit(f"Android mobile handoff invariant missing: {token}")
 
           # Traditional Personalized: Guide selects item, pending Resume is zero, same PlayNow.
           concrete_start=c.index('private async Task PlayConcreteEntryAsync')
@@ -227,6 +237,7 @@ jobs:
           livetv=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvLiveTvService.cs").read_text(encoding="utf-8")
           standard=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvStandardStreamService.cs").read_text(encoding="utf-8")
           channel_config=Path("Jellyfin.Plugin.VirtualTV/Configuration/ChannelConfiguration.cs").read_text(encoding="utf-8")
+          android_filter=Path("Jellyfin.Plugin.VirtualTV/Services/AndroidTvChannelVisibilityFilter.cs").read_text(encoding="utf-8")
 
           required_generator=[
               'BuildSmartAppendWithRotation(channel, startUtc, targetUtc, prefix, resetRandomState: true)',
@@ -269,6 +280,10 @@ jobs:
               '<option value="1080">1080p</option>',
               'Clone Channel',
               "openEditor(b.getAttribute('data-id'),true)",
+              'id="hideFromAndroidTv"',
+              'Hide from Android TV',
+              "page.querySelector('#androidTvCompatibilityContainer').style.display=standard?'none':''",
+              'existing.HideFromAndroidTv=hideFromAndroidTv',
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
@@ -326,6 +341,19 @@ jobs:
           ]:
               if token not in channel_config+standard:
                   raise SystemExit(f"Standard TV quality profile invariant missing: {token}")
+
+          for token in [
+              'public bool HideFromAndroidTv { get; set; }',
+              'IAsyncResultFilter',
+              'Jellyfin for Android TV',
+              'ShouldHideChannel',
+              'GetAuthorizationInfo(context.HttpContext)',
+          ]:
+              if token not in channel_config+android_filter:
+                  raise SystemExit(f"Android TV visibility invariant missing: {token}")
+
+          if 'Configure<MvcOptions>' not in Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8"):
+              raise SystemExit("Android TV response visibility filter is not registered globally.")
 
           # Channel labels must be canonical. Guide styling may change typography only;
           # Jellyfin's stock row/cell/channel geometry must remain untouched.
