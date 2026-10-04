@@ -396,7 +396,7 @@ jobs:
           dispatcher_path=Path("Jellyfin.Plugin.VirtualTV/Services/VirtualTvPlaybackCommandDispatcher.cs")
           if dispatcher_path.exists():
               raise SystemExit("Experimental Android Record dispatcher must not be present in the stability baseline.")
-          if 'VirtualTvPlaybackCommandDispatcher' in reg or '_playbackDispatcher' in livetv:
+          if 'VirtualTvPlaybackCommandDispatcher' in Path("Jellyfin.Plugin.VirtualTV/PluginServiceRegistrator.cs").read_text(encoding="utf-8") or '_playbackDispatcher' in livetv:
               raise SystemExit("Experimental Android Record dispatcher wiring returned to the stability baseline.")
 
           for token in [
