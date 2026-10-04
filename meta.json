@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Virtual TV 2.0.1.1 test build: adds Android phone/tablet Integrated Player compatibility for Standard TV by routing the opened raw MPEG-TS source through Jellyfin's HLS-compatible path, plus vertically stacked channel Actions with a red, confirmed Delete button. No other playback or scheduling behavior is intentionally changed.",
+  "changelog": "Virtual TV 2.0.1.2 test build fixes Standard TV Record-to-Play-from-Beginning on Jellyfin Android phone/tablet and Android TV. Android Record requests now return before player handoff, then a hosted dispatcher targets only the active media-control controller, avoiding Web Player spinner stalls and Android session/controller misrouting. Standard TV HLS compatibility, scheduling and Personalized TV behavior are unchanged.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "2.0.1.1",
+  "version": "2.0.1.2",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

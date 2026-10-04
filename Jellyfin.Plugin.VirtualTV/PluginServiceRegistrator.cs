@@ -26,6 +26,9 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<VirtualTvBootstrapMediaProvider>();
         serviceCollection.AddSingleton<VirtualTvStandardStreamService>();
         serviceCollection.AddSingleton<VirtualTvVisibilityManager>();
+        serviceCollection.AddSingleton<VirtualTvPlaybackCommandDispatcher>();
+        serviceCollection.AddHostedService<VirtualTvPlaybackCommandDispatcher>(serviceProvider =>
+            serviceProvider.GetRequiredService<VirtualTvPlaybackCommandDispatcher>());
         serviceCollection.AddSingleton<LiveTvPlaybackCoordinator>();
         serviceCollection.AddScoped<AndroidTvChannelVisibilityFilter>();
         serviceCollection.Configure<MvcOptions>(options =>

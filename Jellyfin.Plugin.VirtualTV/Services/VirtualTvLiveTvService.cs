@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.LiveTv;
+using MediaBrowser.Model.Library;
 using MediaBrowser.Model.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
     private readonly VirtualTvContentCatalog _catalog;
     private readonly VirtualTvBootstrapMediaProvider _bootstrapMedia;
     private readonly VirtualTvStandardStreamService _standardTv;
+    private readonly VirtualTvPlaybackCommandDispatcher _playbackDispatcher;
     private readonly ILibraryManager _libraryManager;
     private readonly ISessionManager _sessionManager;
     private readonly IAuthorizationContext _authorizationContext;
@@ -38,6 +40,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         VirtualTvContentCatalog catalog,
         VirtualTvBootstrapMediaProvider bootstrapMedia,
         VirtualTvStandardStreamService standardTv,
+        VirtualTvPlaybackCommandDispatcher playbackDispatcher,
         ILibraryManager libraryManager,
         ISessionManager sessionManager,
         IAuthorizationContext authorizationContext,
@@ -48,6 +51,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         _catalog = catalog;
         _bootstrapMedia = bootstrapMedia;
         _standardTv = standardTv;
+        _playbackDispatcher = playbackDispatcher;
         _libraryManager = libraryManager;
         _sessionManager = sessionManager;
         _authorizationContext = authorizationContext;
@@ -306,7 +310,6 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         var entry = ResolveRecordActionEntry(channel.Id, programId, DateTime.UtcNow)
             ?? throw new InvalidOperationException(
                 $"Virtual TV could not resolve the currently airing programme for channel '{channel.Name}'.");
-
         if (!Guid.TryParse(entry.SourceItemId, out var sourceItemId))
         {
             throw new InvalidOperationException(
@@ -325,21 +328,54 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
                 "Virtual TV Record shortcut requires the active Jellyfin client request.");
 
         var auth = await _authorizationContext.GetAuthorizationInfo(httpContext).ConfigureAwait(false);
-        if (!auth.IsAuthenticated || string.IsNullOrWhiteSpace(auth.DeviceId))
+        if (!auth.IsAuthenticated
+            || string.IsNullOrWhiteSpace(auth.DeviceId)
+            || auth.User is null
+            || auth.User.Id == Guid.Empty)
         {
             throw new InvalidOperationException(
-                "Virtual TV could not identify the Jellyfin device that invoked Record.");
+                "Virtual TV could not identify the Jellyfin user/device that invoked Record.");
         }
 
-        var candidateSessions = _sessionManager.Sessions
-            .Where(session => string.Equals(session.DeviceId, auth.DeviceId, StringComparison.OrdinalIgnoreCase));
-
-        if (auth.User is not null && auth.User.Id != Guid.Empty)
+        if (sourceItem.GetPlayAccess(auth.User) != PlayAccess.Full)
         {
-            candidateSessions = candidateSessions.Where(session => session.UserId == auth.User.Id);
+            throw new InvalidOperationException(
+                $"Virtual TV user '{auth.User.Username}' does not have full play access to item '{sourceItemId}'.");
         }
 
-        var targetSession = candidateSessions
+        var androidMobile = VirtualTvClientPolicy.IsAndroidMobile(auth.Client);
+        var androidTv = VirtualTvClientPolicy.IsAndroidTv(auth.Client);
+
+        if (androidMobile || androidTv)
+        {
+            // Android phone/tablet and Android TV can expose more than one session/controller for the
+            // same physical device. Do not keep the Record HTTP request open while the player changes:
+            // queue the handoff, return the synthetic timer response immediately, then let the hosted
+            // dispatcher resolve the active media-control controller and send one raw Play message.
+            _playbackDispatcher.Enqueue(new StandardTvPlayFromBeginningRequest(
+                sourceItemId,
+                auth.User.Id,
+                auth.DeviceId,
+                auth.Client ?? string.Empty,
+                channel.Name,
+                clientAction));
+
+            _logger.LogInformation(
+                "Virtual TV Standard TV Record shortcut queued Android Play from Beginning: {ClientAction} on channel {ChannelName}, item {ItemId}, client {Client}, device {DeviceId}. The Record request can now complete before player handoff.",
+                clientAction,
+                channel.Name,
+                sourceItemId,
+                auth.Client ?? string.Empty,
+                auth.DeviceId);
+            return;
+        }
+
+        // Keep the already-validated Web/iOS/non-Android path unchanged. Those clients use
+        // Jellyfin's normal SendPlayCommand semantics and were already confirmed working.
+        var targetSession = _sessionManager.Sessions
+            .Where(session =>
+                session.UserId == auth.User.Id
+                && string.Equals(session.DeviceId, auth.DeviceId, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(session => session.LastPlaybackCheckIn)
             .ThenByDescending(session => session.LastActivityDate)
             .FirstOrDefault();
@@ -350,14 +386,13 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
                 $"Virtual TV could not find an active controllable Jellyfin session for device '{auth.DeviceId}'.");
         }
 
-        var controllingUserId = auth.User?.Id ?? targetSession.UserId;
         var request = new PlayRequest
         {
             ItemIds = new[] { sourceItemId },
             StartPositionTicks = 0L,
             StartIndex = 0,
             PlayCommand = PlayCommand.PlayNow,
-            ControllingUserId = controllingUserId
+            ControllingUserId = auth.User.Id
         };
 
         _logger.LogInformation(
@@ -368,9 +403,6 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
             targetSession.Id,
             auth.DeviceId);
 
-        // Deliberately use Jellyfin's normal PlayNow path rather than the isolated Personalized TV
-        // queue. From this point onward the item behaves exactly like normal library playback,
-        // including the user's standard watched/resume/next-episode behaviour.
         await _sessionManager.SendPlayCommand(
             targetSession.Id,
             targetSession.Id,
