@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Virtual TV 2.0.1.4 stability-recovery test build restores the user-validated 2.0.1.1 playback/runtime baseline, removes the experimental Android Record dispatcher from 2.0.1.2-2.0.1.3, and gives Edit, Clone Channel and Delete the same compact sizing rule as Generate New Schedule. Standard TV streaming, Personalized TV, scheduling and Guide geometry are otherwise unchanged.
+  Virtual TV 2.0.1.4 stability-recovery build restores the user-validated 2.0.1.1 playback/runtime baseline, keeps compact channel Actions, and adds per-channel configuration export/import in Create/Edit. Imported files populate form settings only: they do not save automatically, include artwork, copy schedules, or generate schedules. Standard TV streaming, Personalized TV, scheduling and Guide geometry are otherwise unchanged.
