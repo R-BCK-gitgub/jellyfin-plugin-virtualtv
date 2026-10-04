@@ -348,24 +348,35 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
 
         if (androidMobile || androidTv)
         {
-            // Android phone/tablet and Android TV can expose more than one session/controller for the
-            // same physical device. Do not keep the Record HTTP request open while the player changes:
-            // queue the handoff, return the synthetic timer response immediately, then let the hosted
-            // dispatcher resolve the active media-control controller and send one raw Play message.
+            // Capture the request-time session identity before Android TV refreshes Live TV state or
+            // Android mobile switches between WebView/native-player sessions. The deferred dispatcher
+            // can then follow the same physical device even if the original session changes afterwards.
+            var sourceSession = _sessionManager.Sessions
+                .Where(session =>
+                    session.UserId == auth.User.Id
+                    && string.Equals(session.DeviceId, auth.DeviceId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(session => session.LastPlaybackCheckIn)
+                .ThenByDescending(session => session.LastActivityDate)
+                .FirstOrDefault();
+
             _playbackDispatcher.Enqueue(new StandardTvPlayFromBeginningRequest(
                 sourceItemId,
                 auth.User.Id,
                 auth.DeviceId,
+                sourceSession?.DeviceName ?? string.Empty,
+                sourceSession?.Id ?? string.Empty,
                 auth.Client ?? string.Empty,
                 channel.Name,
                 clientAction));
 
             _logger.LogInformation(
-                "Virtual TV Standard TV Record shortcut queued Android Play from Beginning: {ClientAction} on channel {ChannelName}, item {ItemId}, client {Client}, device {DeviceId}. The Record request can now complete before player handoff.",
+                "Virtual TV Standard TV Record shortcut queued Android Play from Beginning: {ClientAction} on channel {ChannelName}, item {ItemId}, client {Client}, source session {SessionId}, device {DeviceName} / {DeviceId}. The Record request can complete before player handoff.",
                 clientAction,
                 channel.Name,
                 sourceItemId,
                 auth.Client ?? string.Empty,
+                sourceSession?.Id ?? string.Empty,
+                sourceSession?.DeviceName ?? string.Empty,
                 auth.DeviceId);
             return;
         }
