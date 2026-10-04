@@ -6,7 +6,7 @@
 
 </head>
 <body>
-<div id="VirtualTVConfigPage" data-ui-version="2.0.1.0" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="VirtualTVConfigPage" data-ui-version="2.0.1.1" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
 <style>
 #VirtualTVConfigPage .vtv-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5em;margin-bottom:1.5em}
 #VirtualTVConfigPage .vtv-muted{opacity:.72}
@@ -34,9 +34,10 @@
 #VirtualTVConfigPage .vtv-schedule-action{margin-top:.55em!important;padding:.5em .75em!important;font-size:.82em!important;line-height:1.15;white-space:nowrap}
 #VirtualTVConfigPage .vtv-status-dot{width:.62em;height:.62em;border-radius:50%;background:#777;flex:0 0 auto}
 #VirtualTVConfigPage .vtv-status-dot.ready{background:#49b675;box-shadow:0 0 0 3px rgba(73,182,117,.12)}
-#VirtualTVConfigPage .vtv-actions{display:flex;align-items:center;justify-content:flex-end;gap:.45em;white-space:nowrap}
-#VirtualTVConfigPage .vtv-actions button{margin:0}
-#VirtualTVConfigPage .vtv-delete-button{opacity:.82}
+#VirtualTVConfigPage .vtv-actions{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:.45em;white-space:nowrap}
+#VirtualTVConfigPage .vtv-actions button{width:100%;margin:0}
+#VirtualTVConfigPage .vtv-delete-button{background:#c62828!important;color:#fff!important;border-color:#c62828!important}
+#VirtualTVConfigPage .vtv-delete-button:hover{background:#b71c1c!important;border-color:#b71c1c!important}
 #VirtualTVConfigPage .vtv-android-tv-option{grid-column:1/-1;margin:.15em 0 .35em}
 #VirtualTVConfigPage .vtv-android-tv-option .emby-checkbox-label{display:inline-flex;align-items:center;gap:.5em;margin:0}
 #VirtualTVConfigPage .vtv-android-tv-option .fieldDescription{display:block;margin-top:.4em;max-width:58em}
@@ -96,7 +97,7 @@
 
 <div class="vtv-header">
   <div>
-    <h1>Virtual TV <span class="vtv-version">v2.0.1.0</span></h1>
+    <h1>Virtual TV <span class="vtv-version">v2.0.1.1</span></h1>
     <div class="vtv-muted">Create and manage virtual linear TV channels from your Jellyfin libraries.</div>
   </div>
   <button id="btnCreateChannel" is="emby-button" type="button" class="raised button-submit emby-button">Create channel</button>
@@ -1689,7 +1690,7 @@
   function deleteChannel(id){
     var channel=state.config.Channels.find(function(x){return x.Id===id;});
     if(!channel)return;
-    if(!window.confirm('Delete channel "'+channel.Name+'"?'))return;
+    if(!window.confirm('Delete channel "'+channel.Name+'"? This action cannot be undone.'))return;
 
     state.config.Channels=state.config.Channels.filter(function(x){return x.Id!==id;});
     Dashboard.showLoadingMsg();

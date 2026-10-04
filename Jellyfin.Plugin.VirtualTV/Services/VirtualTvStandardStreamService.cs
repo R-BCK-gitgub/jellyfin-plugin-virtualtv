@@ -102,7 +102,9 @@ public sealed class VirtualTvStandardStreamService
         };
     }
 
-    public ILiveStream CreateLiveStream(ChannelConfiguration channel)
+    public ILiveStream CreateLiveStream(
+        ChannelConfiguration channel,
+        bool androidMobileHlsCompatibility = false)
     {
         if (!VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
         {
@@ -129,8 +131,13 @@ public sealed class VirtualTvStandardStreamService
                 BufferMs = 0,
                 RequiresOpening = false,
                 RequiresClosing = true,
-                SupportsDirectPlay = true,
-                SupportsDirectStream = true,
+
+                // Jellyfin for Android 2.7.x's Integrated Player treats HTTP Direct Play as
+                // application/x-mpegURL. This source is raw continuous MPEG-TS, not an HLS
+                // playlist, so Android mobile must let Jellyfin expose the compatible HLS path.
+                // Every other client keeps the exact pre-2.0.1.1 Standard TV negotiation.
+                SupportsDirectPlay = !androidMobileHlsCompatibility,
+                SupportsDirectStream = !androidMobileHlsCompatibility,
                 SupportsTranscoding = true,
                 SupportsProbing = true,
                 MediaStreams = Array.Empty<MediaStream>()

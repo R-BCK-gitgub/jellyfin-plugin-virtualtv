@@ -163,7 +163,7 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
         return GetPersonalizedBootstrapSource(channel);
     }
 
-    public Task<ILiveStream> GetChannelStreamWithDirectStreamProvider(
+    public async Task<ILiveStream> GetChannelStreamWithDirectStreamProvider(
         string channelId,
         string streamId,
         List<ILiveStream> currentLiveStreams,
@@ -176,37 +176,51 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
 
         if (!VirtualTvModePolicy.IsStandardTV(channel.PlaybackExperience))
         {
-            return Task.FromException<ILiveStream>(
-                new NotSupportedException("Personalized TV uses the already-materialized neutral bootstrap source."));
+            throw new NotSupportedException(
+                "Personalized TV uses the already-materialized neutral bootstrap source.");
         }
 
-        if (!string.IsNullOrWhiteSpace(streamId))
+        var androidMobileHlsCompatibility = await IsAndroidMobileRequestAsync().ConfigureAwait(false);
+
+        // Android's Integrated Player treats HTTP Direct Play as HLS. Virtual TV's Standard
+        // source is a continuous raw MPEG-TS stream, so Android mobile must be kept on Jellyfin's
+        // HLS-compatible playback path. Keep a separate sharing key so a Web/webOS/Android TV
+        // tune-in can never donate incompatible MediaSource flags to Android mobile, or vice versa.
+        var sharingStreamId = string.IsNullOrWhiteSpace(streamId)
+            ? string.Empty
+            : androidMobileHlsCompatibility
+                ? streamId + "|android-mobile-hls"
+                : streamId;
+
+        if (!string.IsNullOrWhiteSpace(sharingStreamId))
         {
             var existing = currentLiveStreams.FirstOrDefault(stream =>
                 stream.EnableStreamSharing
-                && string.Equals(stream.OriginalStreamId, streamId, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(stream.OriginalStreamId, sharingStreamId, StringComparison.OrdinalIgnoreCase));
 
             if (existing is not null)
             {
                 existing.ConsumerCount++;
                 _logger.LogInformation(
-                    "Virtual TV reusing Standard TV live stream {StreamId} for channel {ChannelName}; consumer count {ConsumerCount}.",
+                    "Virtual TV reusing Standard TV live stream {StreamId} for channel {ChannelName}; Android mobile HLS compatibility {AndroidMobileHlsCompatibility}; consumer count {ConsumerCount}.",
                     streamId,
                     channel.Name,
+                    androidMobileHlsCompatibility,
                     existing.ConsumerCount);
-                return Task.FromResult(existing);
+                return existing;
             }
         }
 
-        var created = _standardTv.CreateLiveStream(channel);
-        created.OriginalStreamId = streamId ?? string.Empty;
+        var created = _standardTv.CreateLiveStream(channel, androidMobileHlsCompatibility);
+        created.OriginalStreamId = sharingStreamId;
 
         _logger.LogInformation(
-            "Virtual TV opening one new Standard TV live stream for channel {ChannelName}, source {StreamId}.",
+            "Virtual TV opening one new Standard TV live stream for channel {ChannelName}, source {StreamId}; Android mobile HLS compatibility {AndroidMobileHlsCompatibility}.",
             channel.Name,
-            streamId);
+            streamId,
+            androidMobileHlsCompatibility);
 
-        return Task.FromResult(created);
+        return created;
     }
 
     public Task CloseLiveStream(string id, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -417,6 +431,18 @@ public sealed class VirtualTvLiveTvService : ILiveTvService, ISupportsDirectStre
 
         var auth = await _authorizationContext.GetAuthorizationInfo(httpContext).ConfigureAwait(false);
         return VirtualTvClientPolicy.IsAndroidTv(auth.Client);
+    }
+
+    private async Task<bool> IsAndroidMobileRequestAsync()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext is null)
+        {
+            return false;
+        }
+
+        var auth = await _authorizationContext.GetAuthorizationInfo(httpContext).ConfigureAwait(false);
+        return VirtualTvClientPolicy.IsAndroidMobile(auth.Client);
     }
 
     private ChannelConfiguration? GetChannel(string externalId)

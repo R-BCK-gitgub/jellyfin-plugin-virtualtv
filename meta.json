@@ -1,13 +1,13 @@
 {
   "category": "General",
-  "changelog": "Virtual TV 2.0.1.0 is the consolidated hotfix for the 2.0 release. It includes Standard TV quality selection, Clone Channel, Android TV compatibility/visibility handling, administration UI improvements, and the validated Jellyfin for Android phone/tablet Personalized TV WebView handoff so Loading opens the selected item through Jellyfin's normal local playback path.",
+  "changelog": "Virtual TV 2.0.1.1 test build: adds Android phone/tablet Integrated Player compatibility for Standard TV by routing the opened raw MPEG-TS source through Jellyfin's HLS-compatible path, plus vertically stacked channel Actions with a red, confirmed Delete button. No other playback or scheduling behavior is intentionally changed.",
   "description": "Virtual linear TV channels generated from media already available in Jellyfin.",
   "guid": "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1",
   "name": "Virtual TV",
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "2.0.1.0",
+  "version": "2.0.1.1",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
