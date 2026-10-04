@@ -464,17 +464,20 @@
   }
 
   function copyPortableChannelConfiguration(source){
-    var copy={};
+    var input={};
     source=source||{};
     CHANNEL_PRESET_FIELDS.forEach(function(field){
       var value=source[field];
-      if(Array.isArray(value)){
-        copy[field]=JSON.parse(JSON.stringify(value));
-      }else{
-        copy[field]=value;
-      }
+      input[field]=Array.isArray(value)?JSON.parse(JSON.stringify(value)):value;
     });
-    return normalize({Channels:[copy]}).Channels[0];
+
+    var normalized=normalize({Channels:[input]}).Channels[0];
+    var portable={};
+    CHANNEL_PRESET_FIELDS.forEach(function(field){
+      var value=normalized[field];
+      portable[field]=Array.isArray(value)?JSON.parse(JSON.stringify(value)):value;
+    });
+    return portable;
   }
 
   function safePresetFileName(name){
