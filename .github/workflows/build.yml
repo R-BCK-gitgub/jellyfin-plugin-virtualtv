@@ -348,6 +348,9 @@ jobs:
               "var CHANNEL_PRESET_FORMAT='VirtualTVChannelConfiguration'",
               'var CHANNEL_PRESET_SCHEMA=1',
               'function copyPortableChannelConfiguration(source)',
+              'var normalized=normalize({Channels:[input]}).Channels[0]',
+              'var portable={}',
+              'return portable;',
               'function exportChannelConfiguration()',
               'function applyImportedChannelConfiguration(imported)',
               'function importChannelConfigurationFile(file)',
@@ -388,6 +391,16 @@ jobs:
           ]:
               if "'" + required + "'" not in preset_block:
                   raise SystemExit(f"Channel preset is missing form field: {required}")
+
+          portable_start=p.index("function copyPortableChannelConfiguration(source)")
+          portable_end=p.index("function safePresetFileName(name)", portable_start)
+          portable_block=p[portable_start:portable_end]
+          if portable_block.count("CHANNEL_PRESET_FIELDS.forEach") != 2:
+              raise SystemExit("Portable channel helper must whitelist both input and normalized output.")
+          if "return normalized" in portable_block:
+              raise SystemExit("Portable channel helper must never return the normalized object directly; normalize adds internal fields.")
+          if "return portable;" not in portable_block:
+              raise SystemExit("Portable channel helper is not returning the re-whitelisted object.")
 
           import_start=p.index("function importChannelConfigurationFile(file)")
           import_end=p.index("function normalizeLibrary(folder)", import_start)
