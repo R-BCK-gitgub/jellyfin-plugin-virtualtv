@@ -15,6 +15,8 @@
 #VirtualTVConfigPage .vtv-span-2{grid-column:1/-1}
 #VirtualTVConfigPage .vtv-section-title{margin:1.65em 0 .65em;font-size:1.15em;font-weight:700}
 #VirtualTVConfigPage .vtv-editor-actions{display:flex;gap:.75em;margin-top:1.5em;flex-wrap:wrap}
+#VirtualTVConfigPage .vtv-config-transfer{display:flex;align-items:center;gap:.65em;flex-wrap:wrap;margin:.8em 0 1.1em}
+#VirtualTVConfigPage .vtv-config-transfer .fieldDescription{flex:1 1 24em;margin:0}
 #VirtualTVConfigPage .vtv-empty{text-align:center;padding:2.5em 1em;opacity:.78}
 #VirtualTVConfigPage .vtv-warning{padding:.8em 1em;border-radius:.55em;background:rgba(255,183,0,.13);margin-bottom:1em}
 #VirtualTVConfigPage .vtv-version{display:inline-flex;align-items:center;margin-left:.55em;padding:.2em .55em;border-radius:999px;background:#303030;border:1px solid rgba(255,255,255,.09);font-size:.7em;font-weight:700;opacity:.82;vertical-align:middle}
@@ -149,6 +151,13 @@
 <div id="channelEditor" class="vtv-card" style="display:none;">
   <h2 id="editorTitle">Create channel</h2>
   <div id="immutableNotice" class="vtv-warning" style="display:none;">Programming settings are fully editable. Changes that affect programming mark the channel for schedule regeneration; the channel identity and number are preserved.</div>
+
+  <div class="vtv-config-transfer">
+    <button id="btnImportChannelConfig" is="emby-button" type="button" class="raised emby-button">Import configuration</button>
+    <button id="btnExportChannelConfig" is="emby-button" type="button" class="raised emby-button" style="display:none;">Export configuration</button>
+    <input id="channelConfigFile" type="file" accept=".vtvchannel,.json,application/json" style="display:none;">
+    <div class="fieldDescription">Import fills the channel form only. It does not save the channel, copy a schedule, generate a schedule, or include channel artwork.</div>
+  </div>
 
   <form id="channelForm">
     <div class="vtv-form-grid">
@@ -373,6 +382,14 @@
 (function(){
   var page=document.querySelector('#VirtualTVConfigPage');
   var pluginId='2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1';
+  var CHANNEL_PRESET_FORMAT='VirtualTVChannelConfiguration';
+  var CHANNEL_PRESET_SCHEMA=1;
+  var CHANNEL_PRESET_FIELDS=[
+    'Name','Number','Description','PlaybackExperience','StandardTvResolution','HideFromAndroidTv',
+    'ChannelType','ContentMode','SchedulingMethod','BlockMinutes','EpisodesPerTurn','SmartRotationMonths',
+    'SelectedLibraryIds','SelectedItemIds','SeriesSelections','VisibleToAllUsers','VisibleUserIds',
+    'Is24Hours','OnAirStart','OffAirStart'
+  ];
   var state={
     config:null,
     libraries:[],
@@ -444,6 +461,175 @@
       c.SmartRotationMonths=[1,2,3,6].indexOf(Number(c.SmartRotationMonths))!==-1?Number(c.SmartRotationMonths):2;
     });
     return config;
+  }
+
+  function copyPortableChannelConfiguration(source){
+    var copy={};
+    source=source||{};
+    CHANNEL_PRESET_FIELDS.forEach(function(field){
+      var value=source[field];
+      if(Array.isArray(value)){
+        copy[field]=JSON.parse(JSON.stringify(value));
+      }else{
+        copy[field]=value;
+      }
+    });
+    return normalize({Channels:[copy]}).Channels[0];
+  }
+
+  function safePresetFileName(name){
+    var value=String(name||'channel')
+      .trim()
+      .replace(/[^a-z0-9._-]+/gi,'-')
+      .replace(/^-+|-+$/g,'');
+    return value||'channel';
+  }
+
+  function exportChannelConfiguration(){
+    if(!state.editingId){
+      Dashboard.alert('Save the channel before exporting its configuration.');
+      return;
+    }
+
+    var channel=state.config.Channels.find(function(item){return item.Id===state.editingId;});
+    if(!channel){
+      Dashboard.alert('Unable to find the saved channel configuration.');
+      return;
+    }
+
+    var payload={
+      Format:CHANNEL_PRESET_FORMAT,
+      SchemaVersion:CHANNEL_PRESET_SCHEMA,
+      PluginVersion:'2.0.1.4',
+      ExportedAtUtc:new Date().toISOString(),
+      Channel:copyPortableChannelConfiguration(channel)
+    };
+
+    var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var link=document.createElement('a');
+    link.href=url;
+    link.download='virtual-tv-'+safePresetFileName(channel.Name)+'.vtvchannel';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function(){URL.revokeObjectURL(url);},0);
+  }
+
+  function applyImportedChannelConfiguration(imported){
+    var channel=copyPortableChannelConfiguration(imported);
+
+    page.querySelector('#channelName').value=channel.Name||'';
+    page.querySelector('#channelNumber').value=Number(channel.Number)||nextNumber();
+    page.querySelector('#channelDescription').value=channel.Description||'';
+    page.querySelector('#channelExperience').value=channel.PlaybackExperience==='StandardTV'?'StandardTV':'PersonalizedTV';
+
+    var resolution=parseInt(channel.StandardTvResolution,10);
+    if([480,720,1080].indexOf(resolution)===-1){
+      resolution=channel.PlaybackExperience==='StandardTV'?720:1080;
+    }
+    page.querySelector('#standardTvResolution').value=String(resolution);
+    page.querySelector('#hideFromAndroidTv').checked=channel.HideFromAndroidTv===true;
+    page.querySelector('#channelType').value=channel.ChannelType==='Movies'?'Movies':'Series';
+    page.querySelector('#contentMode').value=channel.ChannelType==='Series'?(channel.ContentMode||'Sequential'):'Sequential';
+    page.querySelector('#schedulingMethod').value=channel.ChannelType==='Series'?(channel.SchedulingMethod||'RepeatingOrder'):'RepeatingOrder';
+    page.querySelector('#episodesPerTurn').value=String(channel.EpisodesPerTurn||1);
+    page.querySelector('#blockMinutes').value=String(channel.BlockMinutes||30);
+    page.querySelector('#smartRotationMonths').value=String(channel.SmartRotationMonths||2);
+    page.querySelector('#movieContentMode').value=channel.ChannelType==='Movies'?(channel.ContentMode||'Random'):'Random';
+    page.querySelector('#movieBlockMinutes').value=String(channel.BlockMinutes||90);
+    page.querySelector('#visibilityMode').value=channel.VisibleToAllUsers===false?'selected':'all';
+    page.querySelector('#is24Hours').checked=channel.Is24Hours===true;
+    page.querySelector('#onAirStart').value=channel.OnAirStart||'07:00';
+    page.querySelector('#offAirStart').value=channel.OffAirStart||'02:00';
+
+    var compatibleIds={};
+    var expectedCollection=channel.ChannelType==='Movies'?'movies':'tvshows';
+    state.libraries.forEach(function(lib){
+      if(lib.CollectionType===expectedCollection)compatibleIds[lib.Id]=true;
+    });
+
+    var requestedLibraries=(channel.SelectedLibraryIds||[]).slice();
+    state.selectedLibraryIds=requestedLibraries.filter(function(id){return compatibleIds[id]===true;});
+    var missingLibraries=requestedLibraries.length-state.selectedLibraryIds.length;
+
+    var requestedItems=(channel.SelectedItemIds||[]).slice();
+    state.selectedItemIds=requestedItems.slice();
+    state.seriesSelections=(channel.SeriesSelections||[]).map(function(x){
+      return {
+        SeriesId:x.SeriesId,
+        AllSeasons:x.AllSeasons!==false,
+        SelectedSeasonNumbers:Array.isArray(x.SelectedSeasonNumbers)?x.SelectedSeasonNumbers.slice():[],
+        IncludeSpecials:x.IncludeSpecials===true,
+        Weight:Math.max(1,Math.min(100,parseInt(x.Weight,10)||1))
+      };
+    });
+
+    var availableUsers={};
+    state.users.forEach(function(user){availableUsers[user.Id]=true;});
+    var requestedUsers=(channel.VisibleUserIds||[]).slice();
+    state.selectedVisibleUserIds=requestedUsers.filter(function(id){return availableUsers[id]===true;});
+    var missingUsers=requestedUsers.length-state.selectedVisibleUserIds.length;
+
+    state.availableItems=[];
+    state.seasonCache={};
+    page.querySelector('#contentFilter').value='';
+
+    setTypeUi();
+    renderLibraries();
+    updateHours();
+
+    var finish=function(){
+      var missingItems=requestedItems.length-state.selectedItemIds.length;
+      var warnings=[];
+      if(missingLibraries)warnings.push(missingLibraries+' library selection(s) are no longer available');
+      if(missingItems)warnings.push(missingItems+' title selection(s) are no longer available');
+      if(missingUsers)warnings.push(missingUsers+' user selection(s) are no longer available');
+
+      page.querySelector('#saveStatus').textContent=warnings.length
+        ? 'Configuration imported. Review before saving. '+warnings.join('; ')+'.'
+        : 'Configuration imported. Review the fields and click Save channel when ready. No schedule was imported or generated.';
+    };
+
+    if(state.selectedLibraryIds.length){
+      return loadAvailableContent(true).then(finish);
+    }
+
+    renderContentList();
+    finish();
+    return Promise.resolve();
+  }
+
+  function importChannelConfigurationFile(file){
+    if(!file)return;
+    if(file.size>512*1024){
+      Dashboard.alert('Channel configuration file is unexpectedly large.');
+      return;
+    }
+
+    var reader=new FileReader();
+    reader.onload=function(){
+      try{
+        var payload=JSON.parse(String(reader.result||''));
+        if(!payload
+          || payload.Format!==CHANNEL_PRESET_FORMAT
+          || Number(payload.SchemaVersion)!==CHANNEL_PRESET_SCHEMA
+          || !payload.Channel
+          || typeof payload.Channel!=='object'){
+          throw new Error('Unsupported channel configuration file.');
+        }
+
+        applyImportedChannelConfiguration(payload.Channel).catch(function(){
+          Dashboard.alert('Unable to apply the imported channel configuration.');
+        });
+      }catch(error){
+        Dashboard.alert(error&&error.message?error.message:'Invalid channel configuration file.');
+      }
+    };
+    reader.onerror=function(){
+      Dashboard.alert('Unable to read the selected channel configuration file.');
+    };
+    reader.readAsText(file);
   }
 
   function normalizeLibrary(folder){
@@ -1157,6 +1343,9 @@
 
     page.querySelector('#editorTitle').textContent='Create channel';
     page.querySelector('#immutableNotice').style.display='none';
+    page.querySelector('#btnExportChannelConfig').style.display='none';
+    page.querySelector('#channelConfigFile').value='';
+    page.querySelector('#saveStatus').textContent='';
     page.querySelector('#channelName').value='';
     page.querySelector('#channelNumber').value=nextNumber();
     page.querySelector('#channelDescription').value='';
@@ -1208,6 +1397,7 @@
 
       page.querySelector('#editorTitle').textContent=clone?'Clone channel':'Edit channel';
       page.querySelector('#immutableNotice').style.display=clone?'none':'';
+      page.querySelector('#btnExportChannelConfig').style.display=clone?'none':'';
       page.querySelector('#channelName').value=clone?((c.Name||'Channel')+' Copy'):(c.Name||'');
       page.querySelector('#channelNumber').value=clone?nextNumber():(c.Number||1);
       page.querySelector('#channelDescription').value=c.Description||'';
@@ -1743,6 +1933,13 @@
   }
 
   page.querySelector('#btnCreateChannel').addEventListener('click',function(){openEditor(null,false);});
+  page.querySelector('#btnImportChannelConfig').addEventListener('click',function(){page.querySelector('#channelConfigFile').click();});
+  page.querySelector('#btnExportChannelConfig').addEventListener('click',exportChannelConfiguration);
+  page.querySelector('#channelConfigFile').addEventListener('change',function(){
+    var file=this.files&&this.files.length?this.files[0]:null;
+    this.value='';
+    importChannelConfigurationFile(file);
+  });
   page.querySelector('#btnOpenCoverage').addEventListener('click',function(){loadCoverage(true);});
   page.querySelector('#btnCloseCoverage').addEventListener('click',function(){page.querySelector('#coverageReport').style.display='none';});
   page.querySelector('#btnRefreshCoverage').addEventListener('click',function(){loadCoverage(true);});

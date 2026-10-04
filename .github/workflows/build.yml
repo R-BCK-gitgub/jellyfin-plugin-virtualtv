@@ -342,6 +342,16 @@ jobs:
               'id="saveStatus"',
               "saveButton.textContent=saving?'Saving...':'Save channel'",
               'Dashboard.processPluginConfigurationUpdateResult(result);',
+              'id="btnImportChannelConfig"',
+              'id="btnExportChannelConfig"',
+              'id="channelConfigFile"',
+              "var CHANNEL_PRESET_FORMAT='VirtualTVChannelConfiguration'",
+              'var CHANNEL_PRESET_SCHEMA=1',
+              'function copyPortableChannelConfiguration(source)',
+              'function exportChannelConfiguration()',
+              'function applyImportedChannelConfiguration(imported)',
+              'function importChannelConfigurationFile(file)',
+              'No schedule was imported or generated.',
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
@@ -356,6 +366,33 @@ jobs:
           present=[x for x in forbidden_ui if x in p]
           if present:
               raise SystemExit(f"Unexpected immutable channel UI: {present}")
+
+          # Channel preset files are form-state backups only. The whitelist must never contain
+          # identity, generated schedule state, reconcile state, or internal scheduler seeds.
+          preset_start=p.index("var CHANNEL_PRESET_FIELDS=[")
+          preset_end=p.index("];", preset_start)
+          preset_block=p[preset_start:preset_end]
+          for forbidden in [
+              "Id","CreatedUtc","NeedsReconcile","ScheduleGeneratedUtc","ScheduleEndUtc",
+              "ContentFingerprint","RepeatingSeriesOrder","SmartTemplateSeed","SmartTemplateCreatedUtc",
+              "OwnerUserId"
+          ]:
+              if "'" + forbidden + "'" in preset_block:
+                  raise SystemExit(f"Channel preset leaks non-form/internal field: {forbidden}")
+
+          for required in [
+              "Name","Number","PlaybackExperience","StandardTvResolution","ChannelType","ContentMode",
+              "SchedulingMethod","BlockMinutes","EpisodesPerTurn","SmartRotationMonths",
+              "SelectedLibraryIds","SelectedItemIds","SeriesSelections",
+              "VisibleToAllUsers","VisibleUserIds","Is24Hours","OnAirStart","OffAirStart"
+          ]:
+              if "'" + required + "'" not in preset_block:
+                  raise SystemExit(f"Channel preset is missing form field: {required}")
+
+          import_start=p.index("function importChannelConfigurationFile(file)")
+          import_end=p.index("function normalizeLibrary(folder)", import_start)
+          if "ApiClient.updatePluginConfiguration" in p[import_start:import_end]:
+              raise SystemExit("Import must populate the editor only and must not save automatically.")
 
           for token in ['[HttpGet("ContentCoverage")]', 'CoverageItem(', 'CoverageChannel(']:
               if token not in a:
