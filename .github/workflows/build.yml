@@ -86,7 +86,7 @@ jobs:
           build_version=m.group(1) if m else ""
           values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="2.0.1.4" or len(set(values.values()))!=1:
+          if version!="1.0.0" or len(set(values.values()))!=1:
               raise SystemExit(f"Version mismatch: {values}")
 
           manifest=json.loads(Path("manifest.json").read_text(encoding="utf-8"))
@@ -99,11 +99,19 @@ jobs:
               raise SystemExit("Repository manifest owner must be R-BCK-gitgub.")
           versions=package.get("versions") or []
           version_names=[v.get("version") for v in versions]
-          if version_names != ["2.0.1.0","2.0.0.0"]:
-              raise SystemExit(f"Public manifest must contain only 2.0.1.0 and 2.0.0.0, got: {version_names}")
+          if version_names != ["1.0.0"]:
+              raise SystemExit(f"Public manifest must contain only the official 1.0.0 release, got: {version_names}")
           if versions[0].get("targetAbi")!="12.1.0.0":
-              raise SystemExit("Virtual TV 2.0.1.0 target ABI must be Jellyfin 12.1.")
-          print("Full-release repository manifest metadata validation passed.")
+              raise SystemExit("Virtual TV 1.0.0 target ABI must be Jellyfin 12.1.")
+          readme=Path("README.md").read_text(encoding="utf-8")
+          guide=Path("USER_GUIDE.md").read_text(encoding="utf-8")
+          if "Virtual TV v1.0.0" not in readme:
+              raise SystemExit("README.md does not document the official v1.0.0 release.")
+          if "Version covered:** Virtual TV 1.0.0" not in guide:
+              raise SystemExit("USER_GUIDE.md does not document the official 1.0.0 release.")
+          if "Virtual TV v2.0.1.0" in readme or "Version covered:** Virtual TV 2.0.1.0" in guide:
+              raise SystemExit("Public documentation still advertises an obsolete release version.")
+          print("Full-release repository manifest and documentation metadata validation passed.")
           PY
 
       - name: Restore dependencies
@@ -264,7 +272,7 @@ jobs:
           print("Single Personalized VOD startup path and unchanged Resume/EOF invariants passed.")
           PY
 
-      - name: Validate 2.0 full-release scheduling, editing and coverage
+      - name: Validate 1.0.0 full-release scheduling, editing and coverage
         shell: bash
         run: |
           python3 - <<'PY'
@@ -296,7 +304,7 @@ jobs:
               raise SystemExit(f"Scheduling invariant missing: {missing}")
 
           required_ui=[
-              'data-ui-version="2.0.1.4"',
+              'data-ui-version="1.0.0"',
               'id="channelExperience"',
               '<option value="PersonalizedTV">Personalized TV</option>',
               '<option value="StandardTV">Standard TV</option>',
@@ -358,7 +366,7 @@ jobs:
           ]
           missing=[x for x in required_ui if x not in p]
           if missing:
-              raise SystemExit(f"2.0 full-release UI missing: {missing}")
+              raise SystemExit(f"1.0.0 full-release UI missing: {missing}")
 
           forbidden_ui=[
               "page.querySelector('#channelType').disabled=true",
@@ -685,7 +693,7 @@ jobs:
         run: |
           set -euo pipefail
           DLL="Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll"
-          grep -a -q 'data-ui-version="2.0.1.4"' "$DLL"
+          grep -a -q 'data-ui-version="1.0.0"' "$DLL"
           grep -a -q 'Content Coverage' "$DLL"
           grep -a -q 'Unassigned' "$DLL"
           grep -a -q 'Generate New Schedule' "$DLL"
@@ -725,7 +733,7 @@ jobs:
               raise SystemExit(f"Live bootstrap is not MPEG-TS: {fmt}")
           PY
 
-          echo "Embedded 2.0 full-release UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
+          echo "Embedded 1.0.0 full-release UI, MP4 fallbacks and 60-second MPEG-TS Personalized bootstrap validation passed."
 
       - name: Prepare install package
         shell: bash
@@ -749,7 +757,9 @@ jobs:
 
 
       - name: Publish GitHub full release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.version == '1.0.0' && contains(github.event.head_commit.message, '[publish-v1.0.0]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -778,39 +788,50 @@ jobs:
           SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP}"
 
           cat > /tmp/virtualtv-release-notes.md <<'EOF'
-          # Virtual TV 2.0.1.0
+          # Virtual TV 1.0.0
 
-          Virtual TV 2.0.1.0 is the consolidated hotfix for Virtual TV 2.0 on Jellyfin 12.1.
+          Virtual TV 1.0.0 is the first official public full release of Virtual TV for Jellyfin 12.1.
 
-          It preserves the validated 2.0 scheduling/playback model while incorporating the maintenance fixes developed after the initial release.
+          This release promotes the final validated test build without changing its playback or scheduling implementation.
 
-          ## Hotfix highlights
+          ## Highlights
 
+          - Standard TV and Personalized TV channel experiences
           - Standard TV quality selectable per channel: 480p, 720p or 1080p
-          - Clone Channel
-          - Standard TV Play from Beginning compatibility on Android TV
-          - Optional Hide from Android TV for Personalized channels, covering legacy/current Android TV client names
-          - Cleaner channel editor, schedule controls and Save/Saving feedback
-          - Validated Personalized TV handoff on Jellyfin for Android phones/tablets: Loading resolves the item and routes Play through the companion WebView control session, following Jellyfin's normal local playback path
-          - Personalized VOD physical EOF returns to Virtual TV Loading before the next programme is resolved
           - Sequential, Random, weighted True Random, Next Unwatched and Random Unwatched modes
           - Resume-first behaviour for partially watched content
-          - Per-user channel visibility and Content Coverage reporting
-
-          ## Android phone/tablet note
-
-          For the Personalized TV EOF → Loading → next-programme flow, keep **Play next episode automatically** disabled for the Virtual TV user.
+          - Repeating Order, Randomized Rotation, Manual Order and Smart Schedule strategies
+          - Per-series season/Specials selection and True Random weights
+          - Per-user visibility and optional Hide from Android TV for Personalized channels
+          - Content Coverage reporting
+          - Clone Channel
+          - Per-channel configuration Export / Import in Create and Edit
+          - Configuration imports populate editor fields only; they do not copy artwork or schedules and do not save or generate a schedule automatically
+          - Compact Edit / Clone Channel / Delete actions
+          - Jellyfin Live TV Guide integration
 
           ## Installation
 
-          Recommended: add the Virtual TV repository in **Dashboard → Plugins → Repositories** and install/update from the Jellyfin plugin catalog.
+          Recommended: add the Virtual TV repository in **Dashboard → Plugins → Repositories** and install from the Jellyfin Plugin Catalog.
 
           Repository URL:
 
           `https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/manifest.json`
 
           Manual installation is also supported using the ZIP attached to this release.
+
+          ## Release policy
+
+          Virtual TV v1.0.0 is the only public release exposed by this repository.
           EOF
+
+          # Keep exactly one public GitHub release and clean up the old release tags.
+          while IFS= read -r old_tag; do
+            if [[ -n "${old_tag}" && "${old_tag}" != "${TAG}" ]]; then
+              echo "Removing previous public release ${old_tag}"
+              gh release delete "${old_tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+            fi
+          done < <(gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 --json tagName --jq '.[].tagName')
 
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${ZIP}" --repo "${GITHUB_REPOSITORY}" --clobber
@@ -824,9 +845,18 @@ jobs:
               --latest
           fi
 
+          RELEASE_COUNT="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 --json tagName --jq 'length')"
+          ONLY_TAG="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 --json tagName --jq '.[0].tagName // ""')"
+          if [[ "${RELEASE_COUNT}" != "1" || "${ONLY_TAG}" != "${TAG}" ]]; then
+            echo "Expected exactly one public release (${TAG}), found count=${RELEASE_COUNT}, tag=${ONLY_TAG}" >&2
+            exit 1
+          fi
+          echo "Confirmed: ${TAG} is the only public GitHub release."
+
           python3 - "${VERSION}" "${SOURCE_URL}" "${CHECKSUM}" <<'PY'
           import json
           import sys
+          from datetime import datetime, timezone
           from pathlib import Path
 
           version, source_url, checksum = sys.argv[1:4]
@@ -845,6 +875,7 @@ jobs:
           entry = matches[0]
           entry["sourceUrl"] = source_url
           entry["checksum"] = checksum
+          entry["timestamp"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
           path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
           print(f"Jellyfin repository package: {source_url}")
           print(f"Jellyfin repository MD5: {checksum}")

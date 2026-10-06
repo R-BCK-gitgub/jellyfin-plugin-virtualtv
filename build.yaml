@@ -1,7 +1,7 @@
 ---
 name: "Virtual TV"
 guid: "2b7187ae-6dcd-4f8c-a9bc-5e2f6df8d3c1"
-version: "2.0.1.4"
+version: "1.0.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "R-BCK-gitgub"
@@ -14,4 +14,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.VirtualTV.dll"
 changelog: >
-  Virtual TV 2.0.1.4 stability-recovery build restores the user-validated 2.0.1.1 playback/runtime baseline, keeps compact channel Actions, and adds per-channel configuration export/import in Create/Edit. Imported files populate form settings only: they do not save automatically, include artwork, copy schedules, or generate schedules. Standard TV streaming, Personalized TV, scheduling and Guide geometry are otherwise unchanged.
+  Virtual TV 1.0.0 is the first official public full release for Jellyfin 12.1. It promotes the validated 2.0.1.4 test build without changing playback or scheduling behavior, and includes Standard TV and Personalized TV, weighted True Random, watched-aware modes, Content Coverage, compact channel actions, and per-channel configuration import/export. Standard TV streaming, Personalized TV, scheduling and Guide geometry are otherwise unchanged from the validated test build.
