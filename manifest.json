@@ -9,20 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/assets/virtual-tv-plugin-banner-hq.png",
     "versions": [
       {
-        "version": "2.0.1.0",
-        "changelog": "Virtual TV 2.0.1.0 is the consolidated hotfix for 2.0. It adds Standard TV quality selection, Clone Channel, Android TV compatibility/visibility handling, administration UI improvements, and the validated Jellyfin for Android phone/tablet Personalized TV WebView handoff. Physical EOF returns through Virtual TV Loading before resolving the next programme.",
+        "version": "1.0.0",
+        "changelog": "Virtual TV 1.0.0 first official full release for Jellyfin 12.1. Includes Standard TV and Personalized TV, Sequential/Random/weighted True Random scheduling, Next Unwatched and Random Unwatched, resume-first behavior, per-user visibility, Content Coverage, compact channel management actions, and per-channel configuration import/export. Import/export copies configuration fields only and does not copy artwork or schedules.",
         "targetAbi": "12.1.0.0",
-        "timestamp": "2026-10-03T18:38:00Z",
-        "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v2.0.1.0/VirtualTV-Jellyfin-12.1-v2.0.1.0.zip",
-        "checksum": "9d5dbaeeb336c36669f294047fc87758"
-      },
-      {
-        "version": "2.0.0.0",
-        "changelog": "Virtual TV 2.0 full release. This release promotes the validated 1.10.19 runtime behavior without changing scheduling or playback logic. It retains Standard TV, Personalized TV, weighted True Random, Guide text polish, Content Coverage and the Standard TV Record-to-Play-from-Beginning shortcut. Release packaging now includes a Jellyfin repository manifest with the canonical Virtual TV GUID and developer R-BCK-gitgub so Jellyfin can display repository metadata when the manifest is configured as an accessible plugin repository.",
-        "targetAbi": "12.1.0.0",
-        "timestamp": "2026-10-02T13:30:00Z",
-        "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v2.0.0.0/VirtualTV-Jellyfin-12.1-v2.0.0.0.zip",
-        "checksum": "f8ad7ae91b158d5fd8cfbd0a0cfb7333"
+        "timestamp": "2026-10-06T22:24:00Z",
+        "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v1.0.0/VirtualTV-Jellyfin-12.1-v1.0.0.zip",
+        "checksum": "00000000000000000000000000000000"
       }
     ]
   }
