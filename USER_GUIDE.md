@@ -136,9 +136,11 @@ Virtual TV uses a few client-side behaviours that are not identical across Jelly
 
 With the native **Jellyfin Android TV** client, **Personalized TV remains unsupported**. Its Live TV/loading-source → normal library-item handoff does not behave like Jellyfin Web, so watched-dependent Personalized TV features should not be expected to work there.
 
-**Standard TV uses Jellyfin's normal Live TV path and is supported by the current Virtual TV architecture.** Virtual TV 1.0.0 also includes Android-TV-specific handling for the Standard TV **Record → Play from Beginning** action. Android TV first performs its native DVR request flow, so Virtual TV returns a valid synthetic timer identifier and then sends the normal Jellyfin PlayNow command for the programme currently on air. No real recording or DVR timer is stored.
+**Standard TV uses Jellyfin's normal Live TV path and is supported by the current Virtual TV architecture.**
 
-For this Android TV Play-from-Beginning flow, use Jellyfin's **internal player**; the client's **Use external player** option should remain disabled. Exact device/client behaviour can still vary, so Android TV compatibility remains something worth validating on the actual device.
+The Standard TV **Record → Play from Beginning** shortcut is different: native Android TV sends Record through its own DVR/session flow, and that handoff is **not considered fully validated on Android TV in v1.0.0**. Pressing Record may still produce Jellyfin's native recording message instead of opening the library item. No real recording is stored by Virtual TV.
+
+Use Standard TV live playback as the supported Android TV path. Treat Play from Beginning on Android TV as a known client-specific limitation in this release.
 
 ### Android phone and tablet
 
@@ -1581,11 +1583,11 @@ The same applies to a temporary red Record icon in the Guide.
 
 ## Does Play from Beginning work on Android TV?
 
-Virtual TV 1.0.0 includes a dedicated compatibility path for it.
+Not reliably enough to be considered supported in v1.0.0.
 
-Android TV sends the Record action through Jellyfin's native DVR API before accepting the PlayNow command. Virtual TV now satisfies that request with a valid synthetic timer identifier, creates **no real recording**, and sends the currently airing episode or movie to Jellyfin's normal player from **00:00**.
+Android TV sends the Record action through its native DVR/session flow. Virtual TV does not create a real recording, but the native client may show a recording message and may not complete the handoff to the normal library player.
 
-Use Jellyfin's **internal Android TV player** for this flow; **Use external player** should remain disabled. Because Android TV behaviour can vary by client version and device, this should still be verified on the actual Android TV device after updating.
+Standard TV live playback remains supported on Android TV; **Record → Play from Beginning on Android TV is a known client-specific limitation in this release**.
 
 ---
 
