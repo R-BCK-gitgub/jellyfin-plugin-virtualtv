@@ -81,6 +81,8 @@ Your original media remains in Jellyfin; Virtual TV simply creates another way t
 
 The current release is **Virtual TV v1.0.0**, the **first official public full release**, developed and validated for **Jellyfin 12.1**.
 
+Jellyfin displays the installed technical assembly/package version as **1.0.0.0**. This is the same v1.0.0 release; the four-part value is used so Jellyfin can match the installed plugin back to its repository entry correctly.
+
 This v1.0.0 release promotes the final validated test build without changing its playback or scheduling implementation. The public repository intentionally exposes **v1.0.0 as the only official release available for installation**.
 
 Virtual TV is still a personal project and will continue to evolve as new ideas, improvements and issues are found through everyday use.

@@ -7,10 +7,11 @@
   "overview": "Virtual linear TV channels inside Jellyfin.",
   "owner": "R-BCK-gitgub",
   "targetAbi": "12.1.0.0",
-  "version": "1.0.0",
+  "version": "1.0.0.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [
     "Jellyfin.Plugin.VirtualTV.dll"
-  ]
+  ],
+  "imagePath": "virtual-tv-plugin-banner-hq.png"
 }

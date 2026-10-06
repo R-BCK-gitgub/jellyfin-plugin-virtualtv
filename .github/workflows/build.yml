@@ -79,15 +79,22 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
-          version=(ET.parse("Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj").getroot().findtext(".//Version") or "").strip()
-          meta_version=str(json.loads(Path("meta.json").read_text(encoding="utf-8")).get("version","")).strip()
+          root=ET.parse("Jellyfin.Plugin.VirtualTV/Jellyfin.Plugin.VirtualTV.csproj").getroot()
+          version=(root.findtext(".//Version") or "").strip()
+          assembly_version=(root.findtext(".//AssemblyVersion") or "").strip()
+          meta=json.loads(Path("meta.json").read_text(encoding="utf-8"))
+          meta_version=str(meta.get("version","")).strip()
           text=Path("build.yaml").read_text(encoding="utf-8")
           m=re.search(r'^version:\s*["\']?([^"\'\s]+)',text,re.MULTILINE)
           build_version=m.group(1) if m else ""
-          values={"csproj":version,"meta.json":meta_version,"build.yaml":build_version}
+          values={"release":version,"assembly":assembly_version,"meta.json":meta_version,"build.yaml":build_version}
           print(values)
-          if version!="1.0.0" or len(set(values.values()))!=1:
-              raise SystemExit(f"Version mismatch: {values}")
+          if version!="1.0.0" or build_version!="1.0.0":
+              raise SystemExit(f"Public release version mismatch: {values}")
+          if assembly_version!="1.0.0.0" or meta_version!="1.0.0.0":
+              raise SystemExit(f"Jellyfin technical version must match the four-part assembly version: {values}")
+          if meta.get("imagePath")!="virtual-tv-plugin-banner-hq.png":
+              raise SystemExit("meta.json must point at the bundled Virtual TV plugin image.")
 
           manifest=json.loads(Path("manifest.json").read_text(encoding="utf-8"))
           if not isinstance(manifest,list) or len(manifest)!=1:
@@ -99,8 +106,8 @@ jobs:
               raise SystemExit("Repository manifest owner must be R-BCK-gitgub.")
           versions=package.get("versions") or []
           version_names=[v.get("version") for v in versions]
-          if version_names != ["1.0.0"]:
-              raise SystemExit(f"Public manifest must contain only the official 1.0.0 release, got: {version_names}")
+          if version_names != ["1.0.0.0"]:
+              raise SystemExit(f"Public manifest must contain only the official v1.0.0 technical package 1.0.0.0, got: {version_names}")
           if versions[0].get("targetAbi")!="12.1.0.0":
               raise SystemExit("Virtual TV 1.0.0 target ABI must be Jellyfin 12.1.")
           readme=Path("README.md").read_text(encoding="utf-8")
@@ -111,7 +118,12 @@ jobs:
               raise SystemExit("USER_GUIDE.md does not document the official 1.0.0 release.")
           if "Virtual TV v2.0.1.0" in readme or "Version covered:** Virtual TV 2.0.1.0" in guide:
               raise SystemExit("Public documentation still advertises an obsolete release version.")
-          print("Full-release repository manifest and documentation metadata validation passed.")
+          if versions[0].get("version") != assembly_version:
+              raise SystemExit("Repository version must exactly match AssemblyVersion; jellyfin-web uses exact string matching for installed repository linkage.")
+          image=Path("assets/virtual-tv-plugin-banner-hq.png")
+          if not image.exists() or image.stat().st_size < 1000:
+              raise SystemExit("Repository plugin image is missing.")
+          print("Full-release repository manifest, exact Jellyfin version linkage, bundled image and documentation metadata validation passed.")
           PY
 
       - name: Restore dependencies
@@ -743,8 +755,17 @@ jobs:
           cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll artifact/VirtualTV/
           cp build.yaml artifact/VirtualTV/
           cp meta.json artifact/VirtualTV/
+          cp assets/virtual-tv-plugin-banner-hq.png artifact/VirtualTV/
           cp manifest.json artifact/VirtualTV/
           unzip -t <(cd artifact && zip -qr - VirtualTV) >/dev/null 2>&1 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          image=Path("artifact/VirtualTV/virtual-tv-plugin-banner-hq.png")
+          if not image.exists() or image.stat().st_size < 1000:
+              raise SystemExit("Bundled Virtual TV plugin image is missing or unexpectedly small.")
+          if image.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+              raise SystemExit("Bundled Virtual TV plugin image is not a valid PNG.")
+          PY
           find artifact/VirtualTV -maxdepth 1 -type f -printf "%f\n" | sort
 
       - name: Upload versioned install package
@@ -766,6 +787,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
+          CATALOG_VERSION="1.0.0.0"
           TAG="v${VERSION}"
           ZIP="VirtualTV-Jellyfin-12.1-v${VERSION}.zip"
           RELEASE_TARGET="${GITHUB_SHA}"
@@ -776,10 +798,11 @@ jobs:
           mkdir -p release-package
           cp Jellyfin.Plugin.VirtualTV/bin/Release/net10.0/Jellyfin.Plugin.VirtualTV.dll release-package/
           cp meta.json release-package/
-          TZ=UTC touch -t 198001010000.00 release-package/Jellyfin.Plugin.VirtualTV.dll release-package/meta.json
+          cp assets/virtual-tv-plugin-banner-hq.png release-package/
+          TZ=UTC touch -t 198001010000.00 release-package/Jellyfin.Plugin.VirtualTV.dll release-package/meta.json release-package/virtual-tv-plugin-banner-hq.png
           (
             cd release-package
-            zip -X -q "../${ZIP}" Jellyfin.Plugin.VirtualTV.dll meta.json
+            zip -X -q "../${ZIP}" Jellyfin.Plugin.VirtualTV.dll meta.json virtual-tv-plugin-banner-hq.png
           )
           unzip -t "${ZIP}"
           unzip -l "${ZIP}"
@@ -823,6 +846,10 @@ jobs:
           ## Release policy
 
           Virtual TV v1.0.0 is the only public release exposed by this repository.
+
+          ### Packaging correction
+
+          Jellyfin uses the technical package version **1.0.0.0** for this release so the installed assembly matches its repository entry exactly. The plugin artwork is also bundled in the package, avoiding a dependency on downloading the image after installation.
           EOF
 
           # Keep exactly one public GitHub release and clean up the old release tags.
@@ -853,7 +880,7 @@ jobs:
           fi
           echo "Confirmed: ${TAG} is the only public GitHub release."
 
-          python3 - "${VERSION}" "${SOURCE_URL}" "${CHECKSUM}" <<'PY'
+          python3 - "${CATALOG_VERSION}" "${SOURCE_URL}" "${CHECKSUM}" <<'PY'
           import json
           import sys
           from datetime import datetime, timezone

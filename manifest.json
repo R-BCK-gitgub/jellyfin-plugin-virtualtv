@@ -9,8 +9,8 @@
     "imageUrl": "https://raw.githubusercontent.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/main/assets/virtual-tv-plugin-banner-hq.png",
     "versions": [
       {
-        "version": "1.0.0",
-        "changelog": "Virtual TV 1.0.0 first official full release for Jellyfin 12.1. Includes Standard TV and Personalized TV, Sequential/Random/weighted True Random scheduling, Next Unwatched and Random Unwatched, resume-first behavior, per-user visibility, Content Coverage, compact channel management actions, and per-channel configuration import/export. Import/export copies configuration fields only and does not copy artwork or schedules.",
+        "version": "1.0.0.0",
+        "changelog": "Virtual TV 1.0.0 first official full release for Jellyfin 12.1. The Jellyfin technical package version is 1.0.0.0 to match the assembly version. Includes Standard TV and Personalized TV, Sequential/Random/weighted True Random scheduling, Next Unwatched and Random Unwatched, resume-first behavior, per-user visibility, Content Coverage, compact channel management actions, and per-channel configuration import/export. Import/export copies configuration fields only and does not copy artwork or schedules.",
         "targetAbi": "12.1.0.0",
         "timestamp": "2026-10-06T22:38:28Z",
         "sourceUrl": "https://github.com/R-BCK-gitgub/jellyfin-plugin-virtualtv/releases/download/v1.0.0/VirtualTV-Jellyfin-12.1-v1.0.0.zip",
